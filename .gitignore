@@ -1,0 +1,106 @@
+# --- Python ---
+# Virtual Environments
+venv/
+.venv/
+env/
+.env # Often used for environment variables/secrets - uncomment if needed
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+downloads/
+eggs/
+*.egg-info/
+src/*.egg-info/
+*.egg
+wheels/
+*.whl
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.cache/
+.pytest_cache/
+.coverage
+tests/.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+pytestdebug.log
+report/
+*.prof
+*.lprof
+*.cprof
+
+# Type checker cache
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Linters
+.ruff_cache/
+.flake8
+
+# --- Build Tools ---
+# Setuptools specific
+*.manifest
+MANIFEST
+
+# --- Operating System Files ---
+# Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- IDEs / Editors ---
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# PyCharm
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.sw[op]
+*~
+*.bak
+*.tmp
+
+# --- Logs ---
+*.log
+*.log.*
+logs/
+
+# --- Other ---
+# Data files (if large or generated) - uncomment and adapt if needed
+data/
+
+# Output files from e2e tests 
+test*.tsv
+test*.txt
+
+# If you generate notebooks and don't want checkpoints saved
+.ipynb_checkpoints

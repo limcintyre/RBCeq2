@@ -1,0 +1,57 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]  # Minimum version of setuptools needed
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RBCeq2"
+version = "2.1.1"
+description = "Call ISBT alleles from VCF/s"
+readme = "README.rst"  # <-- Use the RST file we created
+license = { text = "MIT" } # Or use { file = "LICENSE" } if you have a LICENSE file
+requires-python = ">=3.12"
+authors = [
+    { name = "Liam McIntyre", email = "limcintyre@redcrossblood.org.au" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "pandas>=2.2.2",
+    "polars>=0.20.26",
+    "icecream>=2.1",
+    "loguru>=0.7.2",
+    "pyarrow>=18.1",
+    "reportlab>=4.3.1",
+]
+
+
+[project.scripts]
+rbceq2 = "rbceq2.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "flake8>=3.9.2",
+    "coverage>=7.0",
+]
+
+# --- Setuptools specific configuration ---
+# Corresponds to [options] and sub-sections in setup.cfg
+
+[tool.setuptools]
+include-package-data = true # Corresponds to include_package_data in [options]
+
+[tool.setuptools.packages.find]
+where = ["src"]  # Corresponds to package_dir = = src and where = src
+
+[tool.setuptools.package-data]
+# Corresponds to [options.package_data]
+# The key is the package name, the value is a list of glob patterns
+rbceq2 = ["resources/*.tsv"]
