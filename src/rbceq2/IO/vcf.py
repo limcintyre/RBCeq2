@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from icecream import ic
 
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
@@ -212,7 +211,8 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
 
     for sample in sample_cols:
         try:
-            assert all(row[1] == "/" for row in vcf_df[sample])
+            assert all(row[1] in ("|", "/") for row in vcf_df[sample])
+            print("remove print once working")
         except TypeError:
             logger.info(f"Sample {sample} is not diploid")
         cols: list[str] = COMMON_COLS + [sample]
