@@ -212,7 +212,6 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
     for sample in sample_cols:
         try:
             assert all(row[1] in ("|", "/") for row in vcf_df[sample])
-            print("remove print once working")
         except TypeError:
             logger.info(f"Sample {sample} is not diploid")
         cols: list[str] = COMMON_COLS + [sample]
@@ -342,7 +341,7 @@ def read_vcf(file_path: str) -> pl.DataFrame:
             if line.startswith("#"):
                 header = line.lstrip("#").strip().split("\t")
                 if len(header) == 10:
-                    header[-1] = "SAMPLE"
+                    header[-1] = "SAMPLE"  # for single sample
                 break
 
         if header is None:
@@ -361,3 +360,38 @@ def read_vcf(file_path: str) -> pl.DataFrame:
         raise VcfNoDataError(filename=file_path)
     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
     return df
+
+
+def check_if_multi_sample_vcf(file_path: str) -> bool:
+    """Read a VCF file header.
+
+    This function manually extracts the header (line starting with "#CHROM")
+    to check if multi sample
+
+    Args:
+        file_path (str): Path to the VCF file (can be gzipped).
+
+    Returns:
+        bool: True if there's multiple samples
+
+    """
+    header = None
+    # Use gzip.open if file is gzipped, else standard open.
+    open_func = gzip.open if str(file_path).endswith(".gz") else open
+    with open_func(file_path, "rt") as f:
+        # Find header line starting with "#CHROM"
+        for line in f:
+            if line.startswith("##"):
+                continue
+            if line.startswith("#"):
+                header = line.lstrip("#").strip().split("\t")
+                if len(header) == 10:
+                    return False
+                elif len(header) < 10:
+                    raise VcfMissingHeaderError(filename=file_path)
+                else:
+                    assert len(header) == len(set(header))
+                    # unique sample names
+            break
+
+    return True
