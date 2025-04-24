@@ -26,11 +26,13 @@ from rbceq2.IO.record_data import (
     log_validation,
     record_filtered_data,
     save_df,
+    stamps,
 )
 from rbceq2.IO.vcf import (
     VCF,
     filter_VCF_to_BG_variants,
     read_vcf,
+    check_if_multi_sample_vcf,
     split_vcf_to_dfs,
 )
 
@@ -140,6 +142,7 @@ def main():
     if args.vcf.is_dir():
         patterns = ["*.vcf", "*.vcf.gz"]
         vcfs = [file for pattern in patterns for file in args.vcf.glob(pattern)]
+        logger.info(f"{len(vcfs)} single sample VCF/s passed")
         if args.validate:
             with Pool(processes=int(args.processes)) as pool:
                 for result_valid, file_name in pool.imap_unordered(
@@ -150,9 +153,20 @@ def main():
         if args.validate:
             result_valid, file_name = check_VCF(args.vcf)
             log_validation(result_valid, file_name)
-        multi_vcf = read_vcf(args.vcf)
-        filtered_multi_vcf = filter_VCF_to_BG_variants(multi_vcf, db.unique_variants)
-        vcfs = split_vcf_to_dfs(filtered_multi_vcf)
+        actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
+        if actually_multi_vcf:
+            multi_vcf = read_vcf(args.vcf)
+            logger.info("Multi sample VCF passed")
+            filtered_multi_vcf = filter_VCF_to_BG_variants(
+                multi_vcf, db.unique_variants
+            )
+            vcfs = split_vcf_to_dfs(filtered_multi_vcf)
+            time_str = stamps(start)
+            logger.info(f"VCFs loaded in {time_str}")
+            print(f"VCFs loaded in {time_str}")
+        else:
+            logger.info("1 single sample VCF passed")
+            vcfs = [args.vcf]
 
     all_alleles = defaultdict(list)
     for a in db.make_alleles():
@@ -184,10 +198,12 @@ def main():
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
     df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
-    generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
+    if args.PDFs:
+        generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
 
-    logger.info(f"{len(dfs_geno)} VCFs processed in {pd.Timestamp.now() - start} mins")
-    print(f"{len(dfs_geno)} VCFs processed in {pd.Timestamp.now() - start} mins")
+    time_str = stamps(start)
+    logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
+    print(f"{len(dfs_geno)} VCFs processed in {time_str}")
 
 
 def find_hits(
