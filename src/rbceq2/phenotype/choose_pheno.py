@@ -12,6 +12,7 @@ from rbceq2.core_logic.data_procesing import apply_to_dict_values
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
 )
+from icecream import ic
 
 from . import antigens as an
 
@@ -159,8 +160,11 @@ def choose_class_type(bg_type, ant_type):
             BgName.GYPA: an.AlphaNumericAntigenMNS,
             BgName.GYPB: an.AlphaNumericAntigenMNS,
             BgName.ABO: an.AlphaNumericAntigenABO,
+            BgName.RHCE: an.AlphaNumericAntigenRHCE
         },
-        PhenoType.numeric: {},
+        PhenoType.numeric: {
+            BgName.RHCE: an.NumericAntigenRHCE
+        },
     }
     return (
         class_types[ant_type].get(bg_type, an.NumericAntigen)
@@ -211,15 +215,20 @@ def make_values_dict(
     if "." in values_strs:
         return None  # some BGs just don't have numeric for all or alpha for all alleles
     ant_class = choose_class_type(bg_type, ant_type)
-
+    if bg_type.name == 'RHCE':
+        ic(88888,values_strs)
     values_strs_mod = []
     for values_str in values_strs:
+        if bg_type.name == 'RHCE':
+            ic(77777,values_str)
         values_strs_mod.append(
             values_str.split(":")[1] if ant_type == PhenoType.numeric else values_str
         )
 
     # NB order only matters for ref, where there's just one str (Counter is ordered)
     for ant_str, count in Counter(",".join(values_strs_mod).split(",")).items():
+        if bg_type.name == 'RHCE':
+            ic(6666,ant_str, count)
         ant = ant_class(
             given_name=ant_str,
             expressed="-" not in ant_str,
@@ -337,15 +346,21 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     for pair in bg.alleles[select_allele_state(bg)]:
         pheno_changes = get_pheno_changes(pair, ant_type)
         if set(pheno_changes) != {"."}:  # 1 or more defininitions missing
+            if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes:
+                ic(119999999, pair, pheno_changes, pair.genotypes)
             if pair.allele1 == pair.allele2:
                 pheno_changes *= 2
+            if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes:
+                ic(229999999, pair, pheno_changes)
             pair_antigens[pair] = make_values_dict_pre_filled(values_strs=pheno_changes)
-
+            if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes:
+                ic(339999999, pair_antigens[pair])
             # TODO need to do this specifically for the PhenoType and only if the other one isn't {"."}
             # TODO replace bg.type globally
 
     bg.misc[f"antigens_{ant_type.name}"] = pair_antigens
-
+    if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes and 'RHCE*01.01' in pair.genotypes:
+        ic(111111, pair_antigens)
     return bg
 
 
@@ -415,6 +430,8 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                     context=f"Received value: {allele_antigens}",
                 )
             d[pair] = antigens_with_ref_if_needed
+            if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                ic(22222,pair , antigens_with_ref_if_needed)
 
     bg.misc[f"antigens_and_ref_{ant_type.name}"] = d
 
@@ -455,21 +472,38 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         for _, options in antigens_with_ref_if_needed.items():
             if len(options) == 2:
                 ant1, ant2 = options
+                if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                    ic(333333311111,ant1, ant2)
                 assert ant1.base_name == ant2.base_name
                 if ant1 == ant2 and ant1.given_name != ant2.given_name:
+                    #changes here are very likely going to cause issues
+                    #original saved below... or maybe this never gets hit????!!!
+                    
+                    ic('232323!!!!!', ant1, ant2)
                     merged_pheno2.append(ant1)
                     merged_pheno2.append(ant2)
+                # if ant1 == ant2 and ant1.given_name != ant2.given_name:
+                #     if bg.type == 'RHCE':
+                #         ic(232323)
+                #     merged_pheno2.append(ant1)
+                #     merged_pheno2.append(ant2)
                 elif ant1 == ant2 and ant1.given_name == ant2.given_name:
+                    if bg.type == 'RHCE':
+                        ic(242424)
                     if ant1.expressed and ant2.expressed:
                         ant1.homozygous = (
                             True  # TODO fix - can freeze class withotut this
                         )
                     merged_pheno2.append(ant1)
                 elif ant1 > ant2:
+                    if bg.type == 'RHCE':
+                        ic(252525)
                     if ant1.expressed and ant2.expressed:
                         ant2.homozygous = True
                     merged_pheno2.append(ant2)
                 elif ant2 > ant1:
+                    if bg.type == 'RHCE':
+                        ic(26262626)
                     if ant1.expressed and ant2.expressed:
                         ant1.homozygous = True
                     merged_pheno2.append(ant1)
@@ -478,6 +512,8 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                         message="Unexpected antigne pattern.",
                         context=f"Received value: {options}",
                     )
+                if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                    ic(333333322222,ant1, ant2)
             elif len(options) == 1:
                 merged_pheno2.append(options[0])
             else:
@@ -487,7 +523,8 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 )
 
         bg.phenotypes[ant_type][pair] = merged_pheno2
-
+        if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+            ic(3333333,pair , merged_pheno2)
     return bg
 
 
@@ -657,11 +694,15 @@ def internal_anithetical_consistency_HET(
                     assert final_no_expressed == 2
                 except AssertionError:
                     logger.warning(
-                        f"Expressed antignes != 2! {pair} {ant} {final_no_expressed}"
+                        f"Expressed antigens != 2! {pair} {ant} {final_no_expressed}"
                     )
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
+    if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric:
+        for pair, merged_pheno in new_phenos:
+            if 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                ic(444444, pair, merged_pheno)
 
     return bg
 
