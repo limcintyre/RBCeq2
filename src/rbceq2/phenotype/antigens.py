@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
-#from icecream import ic
+# from icecream import ic
 
 
 @dataclass(slots=True, frozen=False)
@@ -24,6 +24,7 @@ class Antigen(ABC):
         weak (bool): Flag indicating whether the antigen is weak, determined in __post_init__.
         weight (int): A numerical weight used for ranking antigens, set in __post_init__.
     """
+
     given_name: str
     expressed: bool  # can freeze if not for this...
     homozygous: bool
@@ -179,9 +180,9 @@ class Antigen(ABC):
         )
 
 
-
 class NumericAntigen(Antigen):
     """A concrete Antigen subclass representing numeric antigens."""
+
     def _is_weak(self):
         """Determine if the NumericAntigen is weak based on its given name.
 
@@ -219,7 +220,7 @@ class NumericAntigen(Antigen):
             return 2
         elif "-" in self.given_name:
             return 3
-  
+
     @property
     def name(self):
         """Generate the name for the NumericAntigen.
@@ -275,7 +276,7 @@ class AlphaNumericAntigen(Antigen):
             return 2
         elif "-" in self.given_name:
             return 3
-  
+
     @property
     def name(self) -> str:
         """Generate the name for the AlphaNumericAntigen.
@@ -361,6 +362,7 @@ class AlphaNumericAntigenABO(AlphaNumericAntigen):
 
 class AlphaNumericAntigenXG(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for XG blood group antigens."""
+
     @property
     def name(self):
         """Generate the name for the AlphaNumericAntigenXG.
@@ -374,9 +376,9 @@ class AlphaNumericAntigenXG(AlphaNumericAntigen):
         )
 
 
-
 class AlphaNumericAntigenMNS(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for MNS blood group antigens."""
+
     def _get_base_name(self):
         """Extract the base name for the AlphaNumericAntigenMNS by removing specific
         characters and substrings.
@@ -401,6 +403,7 @@ class AlphaNumericAntigenMNS(AlphaNumericAntigen):
 
 class AlphaNumericAntigenVel(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for Vel blood group antigens."""
+
     def _get_base_name(self):
         """Extract the base name for the AlphaNumericAntigenVel by removing specific
         characters and substrings.
@@ -441,7 +444,6 @@ class AlphaNumericAntigenVel(AlphaNumericAntigen):
             return 3
         elif "-" in self.given_name:
             return 4
-        
 
     @property
     def name(self):
@@ -453,3 +455,158 @@ class AlphaNumericAntigenVel(AlphaNumericAntigen):
             str: The original given name.
         """
         return self.given_name
+
+
+class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
+    """An AlphaNumericAntigen subclass for RHCE blood group antigens.
+    neg = n, partial = p, weak = w, monoclonal = m, infered = i
+    RH: -2,-3,4,5,6,-7 ,-8 ,-9, -10,-11,-12,17 ,18,19 ,-20,-21,-22,-23,26    ,
+        C-,E-,c,e,f,Ce-,Cw-,Cx-, V-,Ew-, G-,Hro,Hr,hrS,VS-,CG-,CE-,Dw-,c-like,
+        -27,-28 ,29  ,-30 ,31 ,-32  ,-33 , 34 ,-35 , -36, -37   ,-39  ,-40 ,-41 ,
+        cE-,hrH-,Rh29,Goa-,hrB,Rh32-,Rh33-,HrB,Rh35-,Bea-,Evans-,Rh39-,Tar-,Rh41-,
+        -42 , -43      ,44 ,-45, 46 ,47 ,-48,-49   ,-50  ,51 ,-52 , -53 , -54,
+        Rh42-,Crawford-,Nou,Riv-,Sec,Dav,JAL-,STEM-,FPTT-,MAR,BARC-,JAHK-,DAK-,
+        -55 , -56 , 57  ,58  ,59  ,-60 , 61  ,62  ,-63
+        LOCR-,CENR-,CEST,CELO,CEAG,PARG-,CEVF,CEWA,CETW-
+    """
+
+    def _is_weak(self):
+        """Determine if the AlphaNumericAntigen is weak based on its given name.
+
+        Returns:
+            bool: True if 'weak' is present in the given name, False otherwise.
+        """
+        return "weak" in self.given_name.lower()
+
+    # def _is_partial(self):
+    #     """Determine if the AlphaNumericAntigen is weak based on its given name.
+
+    #     Returns:
+    #         bool: True if 'partial' is present in the given name, False otherwise.
+    #     """
+    #     return "partial" in self.given_name.lower()
+
+    # def _is_negative(self):
+    #     """Determine if the AlphaNumericAntigen is negative based on its given name.
+
+    #     Returns:
+    #         bool: True if 'negative' or 'neg' is present in the given name, False otherwise.
+    #     """
+    #     return "negative" in self.given_name.lower() or "neg" in self.given_name.lower()
+
+    # def _is_monoclonal(self):
+    #     """Determine if the AlphaNumericAntigen is monoclonal based on its given name.
+
+    #     Returns:
+    #         bool: True if 'monoclonal' is present in the given name, False otherwise.
+    #     """
+    #     return "monoclonal" in self.given_name.lower()
+
+    # def _is_infered(self):
+    #     """Determine if the AlphaNumericAntigen is infered based on its given name.
+
+    #     Returns:
+    #         bool: True if 'infered' is present in the given name, False otherwise.
+    #     """
+    #     return "infered" in self.given_name.lower()
+
+    #is robust
+    #these are just for repr??
+
+    def _get_base_name(self):
+        """Extract the base name for the AlphaNumericAntigenRHCE by removing specific
+        characters and substrings:
+            partial
+            robust
+            expression
+            weak
+            Some
+            monoclonal
+            anti-D
+            cross-
+            react
+            cross-react
+            very
+            neg
+
+
+        Returns:
+            str: The base name for the RHCE antigen.
+        """
+        translation_table = str.maketrans("", "", "-+_")
+        return (
+            self.given_name.translate(translation_table)
+            .replace("partial", "")
+            .replace("robust", "")
+            .replace("expression", "")
+            .replace("weak", "")
+            .replace("some", "")
+            .replace("anti_d", "")
+            .replace("cross_", "")
+            .replace("react", "")
+            .replace("cross_react", "")
+            .replace("very", "")
+            .replace("neg", "")
+            .replace("as", "")
+            .replace("probable", "")
+            .replace("trans", "")
+            .replace("positive", "")
+        )
+
+    def _set_weight(self):
+        """Set the weight for the AlphaNumericAntigenVel based on its given name.
+
+        Weak variants have less expression than partial:
+        They show markedly reduced antigen density on the red-cell surface, whereas partial
+        variants usually carry a near-normal number of molecules but lack one or more epitopes
+
+        Returns:
+            int: The weight assigned to the Vel antigen.
+        """
+        name_upper = self.given_name.upper()
+        not_neg_or_weak = "WEAK" not in name_upper and "-" not in name_upper
+        if "ROBUST" in name_upper:
+            return 1
+        elif "PARTIAL" not in name_upper and not_neg_or_weak:
+            return 2
+        elif "PARTIAL" in name_upper and not_neg_or_weak:
+            return 3
+        elif "WEAK" in name_upper:
+            return 4
+        elif "-" in name_upper:
+            return 5
+        else:
+            raise ValueError("RHCE weight")
+
+    @property
+    def name(self):
+        """Return the name for the AlphaNumericAntigenVel.
+
+        For Vel antigens, the given name is returned directly without modification.
+
+        Returns:
+            str: The original given name.
+        """
+        return self.given_name
+
+class NumericAntigenRHCE(NumericAntigen):
+
+    def _set_weight(self):
+        """Set the weight of the NumericAntigen based on its given name.
+
+        Returns:
+            int: The weight of the antigen. A lower number indicates a stronger antigen.
+                 Returns 1 if the antigen is strong, 2 if it is weak, and 3 if it has a '-'
+                 modifier.
+        """
+        not_neg_or_weak = "w" not in self.given_name and "-" not in self.given_name
+        if 'r' in self.given_name:
+            return 1
+        elif 'p' not in self.given_name and not_neg_or_weak:
+            return 2
+        elif 'p' in self.given_name and not_neg_or_weak:
+            return 3
+        elif "w" in self.given_name:
+            return 4
+        elif "-" in self.given_name:
+            return 5

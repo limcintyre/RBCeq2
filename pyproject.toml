@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "RBCeq2"
-version = "2.1.2"
+version = "2.2.1"
 description = "Call ISBT alleles from VCF/s"
 readme = "README.rst"  # <-- Use the RST file we created
 license = { file = "LICENSE" }

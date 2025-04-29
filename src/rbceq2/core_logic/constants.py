@@ -1,8 +1,8 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.1.2"
-DB_VERSION = "2.1.1"
+VERSION = "2.2.1"
+DB_VERSION = "2.2.1"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -16,7 +16,7 @@ HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 
 LOW_WEIGHT = 1_000
 
-EXCLUDE = ["RHCE", "RHD", "C4A", "C4B", "ATP11C"]
+EXCLUDE = ["C4A", "C4B", "ATP11C"]
 
 
 class AlleleState:
@@ -182,12 +182,6 @@ ANTITHETICAL = {
             "3": ("4",),
             "4": ("3",),
         },
-        # BgName.RH: {
-        #     "2": ("4",),
-        #     "4": ("2",),
-        #     "3": ("5",),
-        #     "5": ("3",),
-        # },
         BgName.YT: {
             "1": ("2",),
             "2": ("1",),
@@ -317,12 +311,23 @@ ANTITHETICAL = {
             "S": ("s",),
             "s": ("S",),
         },
-        # BgName.RH: {
-        #     "C": ("c",),
-        #     "c": ("C",),
-        #     "E": ("e",),
-        #     "e": ("E",),
-        # },
+         BgName.RHCE: {
+            "C": ("c",),
+            "c": ("C",),
+            "E": ("e",),
+            "e": ("E",),
+            "Cw": ("Cx", "BARC"),
+            "Cx": ("Cw", "BARC"),
+            "BARC": ("Cw", "Cx"),
+            "c-like": ("LOCR",),
+            "LOCR": ("c-like",),
+            "Rh32": ("Sec",),
+            "Sec": ("Rh32",),
+            "Crawford": ("CELO",),
+            "CELO": ("Crawford",),
+            "JAL": ("CEST",),
+            "CEST": ("JAL",),
+        },
         BgName.YT: {
             "Yt(a)": ("Yt(b)",),
             "Yt(b)": ("Yt(a)",),
