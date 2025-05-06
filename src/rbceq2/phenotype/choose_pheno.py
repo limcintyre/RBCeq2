@@ -360,8 +360,8 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             # TODO replace bg.type globally
 
     bg.misc[f"antigens_{ant_type.name}"] = pair_antigens
-    if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes and 'RHCE*01.01' in pair.genotypes:
-        ic(111111, pair_antigens)
+    # if bg.type == 'RHCE' and ant_type != PhenoType.numeric and 'RHCE*01.07.02' in pair.genotypes and 'RHCE*01.01' in pair.genotypes:
+    #     ic(111111, pair_antigens)
     return bg
 
 
@@ -431,8 +431,8 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                     context=f"Received value: {allele_antigens}",
                 )
             d[pair] = antigens_with_ref_if_needed
-            if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
-                ic(22222,pair , antigens_with_ref_if_needed)
+            # if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+            #     ic(22222,pair , antigens_with_ref_if_needed)
 
     bg.misc[f"antigens_and_ref_{ant_type.name}"] = d
 
@@ -473,8 +473,8 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         for _, options in antigens_with_ref_if_needed.items():
             if len(options) == 2:
                 ant1, ant2 = options
-                if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
-                    ic(333333311111,ant1, ant2)
+                # if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                #     ic(333333311111,ant1, ant2)
                 assert ant1.base_name == ant2.base_name
                 if ant1 == ant2 and ant1.given_name != ant2.given_name:
                     #changes here are very likely going to cause issues
@@ -572,8 +572,8 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                         message="Unexpected antigne pattern.",
                         context=f"Received value: {options}",
                     )
-                if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
-                    ic(333333322222,ant1, ant2)
+                # if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+                #     ic(333333322222,ant1, ant2)
             elif len(options) == 1:
                 merged_pheno2.append(options[0])
             else:
@@ -583,8 +583,8 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 )
 
         bg.phenotypes[ant_type][pair] = merged_pheno2
-        if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
-            ic(3333333,pair , merged_pheno2)
+        # if bg.type == 'RHCE' and ant_type == PhenoType.numeric and 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+        #     ic(3333333,pair , merged_pheno2)
     return bg
 
 
