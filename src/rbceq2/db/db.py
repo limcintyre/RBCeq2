@@ -9,6 +9,13 @@ import pandas as pd
 from rbceq2.core_logic.alleles import Allele, Line
 from rbceq2.core_logic.constants import LOW_WEIGHT
 from loguru import logger
+from icecream import ic
+from collections import defaultdict
+
+
+import re
+from abc import abstractmethod
+from typing import Mapping, Protocol
 
 
 class VariantCountMismatchError(ValueError):
@@ -41,12 +48,18 @@ def load_db() -> str:
     # It needs the package name ('rbceq2') as the anchor.
     try:
         # Correctly reference the resource within the 'rbceq2' package
-        resource_path = importlib.resources.files("rbceq2").joinpath("resources", "db.tsv")
+        resource_path = importlib.resources.files("rbceq2").joinpath(
+            "resources", "db.tsv"
+        )
         logger.debug(f"Attempting to load db from resource path: {resource_path}")
-        return resource_path.read_text(encoding="utf-8") # Always good practice to specify encoding
+        return resource_path.read_text(
+            encoding="utf-8"
+        )  # Always good practice to specify encoding
     except Exception as e:
-        logger.error(f"Failed to load resource 'resources/db.tsv' from package 'rbceq2': {e}")
-        raise # Re-raise the exception after logging
+        logger.error(
+            f"Failed to load resource 'resources/db.tsv' from package 'rbceq2': {e}"
+        )
+        raise  # Re-raise the exception after logging
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,13 +73,13 @@ class Db:
         df (DataFrame):
             DataFrame loaded from the database file, initialized post-construction.
         lane_variants (dict[str, Any]):
-            Dictionary mapping chromosome to its lane variants, initialized 
+            Dictionary mapping chromosome to its lane variants, initialized
             post-construction.
         antitheticals (dict[str, list[str]]):
             Dictionary mapping blood groups to antithetical alleles, initialized
               post-construction.
         reference_alleles (dict[str, Allele]):
-            Dictionary mapping genotype identifiers to reference Allele objects, 
+            Dictionary mapping genotype identifiers to reference Allele objects,
             initialized post-construction.
     """
 
@@ -82,7 +95,74 @@ class Db:
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
         self.grch37_38_def_var_count_equal()
-        # TODO same for antigen counts
+        self.build_antigen_map()
+        self.check_antigens_are_same()
+
+    def check_antigens_are_same(self):
+        """Ensure that the number of antigens in the numeric and alphanumeric descriptions
+        match and that they haev the same expression and modifiers (weak etc)"""
+        mapping = self.build_antigen_map()
+        for num, alpha, sub in zip(
+            list(self.df.Phenotype_change),
+            list(self.df.Phenotype_alt_change),
+            list(self.df.Sub_type),
+        ):
+            if num == '.' or alpha == '.':
+                continue
+            system = num.strip().split(':')[0]
+            ic(num, alpha, sub)
+            if system in ['RHD']:
+                continue
+            assert compare_antigen_profiles(
+                num,
+                alpha,
+                mapping,
+                system,
+            )
+
+
+    def build_antigen_map(self) -> dict[str, dict[str, str]]:
+        """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
+
+        Args:
+            df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
+
+        Returns:
+            Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
+
+        Raises:
+            ValueError: Any row where token counts differ or parsing fails.
+        """
+        mapping: dict[str, dict[str, str]] = defaultdict(dict)
+
+        for num_raw, α_raw in zip(
+            self.df.Phenotype, self.df.Phenotype_alt, strict=True
+        ):
+            if num_raw == "." or α_raw == ".":
+                continue  # no cross‑walk for this allele
+
+            system, _, num_payload = num_raw.partition(":")
+            system = system.upper()
+
+            num_tokens = [
+                _NUM_ID_RE.match(tok.strip()).group(1)
+                for tok in num_payload.split(",")
+                if tok.strip()
+            ]
+            α_tokens = [
+                _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
+            ]
+            ic(num_tokens, α_tokens)
+            if len(num_tokens) != len(α_tokens):
+                raise ValueError(
+                    f"Token mismatch in {system}: "
+                    f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
+                )
+
+            for n, a in zip(num_tokens, α_tokens, strict=True):
+                mapping[system][n] = a
+
+        return mapping
 
     def grch37_38_def_var_count_equal(self):
         """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
@@ -105,7 +185,7 @@ class Db:
         except FileNotFoundError:
             logger.error("CRITICAL: db.tsv not found within the package resources!")
             # You might want to provide a more informative error or exit here
-            raise # Re-raise the specific error
+            raise  # Re-raise the specific error
         except Exception as e:
             logger.error(f"An unexpected error occurred during db loading: {e}")
             raise
@@ -113,13 +193,6 @@ class Db:
         logger.info("Preparing database from loaded content...")
         df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
         logger.debug(f"Initial DataFrame shape: {df.shape}")
-
-        # db_content = StringIO(load_db())
-        # # current_dir = Path(__file__).resolve().parent.parent.parent
-        # # db_path = current_dir / "resources" / "db.tsv"
-        # # logger.info(f"Preparing database from path: {db_path}")
-        # df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
-        # logger.debug(f"Initial DataFrame shape: {df.shape}")
 
         df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
         update_dict = (
@@ -280,3 +353,239 @@ class Db:
             for variant in allele.defining_variants
         }
         return [f"{pos.split('_')[0]}" for pos in unique_vars]
+
+
+######new ####
+
+# ──────────────────────────────── models ────────────────────────────────
+
+# from __future__ import annotations
+
+# import re
+# from typing import Mapping
+
+# import pandas as pd
+
+# ────────────────────── helper regexes ──────────────────────
+_NUM_ID_RE = re.compile(r"-?(\d+)")  # leading '-' allowed
+_ALPHA_CANON_RE = re.compile(r"^(.*?)\s|[+-]", re.S)  # up‑to first space/+/‑
+
+
+# ────────────────────── internal helpers ───────────────────
+def _canonical_alpha(token: str) -> str:
+    """Return antigen name stripped of sign/modifiers."""
+    # stop at first space or sign; then strip trailing sign if still present
+    cut = _ALPHA_CANON_RE.split(token.strip(), maxsplit=1)[0]
+    return cut.rstrip("+-")
+
+
+@dataclass(frozen=True, slots=True)
+class Antigen:
+    """Canonical antigen description.
+
+    Attributes
+    ----------
+    system : str
+        Blood‑group system code (RH, LU …).
+    name : str
+        Antigen name in its canonical (α) form – e.g. ``"C"`` or ``"Lu4"``.
+    expressed : bool
+        ``True`` → positive ( ‘+’ ); ``False`` → negative ( ‘‑’ ).
+    modifiers : frozenset[str]
+        One‑letter modifier codes {'w', 'p', 'n', 'm', 'i', 'r'}.
+    """
+
+    system: str
+    name: str
+    expressed: bool
+    modifiers: frozenset[str]
+
+
+# ──────────────────────────────── parsing ────────────────────────────────
+
+
+class AntigenParser(Protocol):
+    """A parser returns a sequence of canonical :class:`Antigen` objects."""
+
+    @abstractmethod
+    def parse(self, text: str) -> list[Antigen]: ...
+
+
+_NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
+_ALPHA_MOD = {
+    "weak": "w",
+    "partial": "p",
+    "neg": "n",
+    "negative": "n",
+    "monoclonal": "m",
+    "inferred": "i",
+    "robust": "r",
+    "strong": "s",
+}
+# NEW – valid single‑letter codes
+_MOD_LETTERS = set(_ALPHA_MOD.values())
+
+class NumericParser:
+    """Convert *numeric* antigen strings into :class:`Antigen` objects."""
+
+    def __init__(self, system: str):
+        self._system = system.upper()
+
+    def parse(self, text: str) -> list[Antigen]:
+        if text.strip() in {"", "."}:
+            return []
+
+        _, _, tokens = text.partition(":")  # ignore leading "RH:" / "LU:"
+        antigens: list[Antigen] = []
+
+        for raw in tokens.split(","):
+            tok = raw.strip()
+            if not tok:
+                continue
+
+            m = _NUMERIC_RE.fullmatch(tok)
+            if not m:
+                raise ValueError(f"Bad numeric token: {tok}")
+
+            sign, num, mods = m.group("sign", "num", "mods")
+            antigens.append(
+                Antigen(
+                    system=self._system,
+                    name=num,  # mapped to α later
+                    expressed=sign != "-",
+                    modifiers=frozenset(mods or ""),
+                )
+            )
+        return antigens
+
+
+class AlphaParser:
+    """Convert *alphanumeric* antigen strings into :class:`Antigen` objects."""
+
+    def __init__(self, system: str):
+        self._system = system.upper()
+
+    def parse(self, text: str) -> list[Antigen]:
+        if text.strip() in {"", "."}:
+            return []
+
+        antigens: list[Antigen] = []
+
+        for raw in text.split(","):
+            tok = raw.strip()
+            # locate first + or -
+            try:
+                idx = next(i for i, ch in enumerate(tok) if ch in "+-")
+            except StopIteration:
+                raise ValueError(f"Missing +/- in token: {tok}")
+
+            name = tok[:idx].rstrip(" (")
+            expr = tok[idx] == "+"
+            tail = tok[idx + 1 :].lower()
+
+            mods: set[str] = set()
+            for word in re.split(r"\W+", tail):
+                code = _ALPHA_MOD.get(word)
+                if code:
+                    mods.add(code)
+
+       
+            first_seq = re.match(r"[a-z]+", tail.lstrip())
+            if first_seq and set(first_seq.group(0)) <= _MOD_LETTERS:
+                mods.update(first_seq.group(0))          # e.g. "+w", "+pw", "+pwn"
+
+            antigens.append(
+                Antigen(
+                    system=self._system,
+                    name=name,
+                    expressed=expr,
+                    modifiers=frozenset(mods),
+                )
+            )
+        return antigens
+
+
+# ──────────────────────────────── comparison ────────────────────────────────
+
+
+def compare_antigen_profiles(
+    numeric: str,
+    alpha: str,
+    mapping: Mapping[str, Mapping[str, str]],
+    system: str,
+    *,
+    strict: bool = True,
+) -> bool:
+    """Return *True* when the profiles are equivalent.
+
+    Args:
+        numeric: Numeric string, e.g. ``"RH:2w,-3"``.
+        alpha:   Alphanumeric string, e.g. ``"C+ weak,E-"``.
+        mapping: ``{"RH": {"2": "C", ...}, "LU": ...}``.
+        system:  Blood‑group code (RH, LU …).
+        strict:  Require one‑to‑one match; ``False`` allows extras.
+
+    Raises:
+        ValueError: Unknown antigen or malformed token.
+    """
+    num_ants = NumericParser(system).parse(numeric)
+    α_ants = AlphaParser(system).parse(alpha)
+
+    # translate numeric → canonical α‑name
+    num_by_name: dict[str, Antigen] = {}
+    sys_map = mapping.get(system.upper(), {})
+    for n in num_ants:
+        try:
+            α = sys_map[n.name]
+        except KeyError as exc:
+            raise ValueError(f"Missing map for {system}:{n.name}") from exc
+        num_by_name[α] = Antigen(
+            system=n.system,
+            name=α,
+            expressed=n.expressed,
+            modifiers=n.modifiers,
+        )
+
+    seen = set()
+    for a in α_ants:
+        counterpart = num_by_name.get(a.name)
+        if not counterpart:
+            if strict:
+                return False
+            continue
+        seen.add(a.name)
+        if (a.expressed != counterpart.expressed) or (
+            a.modifiers != counterpart.modifiers
+        ):
+            return False
+
+    return not (strict and (seen != set(num_by_name)))
+
+
+# # ───────────────────────────── example ─────────────────────────────
+
+# if __name__ == "__main__":  # quick sanity check
+#     MAP = {
+#         "RH": {"2": "C", "3": "E", "4": "c", "5": "e"},
+#         "LU": {"1": "Lu(a)", "2": "Lu(b)", "12": "Lu12"},
+#     }
+
+#     assert compare_antigen_profiles(
+#         "RH:2w,-3,-4,5w",
+#         "C+ weak,E-,c-,e+ weak",
+#         MAP,
+#         "RH",
+#     )
+#     assert not compare_antigen_profiles(
+#         "LU:-1,2",
+#         "Lu(a-),Lu(b+),Lu12-",
+#         MAP,
+#         "LU",
+#     )
+# ```
+
+# Opinionated notes
+
+# * **Mapping is mandatory** – implicit name cross‑walks are a recipe for bugs.
+# * **Single‑responsibility** – parsers are decoupled from comparison logic.
+# * **Frozen dataclasses** ensure hashability and immutability.
