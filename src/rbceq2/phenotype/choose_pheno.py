@@ -164,7 +164,8 @@ def choose_class_type(bg_type, ant_type):
             BgName.RHD: an.AlphaNumericAntigenRHD
         },
         PhenoType.numeric: {
-            BgName.RHCE: an.NumericAntigenRHCE
+            BgName.RHCE: an.NumericAntigenRHCE,
+            BgName.VEL: an.NumericAntigenVel
         },
     }
     return (
