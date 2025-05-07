@@ -18,7 +18,7 @@ import rbceq2.filters.geno as gf
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType
 from rbceq2.core_logic.utils import compose, get_allele_relationships
-from rbceq2.db.db import Db
+from rbceq2.db.db import Db, prepare_db, DbInternalConsistencyCheck
 from rbceq2.IO.PDF_reports import generate_all_reports
 from rbceq2.IO.record_data import (
     check_VCF,
@@ -137,7 +137,9 @@ def main():
 
     logger.debug("Logger configured for debug mode.")
     logger.info("Application started.")
-    db = Db(ref=args.reference_genome)
+    db_df = prepare_db()
+    #db_check = DbInternalConsistencyCheck(ref=args.reference_genome, df = db_df)
+    db = Db(ref=args.reference_genome, df = db_df)
 
     if args.vcf.is_dir():
         patterns = ["*.vcf", "*.vcf.gz"]

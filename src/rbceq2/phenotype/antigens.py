@@ -401,6 +401,42 @@ class AlphaNumericAntigenMNS(AlphaNumericAntigen):
         )
 
 
+class NumericAntigenVel(NumericAntigen):
+
+    def _set_weight(self):
+        """Set the weight for the AlphaNumericAntigenVel based on its given name.
+
+        For Vel antigens, if 'STRONG' is present in the given name (case-insensitive),
+        the weight is set to 1. Otherwise, the weight is determined by the presence of
+        '+w', 'weak', or '-' modifiers.
+
+        Returns:
+            int: The weight assigned to the Vel antigen.
+        """
+        if "s" in self.given_name:
+            return 1
+        elif (
+            "+w" not in self.given_name
+            and "-" not in self.given_name
+        ):
+            return 2
+        elif "+w" in self.given_name:
+            return 3
+        elif "-" in self.given_name:
+            return 4
+        
+    def _get_base_name(self):
+        """Extract the base name from the given name by removing certain characters.
+
+        Characters removed include '-', '+', and 'w' etc.
+        weak = w, strong = s
+
+        Returns:
+            str: The base name of the NumericAntigen.
+        """
+        translation_table = str.maketrans("", "", "-+ws")
+        return self.given_name.translate(translation_table)
+    
 class AlphaNumericAntigenVel(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for Vel blood group antigens."""
 
@@ -659,7 +695,7 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
         return 'D'
 
     def _set_weight(self):
-        """Set the weight for the AlphaNumericAntigenVel based on its given name.
+        """Set the weight for the AlphaNumericAntigenRHD based on its given name.
 
         """
         if '-' in self.given_name:
@@ -673,7 +709,7 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
 
     @property
     def name(self):
-        """Return the name for the AlphaNumericAntigenVel.
+        """Return the name for the AlphaNumericAntigenRHD.
 
         For RHD antigens, the given name is returned directly without modification.
 

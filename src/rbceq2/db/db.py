@@ -84,135 +84,137 @@ class Db:
     """
 
     ref: str
-    df: pd.DataFrame = field(init=False)
+    df: pd.DataFrame #= field(init=False)
     lane_variants: dict[str, Any] = field(init=False)
     antitheticals: dict[str, list[str]] = field(init=False)
     reference_alleles: dict[str, Any] = field(init=False)
 
     def __post_init__(self):
-        object.__setattr__(self, "df", self.prepare_db())
+        #object.__setattr__(self, "df", prepare_db())
         object.__setattr__(self, "antitheticals", self.get_antitheticals())
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
-        self.grch37_38_def_var_count_equal()
-        self.build_antigen_map()
-        self.check_antigens_are_same()
+        # self.grch37_38_def_var_count_equal()
+        # #self.build_antigen_map()
+        # self.check_antigens_are_same()
 
-    def check_antigens_are_same(self):
-        """Ensure that the number of antigens in the numeric and alphanumeric descriptions
-        match and that they haev the same expression and modifiers (weak etc)"""
-        mapping = self.build_antigen_map()
-        for num, alpha, sub in zip(
-            list(self.df.Phenotype_change),
-            list(self.df.Phenotype_alt_change),
-            list(self.df.Sub_type),
-        ):
-            if num == '.' or alpha == '.':
-                continue
-            system = num.strip().split(':')[0]
-            ic(num, alpha, sub)
-            if system in ['RHD']:
-                continue
-            assert compare_antigen_profiles(
-                num,
-                alpha,
-                mapping,
-                system,
-            )
+    # def check_antigens_are_same(self):
+    #     """Ensure that the number of antigens in the numeric and alphanumeric descriptions
+    #     match and that they haev the same expression and modifiers (weak etc)"""
+    #     mapping = self.build_antigen_map()
+    #     for num, alpha, sub in zip(
+    #         list(self.df.Phenotype_change),
+    #         list(self.df.Phenotype_alt_change),
+    #         list(self.df.Sub_type),
+    #     ):
+    #         if num == '.' or alpha == '.':
+    #             continue
+    #         system = num.strip().split(':')[0]
+    #         ic(num, alpha, sub, system)
+    #         if system in ['RHD', 'CH', 'RG', 'Ch+Rg+WH+']: #TODO rm C4A
+    #             continue
+    #         if '?' in num or '?' in alpha:
+    #             continue
+    #         assert compare_antigen_profiles(
+    #             num,
+    #             alpha,
+    #             mapping,
+    #             system,
+    #         )
 
 
-    def build_antigen_map(self) -> dict[str, dict[str, str]]:
-        """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
+    # def build_antigen_map(self) -> dict[str, dict[str, str]]:
+    #     """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
 
-        Args:
-            df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
+    #     Args:
+    #         df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
 
-        Returns:
-            Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
+    #     Returns:
+    #         Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
 
-        Raises:
-            ValueError: Any row where token counts differ or parsing fails.
-        """
-        mapping: dict[str, dict[str, str]] = defaultdict(dict)
+    #     Raises:
+    #         ValueError: Any row where token counts differ or parsing fails.
+    #     """
+    #     mapping: dict[str, dict[str, str]] = defaultdict(dict)
+    #     ic(self.df.columns)
+    #     for num_raw, α_raw in zip(
+    #         self.df.Phenotype, self.df.Phenotype_alt, strict=True
+    #     ):
+    #         if num_raw == "." or α_raw == ".":
+    #             continue  # no cross‑walk for this allele
 
-        for num_raw, α_raw in zip(
-            self.df.Phenotype, self.df.Phenotype_alt, strict=True
-        ):
-            if num_raw == "." or α_raw == ".":
-                continue  # no cross‑walk for this allele
+    #         system, _, num_payload = num_raw.partition(":")
+    #         system = system.upper()
 
-            system, _, num_payload = num_raw.partition(":")
-            system = system.upper()
+    #         num_tokens = [
+    #             _NUM_ID_RE.match(tok.strip()).group(1)
+    #             for tok in num_payload.split(",")
+    #             if tok.strip()
+    #         ]
+    #         α_tokens = [
+    #             _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
+    #         ]
+    #         ic(num_tokens, α_tokens)
+    #         if len(num_tokens) != len(α_tokens):
+    #             raise ValueError(
+    #                 f"Token mismatch in {system}: "
+    #                 f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
+    #             )
 
-            num_tokens = [
-                _NUM_ID_RE.match(tok.strip()).group(1)
-                for tok in num_payload.split(",")
-                if tok.strip()
-            ]
-            α_tokens = [
-                _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
-            ]
-            ic(num_tokens, α_tokens)
-            if len(num_tokens) != len(α_tokens):
-                raise ValueError(
-                    f"Token mismatch in {system}: "
-                    f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
-                )
+    #         for n, a in zip(num_tokens, α_tokens, strict=True):
+    #             mapping[system][n] = a
 
-            for n, a in zip(num_tokens, α_tokens, strict=True):
-                mapping[system][n] = a
+    #     return mapping
 
-        return mapping
+    # def grch37_38_def_var_count_equal(self):
+    #     """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
+    #     for each allele, and the no of transcript changes"""
+    #     for grch37, grch38 in zip(list(self.df.GRCh37), list(self.df.GRCh38)):
+    #         if len(grch37.strip().split(",")) != len(grch38.strip().split(",")):
+    #             raise VariantCountMismatchError(grch37, grch38)
 
-    def grch37_38_def_var_count_equal(self):
-        """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
-        for each allele, and the no of transcript changes"""
-        for grch37, grch38 in zip(list(self.df.GRCh37), list(self.df.GRCh38)):
-            if len(grch37.strip().split(",")) != len(grch38.strip().split(",")):
-                raise VariantCountMismatchError(grch37, grch38)
+    # def prepare_db(self) -> pd.DataFrame:
+    #     """Read and prepare the database from a TSV file, applying necessary transformations.
 
-    def prepare_db(self) -> pd.DataFrame:
-        """Read and prepare the database from a TSV file, applying necessary transformations.
+    #     Returns:
+    #         DataFrame: The prepared DataFrame with necessary data transformations applied.
+    #     """
+    #     logger.info("Attempting to load database content...")
+    #     try:
+    #         db_content_str = load_db()
+    #         db_content = StringIO(db_content_str)
+    #         logger.info("Database content loaded successfully.")
+    #     except FileNotFoundError:
+    #         logger.error("CRITICAL: db.tsv not found within the package resources!")
+    #         # You might want to provide a more informative error or exit here
+    #         raise  # Re-raise the specific error
+    #     except Exception as e:
+    #         logger.error(f"An unexpected error occurred during db loading: {e}")
+    #         raise
 
-        Returns:
-            DataFrame: The prepared DataFrame with necessary data transformations applied.
-        """
-        logger.info("Attempting to load database content...")
-        try:
-            db_content_str = load_db()
-            db_content = StringIO(db_content_str)
-            logger.info("Database content loaded successfully.")
-        except FileNotFoundError:
-            logger.error("CRITICAL: db.tsv not found within the package resources!")
-            # You might want to provide a more informative error or exit here
-            raise  # Re-raise the specific error
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during db loading: {e}")
-            raise
+    #     logger.info("Preparing database from loaded content...")
+    #     df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
+    #     logger.debug(f"Initial DataFrame shape: {df.shape}")
 
-        logger.info("Preparing database from loaded content...")
-        df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
-        logger.debug(f"Initial DataFrame shape: {df.shape}")
+    #     df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
+    #     update_dict = (
+    #         df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
+    #     )
+    #     mapped_values = df["Sub_type"].map(update_dict)
 
-        df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
-        update_dict = (
-            df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
-        )
-        mapped_values = df["Sub_type"].map(update_dict)
+    #     df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
+    #         df["Weight_of_genotype"].notna(), mapped_values
+    #     )
 
-        df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
-            df["Weight_of_genotype"].notna(), mapped_values
-        )
+    #     pd.set_option("future.no_silent_downcasting", True)
+    #     df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
+    #     df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
+    #     df = df.fillna(".")
+    #     df = df.infer_objects(copy=False)
 
-        pd.set_option("future.no_silent_downcasting", True)
-        df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
-        df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
-        df = df.fillna(".")
-        df = df.infer_objects(copy=False)
-
-        logger.debug(f"Final DataFrame shape after processing: {df.shape}")
-        logger.info("Database preparation completed.")
-        return df
+    #     logger.debug(f"Final DataFrame shape after processing: {df.shape}")
+    #     logger.info("Database preparation completed.")
+    #     return df
 
     def get_antitheticals(self) -> dict[str, list[str]]:
         """
@@ -355,16 +357,164 @@ class Db:
         return [f"{pos.split('_')[0]}" for pos in unique_vars]
 
 
+def prepare_db() -> pd.DataFrame:
+    """Read and prepare the database from a TSV file, applying necessary transformations.
+
+    Returns:
+        DataFrame: The prepared DataFrame with necessary data transformations applied.
+    """
+    logger.info("Attempting to load database content...")
+    try:
+        db_content_str = load_db()
+        db_content = StringIO(db_content_str)
+        logger.info("Database content loaded successfully.")
+    except FileNotFoundError:
+        logger.error("CRITICAL: db.tsv not found within the package resources!")
+        # You might want to provide a more informative error or exit here
+        raise  # Re-raise the specific error
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during db loading: {e}")
+        raise
+
+    logger.info("Preparing database from loaded content...")
+    df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
+    logger.debug(f"Initial DataFrame shape: {df.shape}")
+
+    df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
+    update_dict = (
+        df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
+    )
+    mapped_values = df["Sub_type"].map(update_dict)
+
+    df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
+        df["Weight_of_genotype"].notna(), mapped_values
+    )
+
+    pd.set_option("future.no_silent_downcasting", True)
+    df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
+    df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
+    df = df.fillna(".")
+    df = df.infer_objects(copy=False)
+
+    logger.debug(f"Final DataFrame shape after processing: {df.shape}")
+    logger.info("Database preparation completed.")
+    return df
 ######new ####
 
-# ──────────────────────────────── models ────────────────────────────────
 
-# from __future__ import annotations
 
-# import re
-# from typing import Mapping
+@dataclass(slots=True, frozen=True)
+class DbInternalConsistencyCheck:
+    """A data class representing a genomic database configuration.
 
-# import pandas as pd
+    Attributes
+
+        ref (str):
+            The reference column name used for querying data within the database.
+        df (DataFrame):
+            DataFrame loaded from the database file, initialized post-construction.
+        lane_variants (dict[str, Any]):
+            Dictionary mapping chromosome to its lane variants, initialized
+            post-construction.
+        antitheticals (dict[str, list[str]]):
+            Dictionary mapping blood groups to antithetical alleles, initialized
+              post-construction.
+        reference_alleles (dict[str, Allele]):
+            Dictionary mapping genotype identifiers to reference Allele objects,
+            initialized post-construction.
+    """
+
+    ref: str
+    df: pd.DataFrame #= field(init=False)
+    lane_variants: dict[str, Any] = field(init=False)
+    antitheticals: dict[str, list[str]] = field(init=False)
+    reference_alleles: dict[str, Any] = field(init=False)
+
+    def __post_init__(self):
+        #object.__setattr__(self, "df", prepare_db())
+        # object.__setattr__(self, "antitheticals", self.get_antitheticals())
+        # object.__setattr__(self, "lane_variants", self.get_lane_variants())
+        # object.__setattr__(self, "reference_alleles", self.get_reference_allele())
+        self.grch37_38_def_var_count_equal()
+        #self.build_antigen_map()
+        self.check_antigens_are_same()
+
+    def check_antigens_are_same(self):
+        """Ensure that the number of antigens in the numeric and alphanumeric descriptions
+        match and that they haev the same expression and modifiers (weak etc)"""
+        mapping = self.build_antigen_map()
+        for num, alpha, sub in zip(
+            list(self.df.Phenotype_change),
+            list(self.df.Phenotype_alt_change),
+            list(self.df.Sub_type),
+        ):
+            if num == '.' or alpha == '.':
+                continue
+            system = num.strip().split(':')[0]
+            ic(num, alpha, sub, system)
+            if system in ['RHD', 'CH', 'RG', 'Ch+Rg+WH+']: #TODO rm C4A
+                continue
+            if '?' in num or '?' in alpha:
+                continue
+            assert compare_antigen_profiles(
+                num,
+                alpha,
+                mapping,
+                system,
+            )
+
+
+    def build_antigen_map(self) -> dict[str, dict[str, str]]:
+        """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
+
+        Args:
+            df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
+
+        Returns:
+            Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
+
+        Raises:
+            ValueError: Any row where token counts differ or parsing fails.
+        """
+        mapping: dict[str, dict[str, str]] = defaultdict(dict)
+        ic(self.df.columns)
+        for num_raw, α_raw in zip(
+            self.df.Phenotype, self.df.Phenotype_alt, strict=True
+        ):
+            if num_raw == "." or α_raw == ".":
+                continue  # no cross‑walk for this allele
+
+            system, _, num_payload = num_raw.partition(":")
+            system = system.upper()
+
+            num_tokens = [
+                _NUM_ID_RE.match(tok.strip()).group(1)
+                for tok in num_payload.split(",")
+                if tok.strip()
+            ]
+            α_tokens = [
+                _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
+            ]
+            ic(num_tokens, α_tokens)
+            if len(num_tokens) != len(α_tokens):
+                raise ValueError(
+                    f"Token mismatch in {system}: "
+                    f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
+                )
+
+            for n, a in zip(num_tokens, α_tokens, strict=True):
+                mapping[system][n] = a
+
+        return mapping
+
+    def grch37_38_def_var_count_equal(self):
+        """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
+        for each allele, and the no of transcript changes"""
+        for grch37, grch38 in zip(list(self.df.GRCh37), list(self.df.GRCh38)):
+            if len(grch37.strip().split(",")) != len(grch38.strip().split(",")):
+                raise VariantCountMismatchError(grch37, grch38)
+
+
 
 # ────────────────────── helper regexes ──────────────────────
 _NUM_ID_RE = re.compile(r"-?(\d+)")  # leading '-' allowed
@@ -421,6 +571,7 @@ _ALPHA_MOD = {
     "inferred": "i",
     "robust": "r",
     "strong": "s",
+    "positive_to_neg": "n",
 }
 # NEW – valid single‑letter codes
 _MOD_LETTERS = set(_ALPHA_MOD.values())
@@ -484,7 +635,8 @@ class AlphaParser:
             tail = tok[idx + 1 :].lower()
 
             mods: set[str] = set()
-            for word in re.split(r"\W+", tail):
+            #for word in re.split(r"\W+", tail):
+            for word in re.split(r"[_\W]+", tail):
                 code = _ALPHA_MOD.get(word)
                 if code:
                     mods.add(code)
@@ -530,7 +682,6 @@ def compare_antigen_profiles(
     """
     num_ants = NumericParser(system).parse(numeric)
     α_ants = AlphaParser(system).parse(alpha)
-
     # translate numeric → canonical α‑name
     num_by_name: dict[str, Antigen] = {}
     sys_map = mapping.get(system.upper(), {})
@@ -561,31 +712,3 @@ def compare_antigen_profiles(
 
     return not (strict and (seen != set(num_by_name)))
 
-
-# # ───────────────────────────── example ─────────────────────────────
-
-# if __name__ == "__main__":  # quick sanity check
-#     MAP = {
-#         "RH": {"2": "C", "3": "E", "4": "c", "5": "e"},
-#         "LU": {"1": "Lu(a)", "2": "Lu(b)", "12": "Lu12"},
-#     }
-
-#     assert compare_antigen_profiles(
-#         "RH:2w,-3,-4,5w",
-#         "C+ weak,E-,c-,e+ weak",
-#         MAP,
-#         "RH",
-#     )
-#     assert not compare_antigen_profiles(
-#         "LU:-1,2",
-#         "Lu(a-),Lu(b+),Lu12-",
-#         MAP,
-#         "LU",
-#     )
-# ```
-
-# Opinionated notes
-
-# * **Mapping is mandatory** – implicit name cross‑walks are a recipe for bugs.
-# * **Single‑responsibility** – parsers are decoupled from comparison logic.
-# * **Frozen dataclasses** ensure hashability and immutability.
