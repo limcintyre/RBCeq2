@@ -321,6 +321,8 @@ def find_hits(
         partial(ph.modify_FY, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_KEL, ant_type=PhenoType.alphanumeric),
         partial(ph.re_order_KEL, ant_type=PhenoType.alphanumeric),
+        partial(ph.modify_MNS, ant_type=PhenoType.alphanumeric),
+        partial(ph.modify_FY2, ant_type=PhenoType.alphanumeric),
     ]
 
     preprocessor2 = compose(*pipe2)
