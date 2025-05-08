@@ -12,7 +12,6 @@ from rbceq2.core_logic.data_procesing import apply_to_dict_values
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
 )
-from icecream import ic
 
 from . import antigens as an
 
@@ -161,11 +160,11 @@ def choose_class_type(bg_type, ant_type):
             BgName.GYPB: an.AlphaNumericAntigenMNS,
             BgName.ABO: an.AlphaNumericAntigenABO,
             BgName.RHCE: an.AlphaNumericAntigenRHCE,
-            BgName.RHD: an.AlphaNumericAntigenRHD
+            BgName.RHD: an.AlphaNumericAntigenRHD,
         },
         PhenoType.numeric: {
             BgName.RHCE: an.NumericAntigenRHCE,
-            BgName.VEL: an.NumericAntigenVel
+            BgName.VEL: an.NumericAntigenVel,
         },
     }
     return (
@@ -478,68 +477,68 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 #     ic(333333311111,ant1, ant2)
                 assert ant1.base_name == ant2.base_name
                 if ant1 == ant2 and ant1.given_name != ant2.given_name:
-                    #changes here are very likely going to cause issues
-                    #original saved below... or maybe this never gets hit????!!!
-                    #it does:
-                    #    ant1: 
-                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenABO'>, 
-                    #         Antigen(name='A1', 
-                    #         antithetical_antigen=None, 
-                    #         base_name='A', 
-                    #         weak=False, 
-                    #         homozygous=False, 
-                    #         expressed=True, 
+                    # changes here are very likely going to cause issues
+                    # original saved below... or maybe this never gets hit????!!!
+                    # it does:
+                    #    ant1:
+                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenABO'>,
+                    #         Antigen(name='A1',
+                    #         antithetical_antigen=None,
+                    #         base_name='A',
+                    #         weak=False,
+                    #         homozygous=False,
+                    #         expressed=True,
                     #         weight=1)
-                    #     ant2: 
-                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenABO'>, 
-                    #         Antigen(name='A2', 
-                    #         antithetical_antigen=None, 
-                    #         base_name='A', 
-                    #         weak=False, 
-                    #         homozygous=False, 
-                    #         expressed=True, 
+                    #     ant2:
+                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenABO'>,
+                    #         Antigen(name='A2',
+                    #         antithetical_antigen=None,
+                    #         base_name='A',
+                    #         weak=False,
+                    #         homozygous=False,
+                    #         expressed=True,
                     #         weight=1)
                     # ic| '232323!!!!!': '232323!!!!!'
-                    #     ant1: 
-                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenMNS'>, 
-                    #         Antigen(name='U+alteredU/GPB', 
-                    #         antithetical_antigen=None, 
-                    #         base_name='U', 
-                    #         weak=False, 
-                    #         homozygous=False, 
-                    #         expressed=True, 
+                    #     ant1:
+                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenMNS'>,
+                    #         Antigen(name='U+alteredU/GPB',
+                    #         antithetical_antigen=None,
+                    #         base_name='U',
+                    #         weak=False,
+                    #         homozygous=False,
+                    #         expressed=True,
                     #         weight=1)
-                    #     ant2: 
-                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenMNS'>, 
-                    #         Antigen(name='U+var', 
-                    #         antithetical_antigen=None, 
-                    #         base_name='U', 
-                    #         weak=False, 
-                    #         homozygous=False, 
-                    #         expressed=True, 
+                    #     ant2:
+                    #         Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenMNS'>,
+                    #         Antigen(name='U+var',
+                    #         antithetical_antigen=None,
+                    #         base_name='U',
+                    #         weak=False,
+                    #         homozygous=False,
+                    #         expressed=True,
                     #         weight=1)
-                    #above work (as intended)
-                    #below don't - - mabye due to antithetical??? 
+                    # above work (as intended)
+                    # below don't - - mabye due to antithetical???
                     #                 ic| '232323!!!!!': '232323!!!!!'
-                    # ant1: 
-                    #     Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenRHCE'>, 
-                    #     Antigen(name='e+weak_partial', 
-                    #     antithetical_antigen=['E'], 
-                    #     base_name='e', 
-                    #     weak=True, 
-                    #     homozygous=False, 
-                    #     expressed=True, 
+                    # ant1:
+                    #     Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenRHCE'>,
+                    #     Antigen(name='e+weak_partial',
+                    #     antithetical_antigen=['E'],
+                    #     base_name='e',
+                    #     weak=True,
+                    #     homozygous=False,
+                    #     expressed=True,
                     #     weight=4)
-                    # ant2: 
-                    #     Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenRHCE'>, 
-                    #     Antigen(name='e+weak', 
-                    #     antithetical_antigen=['E'], 
-                    #     base_name='e', 
-                    #     weak=True, 
-                    #     homozygous=False, 
-                    #     expressed=True, 
+                    # ant2:
+                    #     Antigen(type=<class 'rbceq2.phenotype.antigens.AlphaNumericAntigenRHCE'>,
+                    #     Antigen(name='e+weak',
+                    #     antithetical_antigen=['E'],
+                    #     base_name='e',
+                    #     weak=True,
+                    #     homozygous=False,
+                    #     expressed=True,
                     #     weight=4)
-                    
+
                     # ic('232323!!!!!', ant1, ant2)
                     merged_pheno2.append(ant1)
                     merged_pheno2.append(ant2)
@@ -755,15 +754,15 @@ def internal_anithetical_consistency_HET(
                     assert final_no_expressed == 2
                 except AssertionError:
                     logger.warning(
-                        f"Expressed antigens != 2! {pair} {ant} {final_no_expressed}"
+                        f"Expressed antigens != 2! {bg.sample} {pair} {ant} {final_no_expressed}"
                     )
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
-    #if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric:
-        #for pair, merged_pheno in new_phenos:
-            # if 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
-            #     ic(444444, pair, merged_pheno)
+    # if bg.type == 'RHCE' and ant_type == PhenoType.alphanumeric:
+    # for pair, merged_pheno in new_phenos:
+    # if 'RHCE*01.01' in pair.genotypes and 'RHCE*01.07.02' in pair.genotypes:
+    #     ic(444444, pair, merged_pheno)
 
     return bg
 
@@ -1159,6 +1158,33 @@ def modify_FY(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
 
     return bg
 
+@apply_to_dict_values
+def modify_FY2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
+    """
+    add FYX to FY*02W.01 and FY*02W.02
+
+    Args:
+        bg (BloodGroup): The BloodGroup object to be modified.
+        ant_type (PhenoType): The phenotype type (alphanumeric) whose
+            corresponding phenotype mapping is to be updated.
+
+    Returns:
+        BloodGroup: The updated BloodGroup with modified FY phenotypes.
+    """
+    if bg.type != "FY":
+        return bg
+    for pair, pheno in bg.phenotypes[ant_type].items():
+        FYX = ["FY*02W.01", "FY*02W.02"]
+
+        if (
+            pair.allele1.genotype in FYX or pair.allele2.genotype in FYX
+        ) and "b+w)" in pheno:
+            pheno += ',Fyx'
+        # ic(bg.sample, pair, pheno)
+
+        bg.phenotypes[ant_type][pair] = pheno
+
+    return bg
 
 @apply_to_dict_values
 def modify_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
@@ -1187,6 +1213,50 @@ def modify_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             bg.phenotypes[ant_type][pair] = "KO"
 
     return bg
+
+
+@apply_to_dict_values
+def modify_MNS(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
+    """
+    U+w -> U+var
+
+    Args:
+        bg (BloodGroup): The BloodGroup object to be modified.
+        ant_type (PhenoType): The phenotype type (alphanumeric) whose
+            corresponding phenotype mapping is to be updated.
+
+    Returns:
+        BloodGroup: The updated BloodGroup with modified MNS (GYPB) phenotypes.
+    """
+    if bg.type != "GYPB":
+        return bg
+    for pair, pheno in bg.phenotypes[ant_type].items():
+        weak_mod = "GYPB*04.03"
+        var_mod = [
+            "GYPB*04N.03",
+            "GYPB*04N.01",
+            "GYPB*03N.01",
+            "GYPB*03N.02",
+            "GYPB*03N.03",
+            "GYPB*03N.04",
+            "GYPB*03N.05",
+            "GYPB*03N.06",
+            "GYPB*03N.07",
+        ]
+        if (
+            pair.allele1.genotype == weak_mod or pair.allele2.genotype == weak_mod
+        ) and (pair.allele1.genotype in var_mod or pair.allele2.genotype in var_mod):
+            pheno += "var"
+        elif pair.allele1.genotype in var_mod or pair.allele2.genotype in var_mod:
+            pheno = pheno.replace("U+w", "U+var")
+        # ic(bg.sample, pair, pheno)
+
+        bg.phenotypes[ant_type][pair] = pheno
+
+    return bg
+
+
+
 
 
 @apply_to_dict_values
