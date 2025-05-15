@@ -606,8 +606,8 @@ def make_mushed_allele(
         genotype_alt="mushed",
         phenotype_alt=pheno_alpha,
         defining_variants=frozenset.union(*[a.defining_variants for a in combo]),
+        null=False,
         weight_geno=min([a.weight_geno for a in combo]),
-        weight_pheno=min([a.weight_pheno for a in combo]),
         sub_type="/".join({a.sub_type for a in combo}),
     )
 

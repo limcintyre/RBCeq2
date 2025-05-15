@@ -5,47 +5,46 @@ from rbceq2.core_logic.utils import (
     apply_to_dict_values,
     check_available_variants,
     chunk_geno_list_by_rank,
-    chunk_list_by_rank,
     get_non_refs,
     sub_alleles_relationships,
 )
 
 
-class TestChunklistByRank(unittest.TestCase):
-    def test_empty_list(self):
-        """Test chunking an empty list."""
+# class TestChunklistByRank(unittest.TestCase):
+#     def test_empty_list(self):
+#         """Test chunking an empty list."""
 
-    def test_same_weight(self):
-        """Test all alleles with the same weight."""
-        alleles = [
-            Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-            Allele("A2", "M", ".", ".", frozenset(), 1, 1),
-            Allele("A3", "M", ".", ".", frozenset(), 1, 1),
-        ]
-        expected = [alleles]
-        self.assertEqual(chunk_list_by_rank(alleles), expected)
+#     def test_same_weight(self):
+#         """Test all alleles with the same weight."""
+#         alleles = [
+#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
+#             Allele("A2", "M", ".", ".", frozenset(), 1, 1),
+#             Allele("A3", "M", ".", ".", frozenset(), 1, 1),
+#         ]
+#         expected = [alleles]
+#         self.assertEqual(chunk_list_by_rank(alleles), expected)
 
-    def test_different_weights(self):
-        """Test alleles with different weights."""
-        alleles = [
-            Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-            Allele("B1", "N", ".", ".", frozenset(), 1, 2),
-            Allele("C1", "O", ".", ".", frozenset(), 1, 3),
-        ]
-        expected = [[alleles[0]], [alleles[1]], [alleles[2]]]
-        self.assertEqual(chunk_list_by_rank(alleles), expected)
+#     def test_different_weights(self):
+#         """Test alleles with different weights."""
+#         alleles = [
+#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
+#             Allele("B1", "N", ".", ".", frozenset(), 1, 2),
+#             Allele("C1", "O", ".", ".", frozenset(), 1, 3),
+#         ]
+#         expected = [[alleles[0]], [alleles[1]], [alleles[2]]]
+#         self.assertEqual(chunk_list_by_rank(alleles), expected)
 
-    def test_mixed_weights(self):
-        """Test alleles with mixed and repeated weights."""
-        alleles = [
-            Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-            Allele("B1", "N", ".", ".", frozenset(), 1, 2),
-            Allele("A2", "M", ".", ".", frozenset(), 1, 1),
-            Allele("C1", "O", ".", ".", frozenset(), 1, 3),
-            Allele("B2", "N", ".", ".", frozenset(), 1, 2),
-        ]
-        expected = [[alleles[0], alleles[2]], [alleles[1], alleles[4]], [alleles[3]]]
-        self.assertEqual(chunk_list_by_rank(alleles), expected)
+#     def test_mixed_weights(self):
+#         """Test alleles with mixed and repeated weights."""
+#         alleles = [
+#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
+#             Allele("B1", "N", ".", ".", frozenset(), 1, 2),
+#             Allele("A2", "M", ".", ".", frozenset(), 1, 1),
+#             Allele("C1", "O", ".", ".", frozenset(), 1, 3),
+#             Allele("B2", "N", ".", ".", frozenset(), 1, 2),
+#         ]
+#         expected = [[alleles[0], alleles[2]], [alleles[1], alleles[4]], [alleles[3]]]
+#         self.assertEqual(chunk_list_by_rank(alleles), expected)
 
 
 class TestCheckAvailableVariants(unittest.TestCase):
@@ -119,7 +118,6 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 frozenset(["variant1"]),
                 1,
-                1,
                 False,
                 "subtype1",
                 None,
@@ -131,7 +129,6 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 frozenset(["variant2"]),
                 1,
-                1,
                 True,
                 "subtype2",
                 None,
@@ -142,7 +139,6 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant3"]),
-                1,
                 1,
                 False,
                 "subtype3",
@@ -171,7 +167,6 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 frozenset(["variant4"]),
                 1,
-                1,
                 True,
                 "subtype4",
                 None,
@@ -197,7 +192,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant1"]),
                 weight_geno=1,
-                weight_pheno=1,
                 reference=False,
                 sub_type="A",
             ),
@@ -208,7 +202,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant2"]),
                 weight_geno=2,
-                weight_pheno=2,
                 reference=False,
                 sub_type="A",
             ),
@@ -219,7 +212,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant3"]),
                 weight_geno=1,
-                weight_pheno=1,
                 reference=False,
                 sub_type="B",
             ),
@@ -230,7 +222,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant4"]),
                 weight_geno=1,
-                weight_pheno=1,
                 reference=False,
                 sub_type="B",
             ),
@@ -271,7 +262,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 ".",
                 frozenset(["variant5"]),
                 1,
-                1,
                 False,
                 "C",
                 None,
@@ -282,7 +272,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant6"]),
-                1,
                 1,
                 False,
                 "C",
@@ -308,7 +297,6 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 ".",
                 frozenset(["variant1"]),
                 1,
-                1,
                 False,
                 "subtype1",
                 None,
@@ -320,7 +308,6 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 ".",
                 frozenset(["variant1", "variant2"]),
                 2,
-                1,
                 False,
                 "subtype2",
                 None,

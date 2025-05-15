@@ -33,7 +33,6 @@ class TestFlattenAlleles(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -44,7 +43,6 @@ class TestFlattenAlleles(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -73,7 +71,6 @@ class TestFlattenAlleles(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -96,7 +93,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype1",
         )
@@ -107,7 +103,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -124,7 +119,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype1",
         )
@@ -135,7 +129,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype2",
         )
@@ -151,7 +144,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -162,7 +154,6 @@ class TestSplitPairByRef(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -180,7 +171,6 @@ class TestParseBioInfo2(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -191,7 +181,6 @@ class TestParseBioInfo2(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -219,7 +208,6 @@ class TestFilterCoExistingPairs(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="A/B",
         )
@@ -230,7 +218,6 @@ class TestFilterCoExistingPairs(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="C/D",
         )
@@ -253,7 +240,6 @@ class TestFilterCoExistingPairs(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="A/B",
         )
@@ -264,7 +250,6 @@ class TestFilterCoExistingPairs(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="C/D",
         )
@@ -300,7 +285,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -311,7 +295,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -323,7 +306,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=3,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype3",
         )
@@ -344,7 +326,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -355,7 +336,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var3"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -367,7 +347,6 @@ class TestFilterCoExistingInOtherAllele(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=3,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype3",
         )
@@ -402,7 +381,6 @@ class TestFilterCoExistingWithNormal(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -414,7 +392,6 @@ class TestFilterCoExistingWithNormal(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -427,7 +404,6 @@ class TestFilterCoExistingWithNormal(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1, var2"}),
             weight_geno=2,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -489,7 +465,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
                 {"207782856_A_G, 207782916_A_T, 207782889_A_G, 207782931_A_G"}
             ),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -500,7 +475,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"207782916_A_T, 207782889_A_G"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -511,7 +485,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({" 207782916_A_T, 207782931_A_G"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -524,7 +497,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
                 {"207782916_A_T, 207782889_A_G, 207782931_A_G"}
             ),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -587,7 +559,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"varA"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -598,7 +569,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"varB"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -635,7 +605,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -646,7 +615,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",  # Different subtype
         )
@@ -682,7 +650,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"ref_var"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=True,  # Mark as reference
             sub_type="subtype1",
         )
@@ -695,7 +662,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -706,7 +672,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -719,7 +684,6 @@ class TestFilterCoExistingSubsets(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"ref_var", "var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -766,7 +730,6 @@ class TestFilterPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt="Fy(b+)",
             defining_variants=frozenset({"1:159175354_G_A"}),
             weight_geno=1000,
-            weight_pheno=2,
             reference=False,
             sub_type="FY*02",
             phases=None,
@@ -778,7 +741,6 @@ class TestFilterPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt="Fy(a+)",
             defining_variants=frozenset({"1:159175354_ref"}),
             weight_geno=1000,
-            weight_pheno=2,
             reference=True,
             sub_type="FY*01",
             phases=None,
@@ -790,7 +752,6 @@ class TestFilterPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt="Fy(a-b-)",
             defining_variants=frozenset({"1:159175354_ref", "1:159174683_T_C"}),
             weight_geno=7,
-            weight_pheno=5,
             reference=False,
             sub_type="FY*01",
             phases=None,
@@ -852,7 +813,6 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             phenotype_alt="Lu(a-b+)",
             defining_variants=frozenset({"19:45315445_ref"}),
             weight_geno=1,
-            weight_pheno=2,
             reference=True,
             sub_type="LU*02",
         )
@@ -863,7 +823,6 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             phenotype_alt="Au(a-b+)",
             defining_variants=frozenset({"19:45315445_ref", "19:45322744_A_G"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="LU*02",
         )
@@ -874,7 +833,6 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             phenotype_alt="",
             defining_variants=frozenset({"19:45315445_G_A", "19:45322744_A_G"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="LU*01",
         )  #'LU*01.19/LU*02' not possible because modifying SNP (45322744_A_G) is hom
@@ -963,7 +921,6 @@ class TestCantPairWithRefCuzSNPsMustBeOnOtherSide(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"18:43319519_ref"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=True,
             sub_type="JK*01",
         )
@@ -974,7 +931,6 @@ class TestCantPairWithRefCuzSNPsMustBeOnOtherSide(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"18:43310313_G_A"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="JK*01",
         )
@@ -985,7 +941,6 @@ class TestCantPairWithRefCuzSNPsMustBeOnOtherSide(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"18:43311054_G_A"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="JK*01",
         )
@@ -996,7 +951,6 @@ class TestCantPairWithRefCuzSNPsMustBeOnOtherSide(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"18:43310313_G_A", "18:43311054_G_A"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="JK*01",
         )
@@ -1058,7 +1012,6 @@ class TestABOCantPairWithRefCuz261delGHET(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"9:136132908_T_TC"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=True,
             sub_type="ABO*A",
         )
@@ -1076,7 +1029,6 @@ class TestABOCantPairWithRefCuz261delGHET(unittest.TestCase):
                 }
             ),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="ABO*A",
         )
@@ -1087,7 +1039,6 @@ class TestABOCantPairWithRefCuz261delGHET(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"9:136132873_T_C", "9:136132908_ref"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="ABO*O",
         )
@@ -1136,7 +1087,6 @@ class TestABOCantPairWithRefCuzTrumped(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=True,
             sub_type="FUT3*01",
         )
@@ -1149,7 +1099,6 @@ class TestABOCantPairWithRefCuzTrumped(unittest.TestCase):
                 {"19:5844043_C_T", "19:5844184_C_T", "19:5844367_C_T"}
             ),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="FUT3*01",
         )
@@ -1162,7 +1111,6 @@ class TestABOCantPairWithRefCuzTrumped(unittest.TestCase):
                 {"19:5844184_C_T", "19:5844367_C_T", "19:5844838_C_T"}
             ),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="FUT3*01",
         )
@@ -1209,7 +1157,6 @@ class TestABOCantPairWithRefCuzTrumped2(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=True,
             sub_type="FUT3*01",
         )
@@ -1222,7 +1169,6 @@ class TestABOCantPairWithRefCuzTrumped2(unittest.TestCase):
                 {"19:5844043_C_T", "19:5844184_C_T", "19:5844367_C_T"}
             ),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="FUT3*01",
         )
@@ -1235,7 +1181,6 @@ class TestABOCantPairWithRefCuzTrumped2(unittest.TestCase):
                 {"19:5844184_C_T", "19:5844367_C_T", "19:5844838_C_T"}
             ),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="FUT3*01",
         )
@@ -1280,7 +1225,6 @@ class TestFilterHETPairsByWeight(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"19:49206250_ref"}),
             weight_geno=1000,
-            weight_pheno=2,
             reference=True,
             sub_type="FUT2*01",
         )
@@ -1291,7 +1235,6 @@ class TestFilterHETPairsByWeight(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"19:49206286_A_G"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="FUT2*01",
         )
@@ -1302,7 +1245,6 @@ class TestFilterHETPairsByWeight(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"19:49206674_G_A"}),
             weight_geno=1,
-            weight_pheno=5,
             reference=False,
             sub_type="FUT2*01",
         )
@@ -1313,7 +1255,6 @@ class TestFilterHETPairsByWeight(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"19:49206985_G_A"}),
             weight_geno=8,
-            weight_pheno=5,
             reference=False,
             sub_type="FUT2*01",
         )
@@ -1357,7 +1298,6 @@ class TestFilterPairsByContext(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"22:43113793_ref"}),
             weight_geno=1000,
-            weight_pheno=2,
             reference=True,
             sub_type="A4GALT*01",
         )
@@ -1368,7 +1308,6 @@ class TestFilterPairsByContext(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"22:43089849_T_C"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="A4GALT*01",
         )
@@ -1379,7 +1318,6 @@ class TestFilterPairsByContext(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"22:43113793_C_A"}),
             weight_geno=1000,
-            weight_pheno=2,
             reference=False,
             sub_type="A4GALT*02",
         )
@@ -1390,7 +1328,6 @@ class TestFilterPairsByContext(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"22:43113793_C_A", "22:43089849_T_C"}),
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="A4GALT*02",
         )
@@ -1455,7 +1392,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1466,7 +1402,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
         )
@@ -1497,7 +1432,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1508,7 +1442,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1545,7 +1478,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1556,7 +1488,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
         )
@@ -1593,7 +1524,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1604,7 +1534,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1615,7 +1544,6 @@ class TestFilterCoexistingPairsOnAntitheticalZygosity(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
         )
@@ -1673,7 +1601,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1684,7 +1611,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1710,7 +1636,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1721,7 +1646,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1733,7 +1657,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var3"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1760,7 +1683,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1771,7 +1693,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1783,7 +1704,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "variant1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1809,7 +1729,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1820,7 +1739,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1832,7 +1750,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "variant1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1843,7 +1760,6 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "variant1"}),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
         )
@@ -1864,155 +1780,154 @@ class TestEnsureCoExistingHetSnpUsed(unittest.TestCase):
         self.assertIn(pair_other2, result_bg.alleles[AlleleState.CO])
 
 
-class TestFilterPairsByContext(unittest.TestCase):
-    def test_no_normal_alleles(self):
-        """Test when bg.alleles[AlleleState.NORMAL] is None."""
-        bg = BloodGroup(
-            type="ExampleType",
-            alleles={AlleleState.NORMAL: None},
-            sample="sample1",
-            variant_pool={},
-            filtered_out=defaultdict(list),
-        )
-        result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
-        self.assertIs(result_bg, bg)
-        self.assertIsNone(result_bg.alleles[AlleleState.NORMAL])
+# class TestFilterPairsByContext(unittest.TestCase):
+#     def test_no_normal_alleles(self):
+#         """Test when bg.alleles[AlleleState.NORMAL] is None."""
+#         bg = BloodGroup(
+#             type="ExampleType",
+#             alleles={AlleleState.NORMAL: None},
+#             sample="sample1",
+#             variant_pool={},
+#             filtered_out=defaultdict(list),
+#         )
+#         result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
+#         self.assertIs(result_bg, bg)
+#         self.assertIsNone(result_bg.alleles[AlleleState.NORMAL])
 
-    def test_allele_reference(self):
-        """Test when an allele in the pair is a reference allele."""
-        # Create reference allele
-        ref_allele = Allele(
-            genotype="RefAllele",
-            phenotype="RefPhenotype",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var_ref"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=True,
-            sub_type="Subtype1",
-        )
-        # Create another allele
-        allele = Allele(
-            genotype="Allele1",
-            phenotype="Phenotype1",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var1"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        pair = Pair(allele1=ref_allele, allele2=allele)
-        bg = BloodGroup(
-            type="ExampleType",
-            alleles={AlleleState.NORMAL: [pair]},
-            sample="sample2",
-            variant_pool={"var_ref": Zygosity.HOM, "var1": Zygosity.HET},
-            filtered_out=defaultdict(list),
-        )
-        result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
-        # Since allele.reference is True, it should skip processing that allele
-        # and not remove the pair
-        self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
-        self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
+#     def test_allele_reference(self):
+#         """Test when an allele in the pair is a reference allele."""
+#         # Create reference allele
+#         ref_allele = Allele(
+#             genotype="RefAllele",
+#             phenotype="RefPhenotype",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var_ref"}),
+#             weight_geno=1,
+#             reference=True,
+#             sub_type="Subtype1",
+#         )
+#         # Create another allele
+#         allele = Allele(
+#             genotype="Allele1",
+#             phenotype="Phenotype1",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var1"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         pair = Pair(allele1=ref_allele, allele2=allele)
+#         bg = BloodGroup(
+#             type="ExampleType",
+#             alleles={AlleleState.NORMAL: [pair]},
+#             sample="sample2",
+#             variant_pool={"var_ref": Zygosity.HOM, "var1": Zygosity.HET},
+#             filtered_out=defaultdict(list),
+#         )
+#         result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
+#         # Since allele.reference is True, it should skip processing that allele
+#         # and not remove the pair
+#         self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
+#         self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
 
-    def test_left_over_vars_empty_or_def_vars_small(self):
-        """Test when len(left_over_vars) == 0 or len(def_vars) < 2."""
-        # Create two alleles
-        allele1 = Allele(
-            genotype="Allele1",
-            phenotype="Phenotype1",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var1"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        allele2 = Allele(
-            genotype="Allele2",
-            phenotype="Phenotype2",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var2"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        pair = Pair(allele1=allele1, allele2=allele2)
-        # def_vars will be empty since there are no other pairs
-        bg = BloodGroup(
-            type="ExampleType",
-            alleles={AlleleState.NORMAL: [pair]},
-            sample="sample3",
-            variant_pool={"var1": Zygosity.HOM, "var2": Zygosity.HOM},
-            filtered_out=defaultdict(list),
-        )
-        result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
-        # Since len(def_vars) < 2, it should skip and not remove the pair
-        self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
-        self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
+#     def test_left_over_vars_empty_or_def_vars_small(self):
+#         """Test when len(left_over_vars) == 0 or len(def_vars) < 2."""
+#         # Create two alleles
+#         allele1 = Allele(
+#             genotype="Allele1",
+#             phenotype="Phenotype1",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var1"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         allele2 = Allele(
+#             genotype="Allele2",
+#             phenotype="Phenotype2",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var2"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         pair = Pair(allele1=allele1, allele2=allele2)
+#         # def_vars will be empty since there are no other pairs
+#         bg = BloodGroup(
+#             type="ExampleType",
+#             alleles={AlleleState.NORMAL: [pair]},
+#             sample="sample3",
+#             variant_pool={"var1": Zygosity.HOM, "var2": Zygosity.HOM},
+#             filtered_out=defaultdict(list),
+#         )
+#         result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
+#         # Since len(def_vars) < 2, it should skip and not remove the pair
+#         self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
+#         self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
 
     
-    def test_pair_not_removed(self):
-        """Test when the condition 'if all(variants in def_vars for variants in remaining)' is False."""
-        # Create alleles
-        allele1 = Allele(
-            genotype="Allele1",
-            phenotype="Phenotype1",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var1"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        allele2 = Allele(
-            genotype="Allele2",
-            phenotype="Phenotype2",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var2"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        # Other allele with different variants
-        other_allele = Allele(
-            genotype="OtherAllele",
-            phenotype="OtherPhenotype",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var3"}),
-            weight_geno=1,
-            weight_pheno=1,
-            reference=False,
-            sub_type="Subtype1",
-        )
-        # Pairs
-        pair = Pair(allele1=allele1, allele2=allele2)
-        other_pair = Pair(allele1=other_allele, allele2=allele2)
-        bg = BloodGroup(
-            type="ExampleType",
-            alleles={AlleleState.NORMAL: [pair, other_pair]},
-            sample="sample5",
-            variant_pool={
-                "var1": Zygosity.HET,
-                "var2": Zygosity.HET,
-                "var3": Zygosity.HET,
-            },
-            filtered_out=defaultdict(list),
-        )
-        result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
-        # The pair should not be removed
-        self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
-        self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
+#     def test_pair_not_removed(self):
+#         """Test when the condition 'if all(variants in def_vars for variants in remaining)' is False."""
+#         # Create alleles
+#         allele1 = Allele(
+#             genotype="Allele1",
+#             phenotype="Phenotype1",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var1"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         allele2 = Allele(
+#             genotype="Allele2",
+#             phenotype="Phenotype2",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var2"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         # Other allele with different variants
+#         other_allele = Allele(
+#             genotype="OtherAllele",
+#             phenotype="OtherPhenotype",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"var3"}),
+#             weight_geno=1,
+#             weight_pheno=1,
+#             reference=False,
+#             sub_type="Subtype1",
+#         )
+#         # Pairs
+#         pair = Pair(allele1=allele1, allele2=allele2)
+#         other_pair = Pair(allele1=other_allele, allele2=allele2)
+#         bg = BloodGroup(
+#             type="ExampleType",
+#             alleles={AlleleState.NORMAL: [pair, other_pair]},
+#             sample="sample5",
+#             variant_pool={
+#                 "var1": Zygosity.HET,
+#                 "var2": Zygosity.HET,
+#                 "var3": Zygosity.HET,
+#             },
+#             filtered_out=defaultdict(list),
+#         )
+#         result_bg = list(filter_pairs_by_context({1: bg}).values())[0]
+#         # The pair should not be removed
+#         self.assertIn(pair, result_bg.alleles[AlleleState.NORMAL])
+#         self.assertNotIn(pair, result_bg.filtered_out["filter_pairs_by_context"])
 
 
 class TestFilterPairsByPhase(unittest.TestCase):
@@ -2025,7 +1940,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="SubtypeRef",
             phases=(".",),
@@ -2041,7 +1955,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1",),
@@ -2053,7 +1966,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("2",),
@@ -2082,7 +1994,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("1",),
@@ -2109,7 +2020,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=(".",),
@@ -2121,7 +2031,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=(".",),
@@ -2148,7 +2057,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1", "2"),
@@ -2160,7 +2068,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("1", "2"),
@@ -2187,7 +2094,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1",),
@@ -2199,7 +2105,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("2",),
@@ -2226,7 +2131,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1", "."),
@@ -2238,7 +2142,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("2", "."),
@@ -2265,7 +2168,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1", "."),
@@ -2277,7 +2179,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("1", "."),
@@ -2304,7 +2205,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype1",
             phases=("1",),
@@ -2316,7 +2216,6 @@ class TestFilterPairsByPhase(unittest.TestCase):
             phenotype_alt=".",
             defining_variants=frozenset(),
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Subtype2",
             phases=("1",),

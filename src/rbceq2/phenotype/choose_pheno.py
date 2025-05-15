@@ -12,6 +12,9 @@ from rbceq2.core_logic.data_procesing import apply_to_dict_values
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
 )
+from icecream import ic
+
+from rbceq2.core_logic.alleles import Allele
 
 from . import antigens as an
 
@@ -330,14 +333,47 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         Returns:
             list[str]: A list of phenotype strings derived from the allele pair.
         """
+        def filter_abo_types(alleles: list[Allele]) -> frozenset[str]:
+            """
+            Filters ABO types based on the presence of 'ABO*O.'.
+
+            Args:
+                Allele1: The first ABO type string.
+                Allele2: The second ABO type string.
+
+            Returns:
+                A frozenset containing:
+                - Both strs if both contain 'ABO*O.'.
+                - Only the str that does NOT contain 'ABO*O.' if one of them does.
+                - Both strs if neither contains 'ABO*O.'.
+            """
+            if len(alleles) == 1:
+                return alleles
+            elif len(alleles) == 2:
+                a1, a2 = alleles
+                contains_o1 = "ABO*O." in a1.genotype
+                contains_o2 = "ABO*O." in a2.genotype
+
+                if contains_o1 and contains_o2:
+                    return frozenset([a1, a2])
+                elif contains_o1 and not contains_o2:
+                    return frozenset([a2])
+                elif not contains_o1 and contains_o2:
+                    return frozenset([a1])
+                else:  # Neither contains 'ABO*O.'
+                    return frozenset([a1, a2])
+            else:
+                raise ValueError('ABO allele count wrong')
+    
         phenotype_attr = (
             "phenotype" if ant_type == PhenoType.numeric else "phenotype_alt"
         )
         alleles_to_use = (
-            current_pair.alleles_with_expressed_phenotypes
+            filter_abo_types(current_pair.alleles) 
             if bg.type == "ABO"
             else current_pair.alleles
         )
+
         return [getattr(allele, phenotype_attr) for allele in alleles_to_use]
 
     pair_antigens = {}
@@ -1211,6 +1247,32 @@ def modify_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     for pair in bg.phenotypes[ant_type]:
         if null_or_mod(pair, "N"):
             bg.phenotypes[ant_type][pair] = "KO"
+
+    return bg
+
+@apply_to_dict_values
+def modify_CROM(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
+    """Modify CROM BloodGroup phenotypes based on allele null/modification patterns.
+
+    For BloodGroup of type "CROM", this function updates the phenotype mapping in
+    bg.phenotypes for the provided phenotype type. 
+    if an allele pair matches the 'N.' pattern, the phenotype is changed from
+    IFC- to Inab
+
+    Args:
+        bg (BloodGroup): The BloodGroup object to be modified.
+        ant_type (PhenoType): The phenotype type (numeric or alphanumeric) whose
+            corresponding phenotype mapping is to be updated.
+
+    Returns:
+        BloodGroup: The updated BloodGroup with modified CROM phenotypes.
+    """
+    if bg.type != "CROM":
+        return bg
+    
+    for pair in bg.phenotypes[ant_type]:
+        if null_or_mod(pair, "N"):
+            bg.phenotypes[ant_type][pair] = "Inab"
 
     return bg
 

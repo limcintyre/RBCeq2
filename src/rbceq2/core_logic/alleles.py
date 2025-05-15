@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from loguru import logger
 
-from rbceq2.core_logic.utils import Zygosity, chunk_list_by_rank
+from rbceq2.core_logic.utils import Zygosity #, chunk_list_by_rank
 
 if TYPE_CHECKING:
     from core_logic.constants import AlleleState, PhenoType
@@ -37,8 +37,6 @@ class Allele:
         Variants (positions) that define this allele.
     weight_geno: int
         Weight used for ordering or ranking genotype.
-    weight_pheno: int
-        Weight used for ordering or ranking phenotype.
     reference: bool
         Whether this allele is the reference allele.
     sub_type: str
@@ -54,8 +52,8 @@ class Allele:
     genotype_alt: str
     phenotype_alt: str
     defining_variants: frozenset[str]
+    null: bool
     weight_geno: int = 1
-    weight_pheno: int = 1
     reference: bool = False
     sub_type: str = ""
     phases: tuple[str] | None = None
@@ -132,7 +130,7 @@ class Allele:
             f"defining_variants: {sep_var}{sep_var.join(self.defining_variants)} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
-            f"weight_pheno: {self.weight_pheno} \n "
+            #f"weight_pheno: {self.weight_pheno} \n "
             f"reference: {self.reference} \n"
             f"phases: {self.phases} \n"
         )
@@ -218,7 +216,7 @@ class Line:
     pheno_alt: str
     chrom_str: str
     weight_geno: int
-    weight_pheno: int
+    #weight_pheno: int
     ref: str
     sub_type: str
     chrom: str = field(init=False)
@@ -453,18 +451,18 @@ class Pair:
         """
         return [allele.phenotype_alt for allele in self._ordered()]
 
-    @property
-    def alleles_with_expressed_phenotypes(self) -> list[Allele]:
-        """Get a list of the expressed (most weighted) phenotypes of the alleles in
-        the pair.
+    # @property
+    # def alleles_with_expressed_phenotypes(self) -> list[Allele]:
+    #     """Get a list of the expressed (most weighted) phenotypes of the alleles in
+    #     the pair.
 
-        Its ok to compare these without considering zygosity, as they are a
-        putative pair
+    #     Its ok to compare these without considering zygosity, as they are a
+    #     putative pair
 
-        Returns:
-            List[str]: A list of the genotypes of the alleles in the pair.
-        """
-        return chunk_list_by_rank(list(self.alleles))[0]
+    #     Returns:
+    #         List[str]: A list of the genotypes of the alleles in the pair.
+    #     """
+    #     return chunk_list_by_rank(list(self.alleles))[0]
 
     @property
     def contains_reference(self) -> bool:
