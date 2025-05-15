@@ -275,7 +275,7 @@ class Db:
             df.Phenotype_alt_change,
             df.Chrom,
             df.Weight_of_genotype,
-            df.Weight_of_phenotype,
+            #df.Weight_of_phenotype,
             df.Reference_genotype,
             df.Sub_type,
         ):
@@ -305,8 +305,8 @@ class Db:
                         for a in line.allele_defining_variants.split(",")
                     ]
                 ),
+                null=False,
                 weight_geno=int(line.weight_geno),
-                weight_pheno=int(line.weight_pheno),
                 reference=True,
                 sub_type=line.sub_type,
             )
@@ -321,6 +321,11 @@ class Db:
         Yields:
             Allele: Allele objects constructed from data rows.
         """
+        # df2 = self.df.copy(deep=True)
+        # df2["type"] = df2["type"].astype("category")
+        # df_ref = df2.loc[(df2["Reference_genotype"] == "Yes") & (df2["type"] == bg.type)]
+
+        # assert df_ref.shape == (1, 20)
 
         for line in self.line_generator(self.df):
             if line.allele_defining_variants == ".":
@@ -335,8 +340,8 @@ class Db:
                 line.geno_alt,
                 line.pheno_alt,
                 frozenset(allele_defining_variants),
+                'N.' in line.geno.upper(),
                 int(line.weight_geno),
-                int(line.weight_pheno),
                 line.ref == "Yes",
                 sub_type=line.sub_type,
             )
@@ -392,7 +397,7 @@ def prepare_db() -> pd.DataFrame:
 
     pd.set_option("future.no_silent_downcasting", True)
     df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
-    df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
+    #df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
     df = df.fillna(".")
     df = df.infer_objects(copy=False)
 
@@ -477,7 +482,6 @@ class DbInternalConsistencyCheck:
             ValueError: Any row where token counts differ or parsing fails.
         """
         mapping: dict[str, dict[str, str]] = defaultdict(dict)
-        ic(self.df.columns)
         for num_raw, α_raw in zip(
             self.df.Phenotype, self.df.Phenotype_alt, strict=True
         ):
@@ -495,7 +499,6 @@ class DbInternalConsistencyCheck:
             α_tokens = [
                 _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
             ]
-            ic(num_tokens, α_tokens)
             if len(num_tokens) != len(α_tokens):
                 raise ValueError(
                     f"Token mismatch in {system}: "
@@ -564,6 +567,7 @@ class AntigenParser(Protocol):
 _NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
 _ALPHA_MOD = {
     "weak": "w",
+    "very_weak": "v",
     "partial": "p",
     "neg": "n",
     "negative": "n",
@@ -572,7 +576,18 @@ _ALPHA_MOD = {
     "robust": "r",
     "strong": "s",
     "positive_to_neg": "n",
+    "weak_to_neg": "n",
+    "very_weak_to_neg": "n",
 }
+# # Assume _ALPHA_MOD and _MOD_LETTERS are defined as in your provided code:
+# # _ALPHA_MOD = {
+# #     "weak": "w", "very_weak": "v", "partial": "p", "neg": "n", "negative": "n",
+# #     "monoclonal": "m", "inferred": "i", "robust": "r", "strong": "s",
+# #     "positive_to_neg": "n", "weak_to_neg": "n", "very_weak_to_neg": "n",
+# # }
+# # _MOD_LETTERS = set(_ALPHA_MOD.values())
+
+
 # NEW – valid single‑letter codes
 _MOD_LETTERS = set(_ALPHA_MOD.values())
 
@@ -609,6 +624,16 @@ class NumericParser:
             )
         return antigens
 
+# import re # Ensure re is imported
+
+# # Assume _ALPHA_MOD and _MOD_LETTERS are defined as in your provided code:
+# # _ALPHA_MOD = {
+# #     "weak": "w", "very_weak": "v", "partial": "p", "neg": "n", "negative": "n",
+# #     "monoclonal": "m", "inferred": "i", "robust": "r", "strong": "s",
+# #     "positive_to_neg": "n", "weak_to_neg": "n", "very_weak_to_neg": "n",
+# # }
+# # _MOD_LETTERS = set(_ALPHA_MOD.values())
+
 
 class AlphaParser:
     """Convert *alphanumeric* antigen strings into :class:`Antigen` objects."""
@@ -624,28 +649,63 @@ class AlphaParser:
 
         for raw in text.split(","):
             tok = raw.strip()
-            # locate first + or -
+            if not tok:
+                continue
+                
             try:
                 idx = next(i for i, ch in enumerate(tok) if ch in "+-")
             except StopIteration:
                 raise ValueError(f"Missing +/- in token: {tok}")
 
-            name = tok[:idx].rstrip(" (")
+            # name_part_before_rstrip is the segment of the token before the sign.
+            # E.g., for "Fy(a+w)", this is "Fy(a".
+            # E.g., for "K+", this is "K".
+            name_part_before_rstrip = tok[:idx]
+            
+            name = name_part_before_rstrip.rstrip(" (") # Final antigen name, e.g., "Fy(a)" or "K"
             expr = tok[idx] == "+"
+            
+            # Initial tail, may contain structural parentheses.
+            # E.g., for "Fy(a+w)", tail is "w)". For "Fy(b-)", tail is ")". For "K+", tail is "".
             tail = tok[idx + 1 :].lower()
-
+            
+            # --- MINIMAL FIX FOR TRAILING PARENTHESES IN MODIFIERS ---
+            # If the tail ends with ')' and the part of the token that formed the 'name'
+            # had an unmatched opening parenthesis, remove the ')' from the tail.
+            # This handles cases like "Fy(a+w)" -> tail "w)" becoming "w",
+            # and "Fy(b-)" -> tail ")" becoming "".
+            if tail.endswith(')') and \
+               name_part_before_rstrip.count('(') > name_part_before_rstrip.count(')'):
+                tail = tail[:-1]
+            # --- END OF MINIMAL FIX ---
+                
             mods: set[str] = set()
-            #for word in re.split(r"\W+", tail):
-            for word in re.split(r"[_\W]+", tail):
-                code = _ALPHA_MOD.get(word)
-                if code:
-                    mods.add(code)
+            
+            # Existing modifier parsing logic (should now work with cleaned tail)
+            components = [comp for comp in re.split(r"\s+", tail.strip()) if comp]
 
-       
-            first_seq = re.match(r"[a-z]+", tail.lstrip())
-            if first_seq and set(first_seq.group(0)) <= _MOD_LETTERS:
-                mods.update(first_seq.group(0))          # e.g. "+w", "+pw", "+pwn"
+            for comp in components:
+                comp_code = _ALPHA_MOD.get(comp)
+                if comp_code:
+                    mods.add(comp_code)
+                    continue
 
+                if "_" in comp:
+                    found_mods_in_underscore_split = False
+                    for part in comp.split("_"):
+                        part_code = _ALPHA_MOD.get(part)
+                        if part_code:
+                            mods.add(part_code)
+                            found_mods_in_underscore_split = True
+                    if found_mods_in_underscore_split:
+                        continue
+                
+                # Check _MOD_LETTERS is not empty before using it in set operations
+                # to prevent error if it was somehow misconfigured.
+                if _MOD_LETTERS and set(comp) <= _MOD_LETTERS:
+                    mods.update(list(comp))
+                    continue
+            
             antigens.append(
                 Antigen(
                     system=self._system,
@@ -655,6 +715,47 @@ class AlphaParser:
                 )
             )
         return antigens
+
+
+    # def parse(self, text: str) -> list[Antigen]:
+    #     if text.strip() in {"", "."}:
+    #         return []
+
+    #     antigens: list[Antigen] = []
+
+    #     for raw in text.split(","):
+    #         tok = raw.strip()
+    #         # locate first + or -
+    #         try:
+    #             idx = next(i for i, ch in enumerate(tok) if ch in "+-")
+    #         except StopIteration:
+    #             raise ValueError(f"Missing +/- in token: {tok}")
+
+    #         name = tok[:idx].rstrip(" (")
+    #         expr = tok[idx] == "+"
+    #         tail = tok[idx + 1 :].lower()
+
+    #         mods: set[str] = set()
+    #         for word in re.split(r"\W+", tail):
+    #             #for word in re.split(r"[_\W]+", tail):
+    #             code = _ALPHA_MOD.get(word)
+    #             if code:
+    #                 mods.add(code)
+
+       
+    #         first_seq = re.match(r"[a-z]+", tail.lstrip())
+    #         if first_seq and set(first_seq.group(0)) <= _MOD_LETTERS:
+    #             mods.update(first_seq.group(0))          # e.g. "+w", "+pw", "+pwn"
+
+    #         antigens.append(
+    #             Antigen(
+    #                 system=self._system,
+    #                 name=name,
+    #                 expressed=expr,
+    #                 modifiers=frozenset(mods),
+    #             )
+    #         )
+    #     return antigens
 
 
 # ──────────────────────────────── comparison ────────────────────────────────

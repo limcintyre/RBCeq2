@@ -72,22 +72,22 @@ def compose(*functions: Preprocessor) -> Preprocessor:
     return reduce(lambda func1, func2: lambda x: func2(func1(x)), functions)
 
 
-def chunk_list_by_rank(input_list: list[Allele]) -> list[list[Allele]]:
-    """Split a list into chunks of Allele objects with the same phenotype weight.
+# def chunk_list_by_rank(input_list: list[Allele]) -> list[list[Allele]]:
+#     """Split a list into chunks of Allele objects with the same phenotype weight.
 
-    Args:
-        input_list (list[Allele]): A list of Allele objects to be grouped by their
-            weight_pheno attribute.
+#     Args:
+#         input_list (list[Allele]): A list of Allele objects to be grouped by their
+#             weight_pheno attribute.
 
-    Returns:
-        list[list[Allele]]: A list of lists, where each inner list contains Allele
-            objects sharing the same weight_pheno, ordered by increasing weight_pheno.
-    """
-    result = defaultdict(list)
-    for allele in input_list:
-        result[allele.weight_pheno].append(allele)
+#     Returns:
+#         list[list[Allele]]: A list of lists, where each inner list contains Allele
+#             objects sharing the same weight_pheno, ordered by increasing weight_pheno.
+#     """
+#     result = defaultdict(list)
+#     for allele in input_list:
+#         result[allele.weight_pheno].append(allele)
 
-    return [result[i] for i in sorted(result.keys())]
+#     return [result[i] for i in sorted(result.keys())]
 
 
 def apply_to_dict_values(func: Callable[..., Any]) -> Callable[..., dict]:
