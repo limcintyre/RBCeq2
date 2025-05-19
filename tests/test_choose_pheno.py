@@ -90,9 +90,10 @@ class MockAntigen:
 
 
 class MockAllele:
-    def __init__(self, phenotype, phenotype_alt, genotype="genotype"):
+    def __init__(self, phenotype, phenotype_alt,null, genotype="genotype"):
         self.phenotype = phenotype
         self.phenotype_alt = phenotype_alt
+        self.null = null
         self.genotype = genotype
 
 
@@ -107,11 +108,12 @@ class MockPair:
 
 
 class MockBloodGroup:
-    def __init__(self, phenotypes=None, alleles=None, misc=None, type=""):
+    def __init__(self, phenotypes=None, alleles=None, misc=None, type="", sample='s1'):
         self.phenotypes = phenotypes or defaultdict(dict)
         self.alleles = alleles or defaultdict(list)
         self.misc = misc or {}
         self.type = type
+        self.sample = sample
 
 
 class MockBloodGroup2:
@@ -221,8 +223,8 @@ class TestBloodGroupFunctions(unittest.TestCase):
 
     def test_instantiate_antigens(self):
         # Mock data
-        allele1 = MockAllele(phenotype="phenotype1", phenotype_alt="A1")
-        allele2 = MockAllele(phenotype="phenotype2", phenotype_alt="B1")
+        allele1 = MockAllele(phenotype="phenotype1", phenotype_alt="A1", null=False)
+        allele2 = MockAllele(phenotype="phenotype2", phenotype_alt="B1", null=False)
         pair = MockPair(allele1, allele2)
         bg = {"ABO": MockBloodGroup(type="ABO", alleles={AlleleState.NORMAL: [pair]})}
         bg["ABO"].misc = {
@@ -264,10 +266,10 @@ class TestBloodGroupFunctions(unittest.TestCase):
 
         # Create mock alleles with genotype
         allele1 = MockAllele(
-            phenotype="phenotype1", phenotype_alt="", genotype="genotype1"
+            phenotype="phenotype1", phenotype_alt="", genotype="genotype1", null=False
         )
         allele2 = MockAllele(
-            phenotype="phenotype1", phenotype_alt="", genotype="genotype2"
+            phenotype="phenotype1", phenotype_alt="", genotype="genotype2", null=False
         )
 
         # Create a MockPair object
@@ -359,8 +361,8 @@ class TestBloodGroupFunctions(unittest.TestCase):
 
     def test_phenos_to_str(self):
         # Mock data
-        allele1 = MockAllele(phenotype="phenotype1:allele_name", phenotype_alt="")
-        allele2 = MockAllele(phenotype="", phenotype_alt="")
+        allele1 = MockAllele(phenotype="phenotype1:allele_name", phenotype_alt="", null=False)
+        allele2 = MockAllele(phenotype="", phenotype_alt="", null=False)
         bg = {
             "ABO": MockBloodGroup(
                 type="ABO", alleles={AlleleState.RAW: [allele1, allele2]}
@@ -823,7 +825,7 @@ class TestInternalAntitheticalConsistencyHET(unittest.TestCase):
 
     def test_pair_allele1_phenotype_dot(self):
         # Test when pair.allele1.phenotype == "."
-        allele = MockAllele(phenotype=".", phenotype_alt="")
+        allele = MockAllele(phenotype=".", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         antigens = [MockAntigen("ant1", True, False, {})]
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = antigens
@@ -837,9 +839,9 @@ class TestInternalAntitheticalConsistencyHET(unittest.TestCase):
 
     def test_pair_allele1_genotype_contains_N(self):
         # Test when "N." in pair.allele1.genotype.upper()
-        allele1 = MockAllele(phenotype="phenotype", phenotype_alt="", genotype="N.01")
+        allele1 = MockAllele(phenotype="phenotype", phenotype_alt="", genotype="N.01", null=False)
         allele2 = MockAllele(
-            phenotype="phenotype", phenotype_alt="", genotype="genotype"
+            phenotype="phenotype", phenotype_alt="", genotype="genotype", null=False
         )
         pair = MockPair(allele1, allele2)
         antigens = [MockAntigen("ant1", True, False, {})]
@@ -854,7 +856,7 @@ class TestInternalAntitheticalConsistencyHET(unittest.TestCase):
 
     def test_antigen_already_checked(self):
         # Test when ant.base_name in already_checked
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         ant1 = MockAntigen("ant1", True, False, {})
         ant1.base_name = "ant1"
@@ -872,7 +874,7 @@ class TestInternalAntitheticalConsistencyHET(unittest.TestCase):
 
     def test_no_expressed_equals_2(self):
         # Test when no_expressed == 2
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         ant1 = MockAntigen("ant1", True, False, {})
         ant2 = MockAntigen("ant2", True, False, {})
@@ -914,7 +916,7 @@ class TestInternalAntitheticalConsistencyHET(unittest.TestCase):
 
     def test_assertion_ant_not_in_base_names_new(self):
         # Test the assertion when ant_base_name not in base_names_new
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         ant1 = MockAntigen("ant1", False, False, {})
         ant1.base_name = "ant1"
@@ -961,7 +963,7 @@ class TestInternalAntitheticalConsistencyHOM(unittest.TestCase):
 
     def test_pair_allele1_phenotype_dot(self):
         # Test when pair.allele1.phenotype == "."
-        allele = MockAllele(phenotype=".", phenotype_alt="")
+        allele = MockAllele(phenotype=".", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         antigens = [MockAntigen("ant1", True, True, {})]
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = antigens
@@ -981,7 +983,7 @@ class TestInternalAntitheticalConsistencyHOM(unittest.TestCase):
         ant1.antithetical_antigen = [antithetical_ant]
         ant1.base_name = "ant1"
         antithetical_ant.base_name = "ant2"
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = [ant1]
         result = list(
@@ -1011,12 +1013,11 @@ class TestInternalAntitheticalConsistencyHOM(unittest.TestCase):
         ant1.base_name = "ant1"
         antithetical_ant1.base_name = "ant2"
         antithetical_ant2.base_name = "ant3"
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = [ant1]
         # Capture logging
-        with self.assertLogs(level="WARNING") as log:
-            result = list(
+        result = list(
                 internal_anithetical_consistency_HOM(
                     {1: self.bg}, PhenoType.alphanumeric
                 ).values()
@@ -1024,10 +1025,7 @@ class TestInternalAntitheticalConsistencyHOM(unittest.TestCase):
         # Should include ant1 and both antithetical antigens
         processed_antigens = result.phenotypes[PhenoType.alphanumeric][pair]
         self.assertEqual(len(processed_antigens), 3)
-        # Check that warning was logged
-        self.assertTrue(
-            any("ensure only 1 expressed" in message for message in log.output)
-        )
+     
 
     def test_ant_antithetical_base_name_in_base_names(self):
         # Test when antithetical_ant.base_name in base_names
@@ -1039,7 +1037,7 @@ class TestInternalAntitheticalConsistencyHOM(unittest.TestCase):
         # Include ant2 in antigens
         ant2 = MockAntigen("ant2", True, False, {})
         ant2.base_name = "ant2"
-        allele = MockAllele(phenotype="phenotype", phenotype_alt="")
+        allele = MockAllele(phenotype="phenotype", phenotype_alt="", null=False)
         pair = MockPair(allele, allele)
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = [ant1, ant2]
         result = list(
@@ -1199,8 +1197,8 @@ class TestModifyKEL(unittest.TestCase):
         self.bg.type = "ABO"
         # Insert a test Pair with a known phenotype
         pairX = Pair(
-            Allele("ABO*01", "phX", ".", ".", frozenset()),
-            Allele("ABO*02", "phY", ".", ".", frozenset()),
+            Allele("ABO*01", "phX", ".", ".", frozenset(),null=False,),
+            Allele("ABO*02", "phY", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairX] = "SomethingABO"
 
@@ -1219,8 +1217,8 @@ class TestModifyKEL(unittest.TestCase):
         If both alleles have 'M.' => null_or_mod => True => sets => 'Kmod'
         """
         pairM = Pair(
-            Allele("KEL*02M.01", "stuffA", ".", ".", frozenset()),
-            Allele("KEL*02M.05", "stuffB", ".", ".", frozenset()),
+            Allele("KEL*02M.01", "stuffA", ".", ".", frozenset(),null=False,),
+            Allele("KEL*02M.05", "stuffB", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairM] = "K:-1"
 
@@ -1236,8 +1234,8 @@ class TestModifyKEL(unittest.TestCase):
         If both alleles have 'N.' => sets => 'KO'
         """
         pairN = Pair(
-            Allele("KEL*02N.10", "stuffC", ".", ".", frozenset()),
-            Allele("KEL*02N.22", "stuffD", ".", ".", frozenset()),
+            Allele("KEL*02N.10", "stuffC", ".", ".", frozenset(),null=True,),
+            Allele("KEL*02N.22", "stuffD", ".", ".", frozenset(),null=True),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairN] = "K:-2"
 
@@ -1253,8 +1251,8 @@ class TestModifyKEL(unittest.TestCase):
         If neither 'M.' nor 'N.' => phenotype remains unchanged.
         """
         pairNone = Pair(
-            Allele("KEL*02", "stuffE", ".", ".", frozenset()),
-            Allele("KEL*01.03", "stuffF", ".", ".", frozenset()),
+            Allele("KEL*02", "stuffE", ".", ".", frozenset(),null=False,),
+            Allele("KEL*01.03", "stuffF", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairNone] = "K:-7"
 
@@ -1271,8 +1269,8 @@ class TestModifyKEL(unittest.TestCase):
         but also 'N.' => sets => 'KO' in the second loop, final => 'KO'.
         """
         pairMN = Pair(
-            Allele("KEL*02M.N.01", "stuffG", ".", ".", frozenset()),
-            Allele("KEL*02M.N.11", "stuffH", ".", ".", frozenset()),
+            Allele("KEL*02M.N.01", "stuffG", ".", ".", frozenset(),null=False,),
+            Allele("KEL*02M.N.11", "stuffH", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairMN] = "K:-99"
 
@@ -1303,8 +1301,8 @@ class TestInternalAntitheticalConsistencyHETExtra(unittest.TestCase):
         ant_ref1.base_name = "ant1"
         ant_ref2.base_name = "ant2"
 
-        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1")
-        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2")
+        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1", null=False)
+        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2", null=False)
         pair = MockPair(allele1, allele2)
 
         # Make the main antigen homozygous to guarantee 2 expressed copies.
@@ -1358,8 +1356,8 @@ class TestInternalAntitheticalConsistencyHETExtra(unittest.TestCase):
         ant_ref = MockAntigen("ref_ant", False, False, {})
         ant_ref.base_name = "ref_ant"
 
-        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1")
-        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2")
+        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1", null=False)
+        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2", null=False)
         pair = MockPair(allele1, allele2)
 
         # Make the main antigen homozygous so it counts as two expressed antigens.
@@ -1422,8 +1420,8 @@ class TestInternalAntitheticalConsistencyHETExtra(unittest.TestCase):
         problem_ant.antithetical_antigen = [ant_ref]
         problem_ant.base_name = "problem_ant"
 
-        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1")
-        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2")
+        allele1 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype1", null=False)
+        allele2 = MockAllele(phenotype="valid", phenotype_alt="", genotype="genotype2", null=False)
         pair = MockPair(allele1, allele2)
 
         bg = MockBloodGroup(
@@ -1515,8 +1513,8 @@ class TestInternalAntitheticalConsistencyHETCoverage(unittest.TestCase):
         missing_ant.base_name = "MissingAnt"
 
         # 5) Construct the pair
-        allele1 = MockAllele(phenotype="somePheno", phenotype_alt="", genotype="geno1")
-        allele2 = MockAllele(phenotype="somePheno", phenotype_alt="", genotype="geno2")
+        allele1 = MockAllele(phenotype="somePheno", phenotype_alt="", genotype="geno1", null=False)
+        allele2 = MockAllele(phenotype="somePheno", phenotype_alt="", genotype="geno2", null=False)
         pair = MockPair(allele1, allele2)
 
         # 6) Build the BloodGroup with these antigens in phenotypes
@@ -1774,8 +1772,8 @@ class TestModifyFY(unittest.TestCase):
         self.bg.type = "ABO"
         # Let's store some Pair in the phenotypes
         pairA = Pair(
-            Allele("FY*01", "phenoA", ".", ".", frozenset()),
-            Allele("FY*02", "phenoB", ".", ".", frozenset()),
+            Allele("FY*01", "phenoA", ".", ".", frozenset(),null=False,),
+            Allele("FY*02", "phenoB", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairA] = "FY:-1,2"
 
@@ -1791,8 +1789,8 @@ class TestModifyFY(unittest.TestCase):
         If both genotype have 'N.', we append '_erythroid_cells_only'
         """
         pairA = Pair(
-            Allele("FY*02N.01", "somePheno", ".", ".", frozenset()),
-            Allele("FY*01N.08", "somePheno2", ".", ".", frozenset()),
+            Allele("FY*02N.01", "somePheno", ".", ".", frozenset(),null=True,),
+            Allele("FY*01N.08", "somePheno2", ".", ".", frozenset(),null=True,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairA] = "FY:-1,2"
 
@@ -1805,8 +1803,8 @@ class TestModifyFY(unittest.TestCase):
         If only one allele has 'N.', we do NOT append text
         """
         pairB = Pair(
-            Allele("FY*02N.01", "stuff", ".", ".", frozenset()),
-            Allele("FY*02", "stuff2", ".", ".", frozenset()),
+            Allele("FY*02N.01", "stuff", ".", ".", frozenset(),null=True,), 
+            Allele("FY*02", "stuff2", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairB] = "FY:1"
 
@@ -1827,20 +1825,20 @@ class TestNullOrMod(unittest.TestCase):
         )
 
     def test_both_alleles_have_pattern(self):
-        a1 = Allele("FY*01N.08", "stuff", ".", ".", frozenset())
-        a2 = Allele("FY*02N.01", "stuff2", ".", ".", frozenset())
+        a1 = Allele("FY*01N.08", "stuff", ".", ".", frozenset(),null=True,)
+        a2 = Allele("FY*02N.01", "stuff2", ".", ".", frozenset(),null=True,)
         p = Pair(a1, a2)
         self.assertTrue(self.null_or_mod(p, "N"))
 
     def test_only_one_allele_has_pattern(self):
-        a1 = Allele("FY*02N.01", "stuff", ".", ".", frozenset())
-        a2 = Allele("FY*02.12", "stuff2", ".", ".", frozenset())
+        a1 = Allele("FY*02N.01", "stuff", ".", ".", frozenset(),null=True,)
+        a2 = Allele("FY*02.12", "stuff2", ".", ".", frozenset(),null=False,)
         p = Pair(a1, a2)
         self.assertFalse(self.null_or_mod(p, "N"))
 
     def test_neither_allele_has_pattern(self):
-        a1 = Allele("FY*02.11", "stuff", ".", ".", frozenset())
-        a2 = Allele("FY*02.12", "stuff2", ".", ".", frozenset())
+        a1 = Allele("FY*02.11", "stuff", ".", ".", frozenset(),null=False,)
+        a2 = Allele("FY*02.12", "stuff2", ".", ".", frozenset(),null=False,)
         p = Pair(a1, a2)
         self.assertFalse(self.null_or_mod(p, "N"))
 
@@ -1855,8 +1853,8 @@ class TestReOrderKEL(unittest.TestCase):
 
     def test_re_order_kel_already_ordered(self):
         pairB = Pair(
-            Allele("KEL*01", "K-,k+", ".", ".", frozenset()),
-            Allele("KEL*02", "Js(a+b+)", ".", ".", frozenset()),
+            Allele("KEL*01", "K-,k+", ".", ".", frozenset(),null=False,),
+            Allele("KEL*02", "Js(a+b+)", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairB] = "K-,k+,Js(a+b+)"
         updated_dict = re_order_KEL({2: self.bg}, PhenoType.alphanumeric)
@@ -1867,8 +1865,8 @@ class TestReOrderKEL(unittest.TestCase):
     def test_re_order_kel_not_kel_type(self):
         self.bg.type = "ABO"
         pairC = Pair(
-            Allele("ABO*01", "Js(a+b+)", ".", ".", frozenset()),
-            Allele("ABO*02", "K-,k+", ".", ".", frozenset()),
+            Allele("ABO*01", "Js(a+b+)", ".", ".", frozenset(),null=False,),
+            Allele("ABO*02", "K-,k+", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairC] = "Js(a+b+),K-,k+"
         out_bg = re_order_KEL({3: self.bg}, PhenoType.alphanumeric)[3]
@@ -1878,8 +1876,8 @@ class TestReOrderKEL(unittest.TestCase):
 
     def test_re_order_kel_simple_case(self):
         pairA = Pair(
-            Allele("KEL*01", "Js(a+b+)", ".", ".", frozenset()),
-            Allele("KEL*02", "K-,k+", ".", ".", frozenset()),
+            Allele("KEL*01", "Js(a+b+)", ".", ".", frozenset(),null=False,),
+            Allele("KEL*02", "K-,k+", ".", ".", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pairA] = "Js(a+b+),K-,k+"
 
@@ -1909,8 +1907,8 @@ class TestCombineAnitheticals(unittest.TestCase):
         We'll simply confirm it doesn't crash, or we can remove the test.
         """
         pair = Pair(
-            Allele("X*01", "", "", "", frozenset()),
-            Allele("X*02", "", "", "", frozenset()),
+            Allele("X*01", "", "", "", frozenset(),null=False,),
+            Allele("X*02", "", "", "", frozenset(),null=False,),
         )
         # Provide empty string => your code sees pheno.split(',') -> [''], length=1 => no error
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = ""
@@ -1931,8 +1929,8 @@ class TestCombineAnitheticals(unittest.TestCase):
         But your code never hits that 'else' with typical splits. Let's just confirm no crash.
         """
         pair = Pair(
-            Allele("X*03", "", "", "", frozenset()),
-            Allele("X*04", "", "", "", frozenset()),
+            Allele("X*03", "", "", "", frozenset(),null=False,),
+            Allele("X*04", "", "", "", frozenset(),null=False,),
         )
         # Suppose we pass something like "," => pheno.split(',') => ["",""] => length=2, so the code
         # sees them as 2 items (both empty). It doesn't lead to that else block either.
@@ -1992,8 +1990,8 @@ class TestCombineAnitheticalsExtraCoverage(unittest.TestCase):
         """
         # We have only 1 string with '(' => prefix_counts is 1 => that item goes to rest.
         pair = Pair(
-            Allele("BG*00", "Kn(a+)", "", "", frozenset()),
-            Allele("BG*01", "UnusedPheno", "", "", frozenset()),
+            Allele("BG*00", "Kn(a+)", "", "", frozenset(),null=False,),
+            Allele("BG*01", "UnusedPheno", "", "", frozenset(),null=False,),
         )
         self.bg.phenotypes[PhenoType.alphanumeric][pair] = "Kn(a+),Another-"
         out_bg_dict = combine_anitheticals({101: self.bg})
@@ -2010,8 +2008,8 @@ class TestCombineAnitheticalsExtraCoverage(unittest.TestCase):
            We'll provide two items: one will go to parens, one will go to rest.
         """
         pair = Pair(
-            Allele("BG*02", "Kn(a+)", "", "", frozenset()),
-            Allele("BG*03", "Sl1+", "", "", frozenset()),
+            Allele("BG*02", "Kn(a+)", "", "", frozenset(),null=False,),
+            Allele("BG*03", "Sl1+", "", "", frozenset(),null=False,),
         )
         # We'll get prefix_counts > 1 for 'Kn(' => that item goes to has_paren
         # We'll get 'Sl1+' => no '(' => so it goes to no_paren

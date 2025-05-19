@@ -47,19 +47,18 @@ def load_db() -> str:
     # Use importlib.resources.files() which is preferred for Python >= 3.9
     # It needs the package name ('rbceq2') as the anchor.
     try:
-        # Correctly reference the resource within the 'rbceq2' package
         resource_path = importlib.resources.files("rbceq2").joinpath(
             "resources", "db.tsv"
         )
         logger.debug(f"Attempting to load db from resource path: {resource_path}")
         return resource_path.read_text(
             encoding="utf-8"
-        )  # Always good practice to specify encoding
+        )
     except Exception as e:
         logger.error(
             f"Failed to load resource 'resources/db.tsv' from package 'rbceq2': {e}"
         )
-        raise  # Re-raise the exception after logging
+        raise
 
 
 @dataclass(slots=True, frozen=True)
@@ -84,137 +83,16 @@ class Db:
     """
 
     ref: str
-    df: pd.DataFrame #= field(init=False)
+    df: pd.DataFrame 
     lane_variants: dict[str, Any] = field(init=False)
     antitheticals: dict[str, list[str]] = field(init=False)
     reference_alleles: dict[str, Any] = field(init=False)
 
     def __post_init__(self):
-        #object.__setattr__(self, "df", prepare_db())
         object.__setattr__(self, "antitheticals", self.get_antitheticals())
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
-        # self.grch37_38_def_var_count_equal()
-        # #self.build_antigen_map()
-        # self.check_antigens_are_same()
-
-    # def check_antigens_are_same(self):
-    #     """Ensure that the number of antigens in the numeric and alphanumeric descriptions
-    #     match and that they haev the same expression and modifiers (weak etc)"""
-    #     mapping = self.build_antigen_map()
-    #     for num, alpha, sub in zip(
-    #         list(self.df.Phenotype_change),
-    #         list(self.df.Phenotype_alt_change),
-    #         list(self.df.Sub_type),
-    #     ):
-    #         if num == '.' or alpha == '.':
-    #             continue
-    #         system = num.strip().split(':')[0]
-    #         ic(num, alpha, sub, system)
-    #         if system in ['RHD', 'CH', 'RG', 'Ch+Rg+WH+']: #TODO rm C4A
-    #             continue
-    #         if '?' in num or '?' in alpha:
-    #             continue
-    #         assert compare_antigen_profiles(
-    #             num,
-    #             alpha,
-    #             mapping,
-    #             system,
-    #         )
-
-
-    # def build_antigen_map(self) -> dict[str, dict[str, str]]:
-    #     """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
-
-    #     Args:
-    #         df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
-
-    #     Returns:
-    #         Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
-
-    #     Raises:
-    #         ValueError: Any row where token counts differ or parsing fails.
-    #     """
-    #     mapping: dict[str, dict[str, str]] = defaultdict(dict)
-    #     ic(self.df.columns)
-    #     for num_raw, α_raw in zip(
-    #         self.df.Phenotype, self.df.Phenotype_alt, strict=True
-    #     ):
-    #         if num_raw == "." or α_raw == ".":
-    #             continue  # no cross‑walk for this allele
-
-    #         system, _, num_payload = num_raw.partition(":")
-    #         system = system.upper()
-
-    #         num_tokens = [
-    #             _NUM_ID_RE.match(tok.strip()).group(1)
-    #             for tok in num_payload.split(",")
-    #             if tok.strip()
-    #         ]
-    #         α_tokens = [
-    #             _canonical_alpha(tok) for tok in α_raw.split(",") if tok.strip()
-    #         ]
-    #         ic(num_tokens, α_tokens)
-    #         if len(num_tokens) != len(α_tokens):
-    #             raise ValueError(
-    #                 f"Token mismatch in {system}: "
-    #                 f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
-    #             )
-
-    #         for n, a in zip(num_tokens, α_tokens, strict=True):
-    #             mapping[system][n] = a
-
-    #     return mapping
-
-    # def grch37_38_def_var_count_equal(self):
-    #     """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
-    #     for each allele, and the no of transcript changes"""
-    #     for grch37, grch38 in zip(list(self.df.GRCh37), list(self.df.GRCh38)):
-    #         if len(grch37.strip().split(",")) != len(grch38.strip().split(",")):
-    #             raise VariantCountMismatchError(grch37, grch38)
-
-    # def prepare_db(self) -> pd.DataFrame:
-    #     """Read and prepare the database from a TSV file, applying necessary transformations.
-
-    #     Returns:
-    #         DataFrame: The prepared DataFrame with necessary data transformations applied.
-    #     """
-    #     logger.info("Attempting to load database content...")
-    #     try:
-    #         db_content_str = load_db()
-    #         db_content = StringIO(db_content_str)
-    #         logger.info("Database content loaded successfully.")
-    #     except FileNotFoundError:
-    #         logger.error("CRITICAL: db.tsv not found within the package resources!")
-    #         # You might want to provide a more informative error or exit here
-    #         raise  # Re-raise the specific error
-    #     except Exception as e:
-    #         logger.error(f"An unexpected error occurred during db loading: {e}")
-    #         raise
-
-    #     logger.info("Preparing database from loaded content...")
-    #     df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
-    #     logger.debug(f"Initial DataFrame shape: {df.shape}")
-
-    #     df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
-    #     update_dict = (
-    #         df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
-    #     )
-    #     mapped_values = df["Sub_type"].map(update_dict)
-
-    #     df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
-    #         df["Weight_of_genotype"].notna(), mapped_values
-    #     )
-
-    #     pd.set_option("future.no_silent_downcasting", True)
-    #     df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
-    #     df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
-    #     df = df.fillna(".")
-    #     df = df.infer_objects(copy=False)
-
-    #     logger.debug(f"Final DataFrame shape after processing: {df.shape}")
-    #     logger.info("Database preparation completed.")
-    #     return df
+        
 
     def get_antitheticals(self) -> dict[str, list[str]]:
         """
@@ -275,7 +153,6 @@ class Db:
             df.Phenotype_alt_change,
             df.Chrom,
             df.Weight_of_genotype,
-            #df.Weight_of_phenotype,
             df.Reference_genotype,
             df.Sub_type,
         ):
@@ -321,11 +198,6 @@ class Db:
         Yields:
             Allele: Allele objects constructed from data rows.
         """
-        # df2 = self.df.copy(deep=True)
-        # df2["type"] = df2["type"].astype("category")
-        # df_ref = df2.loc[(df2["Reference_genotype"] == "Yes") & (df2["type"] == bg.type)]
-
-        # assert df_ref.shape == (1, 20)
 
         for line in self.line_generator(self.df):
             if line.allele_defining_variants == ".":
@@ -397,96 +269,34 @@ def prepare_db() -> pd.DataFrame:
 
     pd.set_option("future.no_silent_downcasting", True)
     df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
-    #df.Weight_of_phenotype = df.Weight_of_phenotype.fillna(LOW_WEIGHT)
     df = df.fillna(".")
     df = df.infer_objects(copy=False)
 
     logger.debug(f"Final DataFrame shape after processing: {df.shape}")
     logger.info("Database preparation completed.")
     return df
-######new ####
 
 
-
-@dataclass(slots=True, frozen=True)
-class DbInternalConsistencyCheck:
-    """A data class representing a genomic database configuration.
-
-    Attributes
-
-        ref (str):
-            The reference column name used for querying data within the database.
-        df (DataFrame):
-            DataFrame loaded from the database file, initialized post-construction.
-        lane_variants (dict[str, Any]):
-            Dictionary mapping chromosome to its lane variants, initialized
-            post-construction.
-        antitheticals (dict[str, list[str]]):
-            Dictionary mapping blood groups to antithetical alleles, initialized
-              post-construction.
-        reference_alleles (dict[str, Allele]):
-            Dictionary mapping genotype identifiers to reference Allele objects,
-            initialized post-construction.
+class DbDataConsistencyChecker:
+    """
+    Provides static methods to check the internal consistency of the database DataFrame
+    before it's used to create a Db object.
     """
 
-    ref: str
-    df: pd.DataFrame #= field(init=False)
-    lane_variants: dict[str, Any] = field(init=False)
-    antitheticals: dict[str, list[str]] = field(init=False)
-    reference_alleles: dict[str, Any] = field(init=False)
-
-    def __post_init__(self):
-        #object.__setattr__(self, "df", prepare_db())
-        # object.__setattr__(self, "antitheticals", self.get_antitheticals())
-        # object.__setattr__(self, "lane_variants", self.get_lane_variants())
-        # object.__setattr__(self, "reference_alleles", self.get_reference_allele())
-        self.grch37_38_def_var_count_equal()
-        #self.build_antigen_map()
-        self.check_antigens_are_same()
-
-    def check_antigens_are_same(self):
-        """Ensure that the number of antigens in the numeric and alphanumeric descriptions
-        match and that they haev the same expression and modifiers (weak etc)"""
-        mapping = self.build_antigen_map()
-        for num, alpha, sub in zip(
-            list(self.df.Phenotype_change),
-            list(self.df.Phenotype_alt_change),
-            list(self.df.Sub_type),
-        ):
-            if num == '.' or alpha == '.':
-                continue
-            system = num.strip().split(':')[0]
-            ic(num, alpha, sub, system)
-            if system in ['RHD', 'CH', 'RG', 'Ch+Rg+WH+']: #TODO rm C4A
-                continue
-            if '?' in num or '?' in alpha:
-                continue
-            assert compare_antigen_profiles(
-                num,
-                alpha,
-                mapping,
-                system,
-            )
-
-
-    def build_antigen_map(self) -> dict[str, dict[str, str]]:
-        """Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping.
-
-        Args:
-            df: DataFrame with *Phenotype* (numeric) and *Phenotype_alt* (α) columns.
-
-        Returns:
-            Nested mapping suitable for :pyfunc:`compare_antigen_profiles`.
-
-        Raises:
-            ValueError: Any row where token counts differ or parsing fails.
+    @staticmethod
+    def _build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
+        """
+        Build ``{SYSTEM: {numeric_id: canonical_alpha}}`` mapping from DataFrame.
+        Helper for antigen consistency checks.
+        (This is the logic from your original build_antigen_map method,
+         now static and taking df as a parameter.)
         """
         mapping: dict[str, dict[str, str]] = defaultdict(dict)
         for num_raw, α_raw in zip(
-            self.df.Phenotype, self.df.Phenotype_alt, strict=True
+            df.Phenotype, df.Phenotype_alt, strict=True
         ):
             if num_raw == "." or α_raw == ".":
-                continue  # no cross‑walk for this allele
+                continue
 
             system, _, num_payload = num_raw.partition(":")
             system = system.upper()
@@ -501,23 +311,119 @@ class DbInternalConsistencyCheck:
             ]
             if len(num_tokens) != len(α_tokens):
                 raise ValueError(
-                    f"Token mismatch in {system}: "
-                    f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha"
+                    f"Token mismatch in {system} for Phenotype/Phenotype_alt mapping: "
+                    f"{len(num_tokens)} numeric vs {len(α_tokens)} alpha ({num_raw} / {α_raw})"
                 )
 
             for n, a in zip(num_tokens, α_tokens, strict=True):
                 mapping[system][n] = a
-
         return mapping
 
-    def grch37_38_def_var_count_equal(self):
-        """Ensure that the number of GRCh37 variants == the number of GRCh38 variants
-        for each allele, and the no of transcript changes"""
-        for grch37, grch38 in zip(list(self.df.GRCh37), list(self.df.GRCh38)):
-            if len(grch37.strip().split(",")) != len(grch38.strip().split(",")):
-                raise VariantCountMismatchError(grch37, grch38)
+    @staticmethod
+    def _perform_antigen_consistency_check(
+        df: pd.DataFrame,
+        phenotype_col_name: str,
+        phenotype_alt_col_name: str
+    ):
+        """
+        Helper to check antigen consistency for a given pair of phenotype columns.
+        Uses the mapping built from primary Phenotype/Phenotype_alt columns.
+        """
+        # The mapping should ideally be built once from the canonical Phenotype columns
+        # and then used for all checks.
+        # Assuming _build_antigen_map_for_checks uses df.Phenotype and df.Phenotype_alt
+        # as the source of truth for the mapping.
+        mapping = DbDataConsistencyChecker._build_antigen_map_for_checks(df)
+        
+        phenotype_series = df[phenotype_col_name]
+        phenotype_alt_series = df[phenotype_alt_col_name]
 
+        for i, (num, alpha) in enumerate(zip(list(phenotype_series), list(phenotype_alt_series))):
+            if num == '.' or alpha == '.':
+                continue
+            
+            current_system_from_num = num.strip().split(':')[0]
+            
+            if current_system_from_num in ['RHD', 'CH', 'RG', 'Ch+Rg+WH+']: #TODO rm C4A
+                continue
+            if '?' in num or '?' in alpha:
+                continue
 
+            # Ensure consistent system context for compare_antigen_profiles
+            # Usually, the system is derived from the numeric part.
+            system_context = current_system_from_num
+
+            if not compare_antigen_profiles(
+                numeric=num, # Use the full string e.g. "RH:1+"
+                alpha=alpha,   # Use the full string e.g. "D+"
+                mapping=mapping,       # The global mapping
+                system=system_context, # System derived from the numeric string
+            ):
+                allele_info = df.loc[i, "Genotype"] if "Genotype" in df.columns else f"Row index {i}"
+                error_msg = (
+                    f"Antigen profile mismatch for allele '{allele_info}' (System: {system_context}) "
+                    f"between '{phenotype_col_name}' ('{num}') and "
+                    f"'{phenotype_alt_col_name}' ('{alpha}')"
+                )
+                # Consider raising a more specific error if desired
+                raise AssertionError(error_msg)
+
+    @staticmethod
+    def check_phenotype_change_antigens(df: pd.DataFrame):
+        """Ensure consistency between Phenotype_change and Phenotype_alt_change."""
+        logger.debug("Checking antigen consistency for Phenotype_change / Phenotype_alt_change...")
+        DbDataConsistencyChecker._perform_antigen_consistency_check(
+            df, "Phenotype_change", "Phenotype_alt_change"
+        )
+        logger.debug("Phenotype_change / Phenotype_alt_change antigen consistency check passed.")
+
+    @staticmethod
+    def check_phenotype_antigens(df: pd.DataFrame):
+        """Ensure consistency between Phenotype and Phenotype_alt."""
+        logger.debug("Checking antigen consistency for Phenotype / Phenotype_alt...")
+        DbDataConsistencyChecker._perform_antigen_consistency_check(
+            df, "Phenotype", "Phenotype_alt"
+        )
+        logger.debug("Phenotype / Phenotype_alt antigen consistency check passed.")
+
+    @staticmethod
+    def check_grch37_38_variant_counts(df: pd.DataFrame):
+        """Ensure GRCh37 and GRCh38 variant counts match for each allele."""
+        logger.debug("Checking GRCh37/38 defining variant counts...")
+        for index, row in df.iterrows(): # Iterate for potentially better error context
+            grch37_vars_str = str(row.GRCh37)
+            grch38_vars_str = str(row.GRCh38)
+            
+            # Handle potential empty strings or "." consistently before splitting
+            grch37_list = [v for v in grch37_vars_str.strip().split(",") if v and v != "."]
+            grch38_list = [v for v in grch38_vars_str.strip().split(",") if v and v != "."]
+
+            if len(grch37_list) != len(grch38_list):
+                # The VariantCountMismatchError takes the raw strings
+                raise VariantCountMismatchError(grch37_vars_str, grch38_vars_str)
+        logger.debug("GRCh37/38 defining variant count check passed.")
+
+    @staticmethod
+    def run_all_checks(df: pd.DataFrame, ref_genome_name: str | None = None):
+        """
+        Runs all internal consistency checks on the DataFrame.
+        
+        Args:
+            df (pd.DataFrame): The DataFrame to check.
+            ref_genome_name (str | None, optional): The reference genome name (e.g., "GRCh37").
+                Currently unused by these specific checks but included for future extensibility
+                if some checks become dependent on the reference context.
+        """
+        logger.info("Running database data consistency checks...")
+        DbDataConsistencyChecker.check_grch37_38_variant_counts(df)
+        DbDataConsistencyChecker.check_phenotype_change_antigens(df)
+        DbDataConsistencyChecker.check_phenotype_antigens(df)
+        
+        # Example of how you might use ref_genome_name if a check needed it:
+        # if ref_genome_name:
+        #     DbDataConsistencyChecker.some_check_dependent_on_ref(df, ref_genome_name)
+            
+        logger.info("All database data consistency checks passed successfully.")
 
 # ────────────────────── helper regexes ──────────────────────
 _NUM_ID_RE = re.compile(r"-?(\d+)")  # leading '-' allowed
@@ -579,16 +485,10 @@ _ALPHA_MOD = {
     "weak_to_neg": "n",
     "very_weak_to_neg": "n",
 }
-# # Assume _ALPHA_MOD and _MOD_LETTERS are defined as in your provided code:
-# # _ALPHA_MOD = {
-# #     "weak": "w", "very_weak": "v", "partial": "p", "neg": "n", "negative": "n",
-# #     "monoclonal": "m", "inferred": "i", "robust": "r", "strong": "s",
-# #     "positive_to_neg": "n", "weak_to_neg": "n", "very_weak_to_neg": "n",
-# # }
-# # _MOD_LETTERS = set(_ALPHA_MOD.values())
 
+OVERRIDING_INTENSITY_PHRASES = {
+    "very_weak": "v",}
 
-# NEW – valid single‑letter codes
 _MOD_LETTERS = set(_ALPHA_MOD.values())
 
 class NumericParser:
@@ -624,15 +524,6 @@ class NumericParser:
             )
         return antigens
 
-# import re # Ensure re is imported
-
-# # Assume _ALPHA_MOD and _MOD_LETTERS are defined as in your provided code:
-# # _ALPHA_MOD = {
-# #     "weak": "w", "very_weak": "v", "partial": "p", "neg": "n", "negative": "n",
-# #     "monoclonal": "m", "inferred": "i", "robust": "r", "strong": "s",
-# #     "positive_to_neg": "n", "weak_to_neg": "n", "very_weak_to_neg": "n",
-# # }
-# # _MOD_LETTERS = set(_ALPHA_MOD.values())
 
 
 class AlphaParser:
@@ -651,111 +542,71 @@ class AlphaParser:
             tok = raw.strip()
             if not tok:
                 continue
-                
+            
             try:
                 idx = next(i for i, ch in enumerate(tok) if ch in "+-")
             except StopIteration:
                 raise ValueError(f"Missing +/- in token: {tok}")
 
-            # name_part_before_rstrip is the segment of the token before the sign.
-            # E.g., for "Fy(a+w)", this is "Fy(a".
-            # E.g., for "K+", this is "K".
             name_part_before_rstrip = tok[:idx]
-            
-            name = name_part_before_rstrip.rstrip(" (") # Final antigen name, e.g., "Fy(a)" or "K"
+            name = name_part_before_rstrip.rstrip(" (")
             expr = tok[idx] == "+"
-            
-            # Initial tail, may contain structural parentheses.
-            # E.g., for "Fy(a+w)", tail is "w)". For "Fy(b-)", tail is ")". For "K+", tail is "".
             tail = tok[idx + 1 :].lower()
-            
-            # --- MINIMAL FIX FOR TRAILING PARENTHESES IN MODIFIERS ---
-            # If the tail ends with ')' and the part of the token that formed the 'name'
-            # had an unmatched opening parenthesis, remove the ')' from the tail.
-            # This handles cases like "Fy(a+w)" -> tail "w)" becoming "w",
-            # and "Fy(b-)" -> tail ")" becoming "".
+
             if tail.endswith(')') and \
                name_part_before_rstrip.count('(') > name_part_before_rstrip.count(')'):
                 tail = tail[:-1]
-            # --- END OF MINIMAL FIX ---
                 
-            mods: set[str] = set()
+            current_antigen_mods: set[str] = set() # Mods for the current antigen token (e.g. e+partial_weak_to_neg)
             
-            # Existing modifier parsing logic (should now work with cleaned tail)
+            # Split tail into space-separated components (e.g., "very_weak", "partial", "wp")
             components = [comp for comp in re.split(r"\s+", tail.strip()) if comp]
 
-            for comp in components:
-                comp_code = _ALPHA_MOD.get(comp)
-                if comp_code:
-                    mods.add(comp_code)
-                    continue
+            for comp in components: # Process each component (e.g., "partial_weak_to_neg")
+                # 1. Check for overriding intensity phrases first
+                overriding_code = OVERRIDING_INTENSITY_PHRASES.get(comp)
+                if overriding_code:
+                    current_antigen_mods.add(overriding_code)
+                    continue # This component is fully handled by the overriding phrase
 
+                # 2. If not an overriding phrase, accumulate modifiers from:
+                #    a) The direct match of the component in _ALPHA_MOD
+                #    b) Underscore-separated parts of the component found in _ALPHA_MOD
+                #    (This allows "weak_to_neg" (if mapped to "n") to also pick up "w" from its "weak" part)
+                
+                component_processed_by_phrase_or_parts = False
+
+                # 2a. Direct match of the whole component
+                direct_comp_code = _ALPHA_MOD.get(comp)
+                if direct_comp_code:
+                    current_antigen_mods.add(direct_comp_code)
+                    component_processed_by_phrase_or_parts = True
+                
+                # 2b. Underscore-separated parts
                 if "_" in comp:
-                    found_mods_in_underscore_split = False
                     for part in comp.split("_"):
                         part_code = _ALPHA_MOD.get(part)
                         if part_code:
-                            mods.add(part_code)
-                            found_mods_in_underscore_split = True
-                    if found_mods_in_underscore_split:
-                        continue
+                            current_antigen_mods.add(part_code)
+                            component_processed_by_phrase_or_parts = True # Mark as processed if any part matches
                 
-                # Check _MOD_LETTERS is not empty before using it in set operations
-                # to prevent error if it was somehow misconfigured.
-                if _MOD_LETTERS and set(comp) <= _MOD_LETTERS:
-                    mods.update(list(comp))
-                    continue
+                # 3. If the component was NOT processed by direct phrase match (2a)
+                #    NOR by underscore parts (2b effectively, because if it had parts, flag would be true),
+                #    AND it does not contain underscores itself (ensuring it's a candidate for single letters),
+                #    THEN try to parse as concatenated single modifier letters.
+                if not component_processed_by_phrase_or_parts and not ("_" in comp):
+                    if _MOD_LETTERS and set(comp) <= _MOD_LETTERS:
+                        current_antigen_mods.update(list(comp))
             
             antigens.append(
                 Antigen(
                     system=self._system,
                     name=name,
                     expressed=expr,
-                    modifiers=frozenset(mods),
+                    modifiers=frozenset(current_antigen_mods),
                 )
             )
         return antigens
-
-
-    # def parse(self, text: str) -> list[Antigen]:
-    #     if text.strip() in {"", "."}:
-    #         return []
-
-    #     antigens: list[Antigen] = []
-
-    #     for raw in text.split(","):
-    #         tok = raw.strip()
-    #         # locate first + or -
-    #         try:
-    #             idx = next(i for i, ch in enumerate(tok) if ch in "+-")
-    #         except StopIteration:
-    #             raise ValueError(f"Missing +/- in token: {tok}")
-
-    #         name = tok[:idx].rstrip(" (")
-    #         expr = tok[idx] == "+"
-    #         tail = tok[idx + 1 :].lower()
-
-    #         mods: set[str] = set()
-    #         for word in re.split(r"\W+", tail):
-    #             #for word in re.split(r"[_\W]+", tail):
-    #             code = _ALPHA_MOD.get(word)
-    #             if code:
-    #                 mods.add(code)
-
-       
-    #         first_seq = re.match(r"[a-z]+", tail.lstrip())
-    #         if first_seq and set(first_seq.group(0)) <= _MOD_LETTERS:
-    #             mods.update(first_seq.group(0))          # e.g. "+w", "+pw", "+pwn"
-
-    #         antigens.append(
-    #             Antigen(
-    #                 system=self._system,
-    #                 name=name,
-    #                 expressed=expr,
-    #                 modifiers=frozenset(mods),
-    #             )
-    #         )
-    #     return antigens
 
 
 # ──────────────────────────────── comparison ────────────────────────────────

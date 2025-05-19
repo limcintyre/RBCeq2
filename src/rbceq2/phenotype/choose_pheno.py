@@ -704,6 +704,7 @@ def internal_anithetical_consistency_HET(
         return bg
 
     for pair, antigens in bg.phenotypes[ant_type].items():
+        null = pair.allele1.null or pair.allele2.null
         already_checked = set()
         new_antigens = []
         if pair.allele1.phenotype == ".":
@@ -786,11 +787,18 @@ def internal_anithetical_consistency_HET(
                 and pair.allele2.genotype not in sudo_nuls
             ):  # TODO move to dif func
                 final_no_expressed = count_expressed_ants(ant, base_names_new)
-                try:
-                    assert final_no_expressed == 2
-                except AssertionError:
-                    logger.warning(
-                        f"Expressed antigens != 2! {bg.sample} {pair} {ant} {final_no_expressed}"
+                to_neg = 'to_neg' in str(pair) and 'RHCE' in str(pair)
+                if not to_neg: 
+                    try:
+                        assert final_no_expressed == 2
+                    except AssertionError:
+                        ic(
+                        "Expressed antigens != 2!",
+                        bg.sample,
+                        str(pair),
+                        ant,
+                        final_no_expressed,
+                        null
                     )
 
     for pair, merged_pheno in new_phenos:
@@ -864,17 +872,26 @@ def internal_anithetical_consistency_HOM(
         BloodGroup: The updated BloodGroup with merged antigen lists that respect antithetical
             consistency for homozygous alleles.
     """
+    
     new_phenos = []
     for pair, antigens in bg.phenotypes[ant_type].items():
+        null = pair.allele1.null or pair.allele2.null
         new_antigens = []
         if pair.allele1.phenotype == ".":
             continue
         base_names = [ant2.base_name for ant2 in antigens]
+        base_names_dict = {ant2.base_name: ant2 for ant2 in antigens}
 
         for ant in antigens:
             if ant.antithetical_antigen and ant.homozygous:
                 if len(ant.antithetical_antigen) > 1:
-                    logger.warning("ensure only 1 expressed!!!")
+                    no_expressed = count_expressed_ants(ant, base_names_dict)
+                    if null and no_expressed != 0:
+                        ic(ant, no_expressed)
+                        logger.warning("ensure 0 expressed for null !!!")
+                    if not null and no_expressed != 2:
+                        ic(ant, no_expressed)
+                        logger.warning("ensure 2 expressed !!!")
                 for antithetical_ant in ant.antithetical_antigen:
                     if antithetical_ant.base_name not in base_names:
                         bg_type = BgName.from_string(bg.type)

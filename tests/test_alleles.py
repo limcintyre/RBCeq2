@@ -16,8 +16,8 @@ class TestAllele(unittest.TestCase):
             genotype_alt="KN*02",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=3,
             sub_type="KN*01",
         )
         self.allele2 = Allele(
@@ -26,8 +26,8 @@ class TestAllele(unittest.TestCase):
             genotype_alt="KN*03",
             phenotype_alt="positive",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             sub_type="KN*01",
         )
         self.allele3 = Allele(
@@ -36,8 +36,8 @@ class TestAllele(unittest.TestCase):
             genotype_alt="KN*04",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2", "variant3"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=4,
             sub_type="KN*01",
         )
 
@@ -76,8 +76,8 @@ class TestBloodGroup(unittest.TestCase):
             genotype_alt="KN*02",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             phases=("ps1", "ps2"),
         )
         self.allele2 = Allele(
@@ -86,8 +86,8 @@ class TestBloodGroup(unittest.TestCase):
             genotype_alt="KN*03",
             phenotype_alt="positive",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             phases=("ps2",),
         )
 
@@ -137,8 +137,8 @@ class TestPair(unittest.TestCase):
             genotype_alt="KN*02",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=True,
         )
         self.allele2 = Allele(
@@ -147,8 +147,8 @@ class TestPair(unittest.TestCase):
             genotype_alt="KN*03",
             phenotype_alt="positive",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
         )
         self.pair = Pair(allele1=self.allele1, allele2=self.allele2)
@@ -196,8 +196,8 @@ class TestPair(unittest.TestCase):
                 genotype_alt="KN*02",
                 phenotype_alt="negative",
                 defining_variants=frozenset({"variant1", "variant2"}),
+                null=False,
                 weight_geno=2,
-                weight_pheno=3,
                 reference=True,
             ),
             allele2=Allele(
@@ -206,8 +206,8 @@ class TestPair(unittest.TestCase):
                 genotype_alt="KN*03",
                 phenotype_alt="positive",
                 defining_variants=frozenset({"variant1"}),
+                null=False,
                 weight_geno=1,
-                weight_pheno=2,
                 reference=True,
             ),
         )
