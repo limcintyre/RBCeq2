@@ -392,8 +392,8 @@ class TestRuleOutImpossibleAlleles(unittest.TestCase):
             defining_variants=frozenset(
                 {"18:43310415_G_A", "18:43316538_A_G", "18:43319519_G_A"}
             ),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -403,8 +403,8 @@ class TestRuleOutImpossibleAlleles(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"18:43310415_G_A", "18:43319519_G_A"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -414,8 +414,8 @@ class TestRuleOutImpossibleAlleles(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"18:43310415_G_A"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype3",
         )
@@ -498,8 +498,8 @@ class TestGetFullyHomozygousAlleles(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -509,8 +509,8 @@ class TestGetFullyHomozygousAlleles(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -520,8 +520,8 @@ class TestGetFullyHomozygousAlleles(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype3",
         )
@@ -584,8 +584,8 @@ class TestMakePair(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -595,8 +595,8 @@ class TestMakePair(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype1",
         )
@@ -662,8 +662,8 @@ class TestPairCanExist(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -673,8 +673,8 @@ class TestPairCanExist(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype1",
         )
@@ -684,8 +684,8 @@ class TestPairCanExist(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -732,8 +732,8 @@ class TestCombineAll(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -743,8 +743,8 @@ class TestCombineAll(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=True,
             sub_type="subtype1",
         )
@@ -754,8 +754,8 @@ class TestCombineAll(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -837,8 +837,8 @@ class TestMushedVars(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -848,8 +848,8 @@ class TestMushedVars(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -859,8 +859,8 @@ class TestMushedVars(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -900,8 +900,8 @@ class TestAddPhase(unittest.TestCase):
             genotype_alt="Alt Genotype",
             phenotype_alt="Alt Phenotype",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
             sub_type="SubType1",
             phases=("phase1",),
@@ -923,7 +923,6 @@ class TestAddPhase(unittest.TestCase):
         self.assertEqual(new_allele.phenotype_alt, allele.phenotype_alt)
         self.assertEqual(new_allele.defining_variants, allele.defining_variants)
         self.assertEqual(new_allele.weight_geno, allele.weight_geno)
-        self.assertEqual(new_allele.weight_pheno, allele.weight_pheno)
         self.assertEqual(new_allele.reference, allele.reference)
         self.assertEqual(new_allele.sub_type, allele.sub_type)
         self.assertEqual(
@@ -941,8 +940,8 @@ class TestAddPhase(unittest.TestCase):
             genotype_alt="Alt Genotype B",
             phenotype_alt="Alt Phenotype B",
             defining_variants=frozenset({"var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
             sub_type="SubType2",
             phases=None,
@@ -964,7 +963,6 @@ class TestAddPhase(unittest.TestCase):
         self.assertEqual(new_allele.phenotype_alt, allele.phenotype_alt)
         self.assertEqual(new_allele.defining_variants, allele.defining_variants)
         self.assertEqual(new_allele.weight_geno, allele.weight_geno)
-        self.assertEqual(new_allele.weight_pheno, allele.weight_pheno)
         self.assertEqual(new_allele.reference, allele.reference)
         self.assertEqual(new_allele.sub_type, allele.sub_type)
         self.assertEqual(
@@ -982,8 +980,8 @@ class TestAddPhase(unittest.TestCase):
             genotype_alt="Alt Genotype C",
             phenotype_alt="Alt Phenotype C",
             defining_variants=frozenset({"var4", "var5"}),
+            null=False,
             weight_geno=3,
-            weight_pheno=1,
             reference=True,
             sub_type="SubType3",
             phases=("phaseX", "phaseY"),
@@ -1015,8 +1013,8 @@ class TestAddPhase(unittest.TestCase):
             genotype_alt="Alt Genotype D",
             phenotype_alt="Alt Phenotype D",
             defining_variants=frozenset({"var6"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="SubType4",
             phases=None,
@@ -1043,8 +1041,8 @@ class TestAddPhase2(unittest.TestCase):
             genotype_alt="Alt Genotype",
             phenotype_alt="Alt Phenotype",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
             sub_type="SubType1",
             phases=("phase1",),
@@ -1065,8 +1063,8 @@ class TestAddPhase2(unittest.TestCase):
             genotype_alt="Alt Genotype B",
             phenotype_alt="Alt Phenotype B",
             defining_variants=frozenset({"var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
             sub_type="SubType2",
             phases=None,
@@ -1083,8 +1081,8 @@ class TestAddPhase2(unittest.TestCase):
             genotype_alt="Alt Genotype C",
             phenotype_alt="Alt Phenotype C",
             defining_variants=frozenset({"var4", "var5"}),
+            null=False,
             weight_geno=3,
-            weight_pheno=1,
             reference=True,
             sub_type="SubType3",
             phases=("phaseX", "phaseY"),
@@ -1104,8 +1102,8 @@ class TestRawResults(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1115,8 +1113,8 @@ class TestRawResults(unittest.TestCase):
             genotype_alt="Alt B",
             phenotype_alt="Alt Pheno B",
             defining_variants=frozenset({"var2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
         )
@@ -1135,7 +1133,7 @@ class TestRawResults(unittest.TestCase):
             def make_alleles(self):
                 return alleles
 
-        return MockDb(ref="Defining_variants")
+        return MockDb(ref="Defining_variants", df=pd.DataFrame())
 
     def test_all_variants_present(self):
         db = self.create_mock_db([self.allele1, self.allele2])
@@ -1160,8 +1158,8 @@ class TestRawResults(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1", "var_missing"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1182,8 +1180,8 @@ class TestRawResults(unittest.TestCase):
             genotype_alt="Alt C",
             phenotype_alt="Alt Pheno C",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub3",
         )
@@ -1216,8 +1214,8 @@ class TestAddPhasingExtraCoverage(unittest.TestCase):
             defining_variants=frozenset(
                 {"var1_ref", "var2"}
             ),  # triggers the lines we want
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="SubRefVar",
         )
@@ -1233,8 +1231,8 @@ class TestAddPhasingExtraCoverage(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var_refA"}),  # only ends with "_ref"
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="SubRefOnly",
         )
@@ -1295,8 +1293,8 @@ class TestAddPhasingExtraCoverage(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"varA_ref"}),  # MUST end with "_ref"
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="SubRefOnly",
         )
@@ -1342,8 +1340,8 @@ class TestAddPhasing(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1365,8 +1363,8 @@ class TestAddPhasing(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1390,8 +1388,8 @@ class TestAddPhasing(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1", "var_missing"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1412,8 +1410,8 @@ class TestAddPhasing(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1437,8 +1435,8 @@ class TestAddPhasing(unittest.TestCase):
             genotype_alt="Alt A",
             phenotype_alt="Alt Pheno A",
             defining_variants=frozenset({"var1", "var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1465,10 +1463,10 @@ class TestMakeBloodGroups(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
             phases=None,
@@ -1477,10 +1475,10 @@ class TestMakeBloodGroups(unittest.TestCase):
             genotype="B*02",
             phenotype="Phenotype B",
             defining_variants=frozenset({"var2"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
             phases=None,
@@ -1514,10 +1512,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1525,10 +1523,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="B*02",
             phenotype="Phenotype B",
             defining_variants=frozenset({"var3"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
         )
@@ -1552,10 +1550,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1563,10 +1561,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="B*02",
             phenotype="Phenotype B",
             defining_variants=frozenset({"var3"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
         )
@@ -1591,10 +1589,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="A*03",
             phenotype="Phenotype C",
             defining_variants=frozenset(),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub3",
         )
@@ -1614,10 +1612,10 @@ class TestFilterVcfMetrics(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1639,10 +1637,10 @@ class TestRemoveAllelesWithLowReadDepth(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1650,10 +1648,10 @@ class TestRemoveAllelesWithLowReadDepth(unittest.TestCase):
             genotype="B*02",
             phenotype="Phenotype B",
             defining_variants=frozenset({"var3"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
         )
@@ -1686,10 +1684,10 @@ class TestRemoveAllelesWithLowBaseQuality(unittest.TestCase):
             genotype="A*01",
             phenotype="Phenotype A",
             defining_variants=frozenset({"var1"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="Sub1",
         )
@@ -1697,10 +1695,10 @@ class TestRemoveAllelesWithLowBaseQuality(unittest.TestCase):
             genotype="B*02",
             phenotype="Phenotype B",
             defining_variants=frozenset({"var2"}),
+            null=False,
             genotype_alt=".",
             phenotype_alt=".",
             weight_geno=2,
-            weight_pheno=2,
             reference=False,
             sub_type="Sub2",
         )
@@ -1886,8 +1884,8 @@ class TestProcessGeneticData3(unittest.TestCase):
                 genotype_alt="",
                 phenotype_alt="",
                 defining_variants=frozenset(),
+                null=False,
                 weight_geno=0,
-                weight_pheno=0,
                 reference=True,
                 sub_type="SubA",
             )
@@ -1954,8 +1952,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubA",
         )
@@ -1997,8 +1995,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=20,
-            weight_pheno=20,
             reference=False,
             sub_type="SubA",
         )
@@ -2009,8 +2007,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=15,
-            weight_pheno=15,
             reference=False,
             sub_type="SubA",
         )
@@ -2060,8 +2058,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=20,
-            weight_pheno=20,
             reference=False,
             sub_type="SubA",
         )
@@ -2071,8 +2069,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=15,
-            weight_pheno=15,
             reference=False,
             sub_type="SubA",
         )
@@ -2131,8 +2129,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubB",
         )
@@ -2142,8 +2140,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=9,
-            weight_pheno=9,
             reference=False,
             sub_type="SubB",
         )
@@ -2204,8 +2202,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=12,
-            weight_pheno=12,
             reference=False,
             sub_type="SubC",
         )
@@ -2215,8 +2213,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=11,
-            weight_pheno=11,
             reference=False,
             sub_type="SubC",
         )
@@ -2278,8 +2276,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubC",
         )
@@ -2289,8 +2287,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=9,
-            weight_pheno=9,
             reference=False,
             sub_type="SubC",
         )
@@ -2349,8 +2347,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=12,
-            weight_pheno=12,
             reference=False,
             sub_type="SubZ",
         )
@@ -2360,8 +2358,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=11,
-            weight_pheno=11,
             reference=False,
             sub_type="SubZ",
         )
@@ -2434,8 +2432,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubZ",
         )
@@ -2445,8 +2443,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=9,
-            weight_pheno=9,
             reference=False,
             sub_type="SubZ",
         )
@@ -2516,8 +2514,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=11,
-            weight_pheno=11,
             reference=False,
             sub_type="SubZ",
         )
@@ -2527,8 +2525,8 @@ class TestProcessGeneticData3(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubZ",
         )
@@ -2566,8 +2564,8 @@ class TestGeneticStrategies(unittest.TestCase):
                 genotype_alt="",
                 phenotype_alt="",
                 defining_variants=frozenset(),
+                null=False,
                 weight_geno=0,
-                weight_pheno=0,
                 reference=True,
                 sub_type="RefSub",
             )
@@ -2609,8 +2607,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"varX"}),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="VarSub",
         )
@@ -2642,8 +2640,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"varOne"}),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SVar",
         )
@@ -2677,8 +2675,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1"}),
+            null=False,
             weight_geno=12,
-            weight_pheno=12,
             reference=False,
             sub_type="HomSub",
         )
@@ -2688,8 +2686,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2"}),
+            null=False,
             weight_geno=15,
-            weight_pheno=15,
             reference=False,
             sub_type="HomSub",
         )
@@ -2748,8 +2746,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"varA1"}),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubNoHom",
         )
@@ -2759,8 +2757,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"varA2"}),
+            null=False,
             weight_geno=11,
-            weight_pheno=11,
             reference=False,
             sub_type="SubNoHom",
         )
@@ -2810,8 +2808,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"varHOM"}),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="HomType",
         )
@@ -2822,8 +2820,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"varA1"}),
+            null=False,
             weight_geno=8,
-            weight_pheno=8,
             reference=False,
             sub_type="HomType",
         )
@@ -2833,8 +2831,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"varA2"}),
+            null=False,
             weight_geno=9,
-            weight_pheno=9,
             reference=False,
             sub_type="HomType",
         )
@@ -2902,8 +2900,8 @@ class TestGeneticStrategies(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset({"var9"}),
+            null=False,
             weight_geno=11,
-            weight_pheno=11,
             reference=False,
             sub_type="SubSomeHom",
         )
@@ -3078,8 +3076,8 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="SubA",
         )
@@ -3331,8 +3329,8 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="SubA",
         )
@@ -3668,8 +3666,8 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="SubA",
         )
@@ -3755,8 +3753,8 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=5,
-            weight_pheno=5,
             reference=False,
             sub_type="BG",
         )
@@ -3804,8 +3802,8 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=5,
-            weight_pheno=5,
             reference=False,
             sub_type="BG",
         )
@@ -3870,8 +3868,8 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="SubA",
         )
@@ -3909,8 +3907,8 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
             genotype_alt="",
             phenotype_alt="",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=10,
-            weight_pheno=10,
             reference=False,
             sub_type="SubA",
         )
@@ -3994,7 +3992,7 @@ class MockDb(Db):
 
 ################################################################################
 # Actual Tests
-################################################################################
+# ################################################################################
 class TestAddRefs(unittest.TestCase):
     """
     Unit tests for the add_refs function, respecting that RHCE is excluded by default.
@@ -4012,8 +4010,8 @@ class TestAddRefs(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="ReferenceSubtype",
         )
@@ -4023,8 +4021,8 @@ class TestAddRefs(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="ReferenceSubtype",
         )
@@ -4036,14 +4034,14 @@ class TestAddRefs(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=0,
             reference=True,
             sub_type="ReferenceSubtype",
         )
 
         # 2) Create a MockDb instance that doesn't read a real file
-        self.db = MockDb(ref="Defining_variants")
+        self.db = MockDb(ref="Defining_variants", df=pd.DataFrame())
 
         # 3) Provide reference_alleles to that Db
         # BG1, BG2, and RHCE (excluded by default if not already in `res`)
@@ -4186,6 +4184,6 @@ class TestAddRefs(unittest.TestCase):
         # Now we expect RHCE to remain, because it was pre-existing
         self.assertIs(updated["RHCE"], existing_RHCE)
 
-
+#TODO - put db stuff back
 if __name__ == "__main__":
     unittest.main()

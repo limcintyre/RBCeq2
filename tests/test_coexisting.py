@@ -207,8 +207,8 @@ class TestAddCoExistingAllelesNotAllHom(unittest.TestCase):
                 phenotype_alt="Kn(a+), Kn(b-), McC(a+), McC(b-), Sl1+, Vil+, "
                 "Sl3+, KCAM+, DACY+",
                 defining_variants=frozenset({"1:207782916_A_T"}),
+                null=False,
                 weight_geno=1000,
-                weight_pheno=2,
                 reference=True,
                 sub_type="KN*01",
                 phases=None,
@@ -279,8 +279,8 @@ class TestDecideIfCoExisting(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -290,8 +290,8 @@ class TestDecideIfCoExisting(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var2", "var3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype1",
         )
@@ -301,8 +301,8 @@ class TestDecideIfCoExisting(unittest.TestCase):
             genotype_alt=".",
             phenotype_alt=".",
             defining_variants=frozenset({"var4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="subtype2",
         )
@@ -361,8 +361,8 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
             genotype_alt=".",
             phenotype_alt="Vil+",
             defining_variants=frozenset({"1:207782889_A_G", "1:207782916_A_T"}),
+            null=False,
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="KN*01",
             phases=None,
@@ -373,8 +373,8 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
             genotype_alt=".",
             phenotype_alt="KDAS+",
             defining_variants=frozenset({"1:207782916_A_T", "1:207782931_A_G"}),
+            null=False,
             weight_geno=1000,
-            weight_pheno=1,
             reference=False,
             sub_type="KN*01",
             phases=None,
@@ -398,8 +398,8 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
                 phenotype_alt="Kn(a+), Kn(b-), McC(a+), McC(b-), Sl1+, Vil+, "
                 "Sl3+, KCAM+, DACY+",
                 defining_variants=frozenset({"1:207782916_A_T"}),
+                null=False,
                 weight_geno=1000,
-                weight_pheno=2,
                 reference=True,
                 sub_type="KN*01",
                 phases=None,
@@ -447,8 +447,8 @@ class TestMushedVarsFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
         )
         allele2 = Allele(
@@ -457,8 +457,8 @@ class TestMushedVarsFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
         )
         combo = [allele1, allele2]
@@ -475,8 +475,8 @@ class TestAddCoExistingAllelesFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
             sub_type="KN*01",
         )
@@ -486,8 +486,8 @@ class TestAddCoExistingAllelesFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
             sub_type="KN*02",
         )
@@ -549,6 +549,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_g",
             genotype_alt="mock_ga",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:1",
             phenotype_alt="X+",
         )
@@ -574,6 +575,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_g1",
             genotype_alt="mock_ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:1",
             phenotype_alt="X+",
         )
@@ -581,6 +583,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_g2",
             genotype_alt="mock_ga2",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:2",
             phenotype_alt="Y-",
         )
@@ -604,6 +607,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_gA",
             genotype_alt="mock_gaA",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:+A",
             phenotype_alt="X+",
         )
@@ -611,6 +615,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_gB",
             genotype_alt="mock_gaB",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:+B",
             phenotype_alt="Y+",
         )
@@ -619,6 +624,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_gC",
             genotype_alt="mock_gaC",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:+A",
             phenotype_alt="X+",
         )
@@ -649,6 +655,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="conflict_g1",
             genotype_alt="conflict_ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:+A",
             phenotype_alt="X+",
         )
@@ -656,6 +663,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="conflict_g2",
             genotype_alt="conflict_ga2",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:-A",
             phenotype_alt="X-",
         )
@@ -674,6 +682,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_gX",
             genotype_alt="mock_gaX",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:+A",
             phenotype_alt="X+",
         )
@@ -681,6 +690,7 @@ class TestMushFunctionNew(unittest.TestCase):
             genotype="mock_gY",
             genotype_alt="mock_gaY",
             defining_variants=frozenset(),
+            null=False,
             phenotype="Test:-B",
             phenotype_alt="Y-",
         )
@@ -735,6 +745,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g1",
             genotype_alt="ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+1",
             phenotype_alt="Ph+",
         )
@@ -753,6 +764,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g1",
             genotype_alt="ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+1",
             phenotype_alt="Ph+",
         )
@@ -760,6 +772,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g2",
             genotype_alt="ga2",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+2",
             phenotype_alt="Ph-",
         )
@@ -784,6 +797,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gA",
             genotype_alt="gaA",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+1",
             phenotype_alt="X+",
         )
@@ -791,6 +805,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gB",
             genotype_alt="gaB",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+2",
             phenotype_alt="Y+",
         )
@@ -798,6 +813,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gC",
             genotype_alt="gaC",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+3",
             phenotype_alt="Z+",
         )
@@ -821,6 +837,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g1",
             genotype_alt="ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+X",
             phenotype_alt="NoConflict+",
         )
@@ -828,6 +845,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g2",
             genotype_alt="ga2",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Y",
             phenotype_alt="NoConflict+",
         )
@@ -851,6 +869,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gPlus",
             genotype_alt="gPlus_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:A",  # No '+' => name is 'A' => will conflict with '-A'
             phenotype_alt="AltNoConflict+",
         )
@@ -858,6 +877,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gMinus",
             genotype_alt="gMinus_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:-A",  # => name='A', expr='-'
             phenotype_alt="AltNoConflict+",
         )
@@ -865,6 +885,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gSingle",
             genotype_alt="gSingle_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Z",  # different antigen => no conflict
             phenotype_alt="Z+",
         )
@@ -899,6 +920,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="g1",
             genotype_alt="ga1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:A",  # does not matter; only 1 => must fail
             phenotype_alt="Ph+",
         )
@@ -939,6 +961,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="h1",
             genotype_alt="h1_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:1w,2",
             phenotype_alt="NoConflict+",
         )
@@ -946,6 +969,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="h2",
             genotype_alt="h2_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:1",
             phenotype_alt="NoConflict+",
         )
@@ -953,6 +977,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="hS",
             genotype_alt="hS_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Z",
             phenotype_alt="Z+",  # same sign => no conflict
         )
@@ -976,6 +1001,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="hAW",
             genotype_alt="hAW_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+A",
             phenotype_alt="Kn(aw+),Hello",  # removed the plus or minus on 'Hello'
         )
@@ -983,6 +1009,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="hA",
             genotype_alt="hA_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+A",
             phenotype_alt="Kn(a+),Hello",  # no conflict => "Hello" vs "Hello"
         )
@@ -990,6 +1017,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="hSingle",
             genotype_alt="hSingle_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+X",
             phenotype_alt="X+",  # keep consistent sign
         )
@@ -1012,6 +1040,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gA1",
             genotype_alt="gaA1",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+A",
             phenotype_alt="X+",
         )
@@ -1019,6 +1048,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gA2",
             genotype_alt="gaA2",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:-B",
             phenotype_alt="Y-",
         )
@@ -1026,6 +1056,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gA3",
             genotype_alt="gaA3",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+C",
             phenotype_alt="Z+",
         )
@@ -1033,6 +1064,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="gA4",
             genotype_alt="gaA4",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+D",
             phenotype_alt="W+",
         )
@@ -1068,6 +1100,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="pA1",
             genotype_alt="pA1_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+X",  # numeric => no conflict
             phenotype_alt="Aw)-",  # triggers the parenthesis replacement
         )
@@ -1075,6 +1108,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="pA2",
             genotype_alt="pA2_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Y",
             phenotype_alt="NoParen",  # no parenthesis
         )
@@ -1084,6 +1118,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="pA3",
             genotype_alt="pA3_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Z",
             phenotype_alt="Z+",
         )
@@ -1115,6 +1150,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="kA1",
             genotype_alt="kA1_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+A",
             phenotype_alt="Kn(aw+),Hello",
         )
@@ -1123,6 +1159,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="kA2",
             genotype_alt="kA2_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+A",
             phenotype_alt="Kn(a+),World",
         )
@@ -1131,6 +1168,7 @@ class TestMushOriginalFullCoverage(unittest.TestCase):
             genotype="kA3",
             genotype_alt="kA3_alt",
             defining_variants=frozenset(),
+            null=False,
             phenotype="AB:+Z",
             phenotype_alt="Z+",
         )
@@ -1164,8 +1202,8 @@ class TestMaxRankFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,  # Weight 2
-            weight_pheno=3,
             reference=True,
             sub_type="KN*01",
         )
@@ -1175,8 +1213,8 @@ class TestMaxRankFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant3"}),
+            null=False,
             weight_geno=1,  # Weight 1 (lower is higher rank)
-            weight_pheno=2,
             reference=False,
             sub_type="KN*02",
         )
@@ -1225,8 +1263,8 @@ class TestHomsFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="nkn",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
             sub_type="KN*01",
         )
@@ -1236,8 +1274,8 @@ class TestHomsFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant3"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
             sub_type="KN*02",
         )
@@ -1291,8 +1329,8 @@ class TestHomsFunction(unittest.TestCase):
             genotype_alt="KN*",
             phenotype_alt="neg",
             defining_variants=frozenset({"variant4"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             reference=False,
             sub_type="KN*03",
         )
@@ -1313,44 +1351,44 @@ unique_alleles = [
     Allele(
         genotype="KN*01",
         defining_variants=frozenset([]),
+        null=False,
         weight_geno=1000,
         phenotype="KN:1,-2,3,4,5,-6,-7,8,9,-10,11,-12,13",
         genotype_alt="KN*A",
         phenotype_alt="Kn(a+),Kn(b-),McC(a+),Sl1+,Yk(a+),McC(b-),Vil-,Sl3+,KCAM+,KDAS-,DACY+,YCAD-,KNMB+",
-        weight_pheno=1,
         sub_type="KN*01",
         reference=True,
     ),
     Allele(
         genotype="KN*01.10",
         defining_variants=frozenset(["1:207782931_A_G"]),
+        null=False,
         weight_geno=1000,
         phenotype="KN:-9,10",
         genotype_alt="",
         phenotype_alt="KCAM-,KDAS+",
-        weight_pheno=1,
         sub_type="KN*01",
         reference=False,
     ),
     Allele(
         genotype="KN*01.12",
         defining_variants=frozenset(["1:207753621_A_G"]),
+        null=False,
         weight_geno=1000,
         phenotype="KN:-11,12",
         genotype_alt="",
         phenotype_alt="DACY-,YCAD+",
-        weight_pheno=1,
         sub_type="KN*01",
         reference=False,
     ),
     Allele(
         genotype="KN*01.07",
         defining_variants=frozenset(["1:207782931_A_G", "1:207782889_A_G"]),
+        null=False,
         weight_geno=1000,
         phenotype="KN:7,-9,10",
         genotype_alt="",
         phenotype_alt="Vil+,KCAM-,KDAS+",
-        weight_pheno=1,
         sub_type="KN*01",
         reference=False,
     ),
@@ -1359,11 +1397,11 @@ unique_alleles = [
         defining_variants=frozenset(
             ["1:207782931_A_G", "1:207782889_A_G", "1:207782856_A_G"]
         ),
+        null=False,
         weight_geno=1000,
         phenotype="KN:-3,-4,6,7,-9,10",
         genotype_alt="",
         phenotype_alt="Sl1-,McC(a-),McC(b+),Vil+,KCAM-,KDAS+",
-        weight_pheno=1,
         sub_type="KN*01",
         reference=False,
     ),
@@ -1372,11 +1410,11 @@ unique_alleles = [
         defining_variants=frozenset(
             ["1:207782931_A_G", "1:207782889_A_G", "1:207782856_A_G"]
         ),
+        null=False,
         weight_geno=1000,
         phenotype="2,1",
         genotype_alt="",
         phenotype_alt="made+,up+",
-        weight_pheno=1,
         sub_type="KN*02",
         reference=False,
     ),
@@ -1668,8 +1706,8 @@ class TestCheckHomVariants(unittest.TestCase):
             genotype_alt="KN*02",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
         )
         self.allele10 = Allele(
@@ -1678,8 +1716,8 @@ class TestCheckHomVariants(unittest.TestCase):
             genotype_alt="KN*03",
             phenotype_alt="positive",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
         )
 
@@ -1712,8 +1750,8 @@ class TestSubAlleles(unittest.TestCase):
             genotype_alt="KN*02",
             phenotype_alt="negative",
             defining_variants=frozenset({"variant1", "variant2"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=3,
             reference=False,
         )
         self.allele10 = Allele(
@@ -1722,8 +1760,8 @@ class TestSubAlleles(unittest.TestCase):
             genotype_alt="KN*03",
             phenotype_alt="positive",
             defining_variants=frozenset({"variant1"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=2,
             reference=False,
         )
 
@@ -1749,8 +1787,8 @@ class TestAddCoExistingAlleleAndRef(unittest.TestCase):
         self.allele1 = Allele(
             genotype="KN*01.06",
             defining_variants=frozenset({"var1", "var2"}),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             phenotype="KN:6",
             genotype_alt="KN*A",
             phenotype_alt="PhenotypeA",
@@ -1760,8 +1798,8 @@ class TestAddCoExistingAlleleAndRef(unittest.TestCase):
         self.allele2 = Allele(
             genotype="KN*01.07",
             defining_variants=frozenset({"var3"}),
+            null=False,
             weight_geno=2,
-            weight_pheno=1,
             phenotype="KN:7",
             genotype_alt="KN*B",
             phenotype_alt="PhenotypeB",
@@ -1772,8 +1810,8 @@ class TestAddCoExistingAlleleAndRef(unittest.TestCase):
         self.reference_allele = Allele(
             genotype="KN*01",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=0,
-            weight_pheno=1,
             phenotype="KN:1",
             genotype_alt="KN*Ref",
             phenotype_alt="PhenotypeRef",
@@ -1931,10 +1969,10 @@ class TestAddCoExistingAlleleAndRef(unittest.TestCase):
             genotype=old_ref.genotype,
             genotype_alt=old_ref.genotype_alt,
             defining_variants=new_defining_variants,
+            null=False,
             phenotype=old_ref.phenotype,
             phenotype_alt=old_ref.phenotype_alt,
             weight_geno=old_ref.weight_geno,
-            weight_pheno=old_ref.weight_pheno,
             reference=old_ref.reference,
             sub_type=old_ref.sub_type,
         )
@@ -1972,8 +2010,8 @@ class TestFilterRedundantPairs(unittest.TestCase):
         self.allele1 = Allele(
             genotype="KN*01.06",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=1,
-            weight_pheno=1,
             phenotype="KN:6",
             genotype_alt="KN*A",
             phenotype_alt="PhenotypeA",
@@ -1983,8 +2021,8 @@ class TestFilterRedundantPairs(unittest.TestCase):
         self.allele2 = Allele(
             genotype="KN*01.07",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=2,
-            weight_pheno=1,
             phenotype="KN:7",
             genotype_alt="KN*B",
             phenotype_alt="PhenotypeB",
@@ -1994,8 +2032,8 @@ class TestFilterRedundantPairs(unittest.TestCase):
         self.allele3 = Allele(
             genotype="KN*01.10",
             defining_variants=frozenset(),
+            null=False,
             weight_geno=3,
-            weight_pheno=1,
             phenotype="KN:10",
             genotype_alt="KN*C",
             phenotype_alt="PhenotypeC",
@@ -2100,6 +2138,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="KN*01",
             genotype_alt="RefAlt",
             defining_variants=frozenset({"var1"}),
+            null=False,
             phenotype="KN:1",
             phenotype_alt="Ref+",
             reference=True,
@@ -2158,6 +2197,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="A",
             genotype_alt="Aalt",
             defining_variants=frozenset({"varA"}),
+            null=False,
             phenotype="KN:A",
             phenotype_alt="A+",
         )
@@ -2165,6 +2205,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="B",
             genotype_alt="Balt",
             defining_variants=frozenset({"varB"}),
+            null=False,
             phenotype="KN:B",
             phenotype_alt="B+",
         )
@@ -2205,6 +2246,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="X",
             genotype_alt="Xalt",
             defining_variants=frozenset({"varX"}),
+            null=False,
             phenotype="KN:X",
             phenotype_alt="X+",
         )
@@ -2212,6 +2254,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="Y",
             genotype_alt="Yalt",
             defining_variants=frozenset({"varY"}),
+            null=False,
             phenotype="KN:Y",
             phenotype_alt="Y+",
         )
@@ -2247,6 +2290,7 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             genotype="X",
             genotype_alt="Xalt",
             defining_variants=frozenset({}),
+            null=False,
             phenotype="KN:X",
             phenotype_alt="X+",
         )

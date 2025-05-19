@@ -50,26 +50,26 @@ from rbceq2.core_logic.utils import (
 class TestCheckAvailableVariants(unittest.TestCase):
     def test_all_variants_available(self):
         """Test all variants available"""
-        allele = Allele("A1", "M", ".", ".", frozenset({"A", "B", "C"}), 1, 1)
+        allele = Allele("A1", "M", ".", ".", frozenset({"A", "B", "C"}), False, 1, 1)
         variant_pool = {"A": 2, "B": 2, "C": 2}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertTrue(all(result))
 
     def test_some_variants_unavailable(self):
         """Test some variants unavailable"""
-        allele = Allele("A2", "N", ".", ".", frozenset({"A", "B", "C"}), 1, 1)
+        allele = Allele("A2", "N", ".", ".", frozenset({"A", "B", "C"}),False, 1, 1)
         variant_pool = {"A": 0, "B": 2, "C": 1}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertFalse(all(result))
 
     def test_no_variants_available(self):
-        allele = Allele("A3", "O", ".", ".", frozenset({"A", "B", "C"}), 1, 1)
+        allele = Allele("A3", "O", ".", ".", frozenset({"A", "B", "C"}),False, 1, 1)
         variant_pool = {"A": 0, "B": 0, "C": 0}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertFalse(all(result))
 
     def test_variants_exceeding_count(self):
-        allele = Allele("A4", "P", ".", ".", frozenset({"A", "B"}), 1, 1)
+        allele = Allele("A4", "P", ".", ".", frozenset({"A", "B"}),False, 1, 1)
         variant_pool = {"A": 3, "B": 5}
         result = check_available_variants(2, variant_pool, lambda x, y: x > y, allele)
         self.assertTrue(all(result))
@@ -117,6 +117,7 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant1"]),
+                False,
                 1,
                 False,
                 "subtype1",
@@ -128,6 +129,7 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant2"]),
+                False,
                 1,
                 True,
                 "subtype2",
@@ -139,6 +141,7 @@ class TestGetNonRefs(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant3"]),
+                False,
                 1,
                 False,
                 "subtype3",
@@ -161,15 +164,16 @@ class TestGetNonRefs(unittest.TestCase):
     def test_all_reference_alleles(self):
         options = [
             Allele(
-                "genotype4",
-                "phenotype4",
-                ".",
-                ".",
-                frozenset(["variant4"]),
-                1,
-                True,
-                "subtype4",
-                None,
+                genotype="genotype4",
+                phenotype="phenotype4",
+                genotype_alt=".",
+                phenotype_alt=".",
+                defining_variants=frozenset(["variant4"]),
+                null=False,
+                weight_geno=1,
+                reference=True,
+                sub_type="subtype4",
+                phases=None,
             )
         ]
         result = get_non_refs(options)
@@ -191,6 +195,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 genotype_alt=".",
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant1"]),
+                null=False,
                 weight_geno=1,
                 reference=False,
                 sub_type="A",
@@ -201,6 +206,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 genotype_alt=".",
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant2"]),
+                null=False,
                 weight_geno=2,
                 reference=False,
                 sub_type="A",
@@ -211,6 +217,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 genotype_alt=".",
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant3"]),
+                null=False,
                 weight_geno=1,
                 reference=False,
                 sub_type="B",
@@ -221,6 +228,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 genotype_alt=".",
                 phenotype_alt=".",
                 defining_variants=frozenset(["variant4"]),
+                null=False,
                 weight_geno=1,
                 reference=False,
                 sub_type="B",
@@ -261,6 +269,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant5"]),
+                False,
                 1,
                 False,
                 "C",
@@ -272,6 +281,7 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant6"]),
+                False,
                 1,
                 False,
                 "C",
@@ -296,6 +306,7 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant1"]),
+                False,
                 1,
                 False,
                 "subtype1",
@@ -307,6 +318,7 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 ".",
                 ".",
                 frozenset(["variant1", "variant2"]),
+                False,
                 2,
                 False,
                 "subtype2",
