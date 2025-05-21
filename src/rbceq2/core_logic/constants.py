@@ -16,7 +16,7 @@ HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 
 LOW_WEIGHT = 1_000
 
-EXCLUDE = ["C4A", "C4B", "ATP11C", 'RHD', 'RHCE']
+EXCLUDE = ["C4A", "C4B", "ATP11C"] #, 'RHD', 'RHCE']
 
 
 class AlleleState:

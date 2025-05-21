@@ -15,6 +15,7 @@ from rbceq2.db.db import (
     # _NUM_ID_RE, _ALPHA_CANON_RE, _canonical_alpha, Antigen, AntigenParser, NumericParser, AlphaParser
 )
 
+
 class TestVariantCountMismatchError(unittest.TestCase):
     def test_error_message(self):
         err = VariantCountMismatchError("A,B", "X,Y,Z")
@@ -27,23 +28,29 @@ class TestDb(unittest.TestCase):
     def setUp(self):
         self.headers = "GRCh37\tGRCh38\tChrom\tGenotype\tPhenotype_change\tGenotype_alt\tPhenotype_alt_change\tLane\tSub_type\tWeight_of_genotype\tReference_genotype\tAntithetical\tPhenotype\tPhenotype_alt\n"
 
-        self.good_csv_content = self.headers + \
-"""1:100_G_A\t1:100_G_A\tchr1\tBG*01.01\tSYS:1w\tBG*01.01X\tSYS:X+weak\tTrue\tSubA\t100\tNo\tNo\tSYS:1w\tSYS:X+weak
+        self.good_csv_content = (
+            self.headers
+            + """1:100_G_A\t1:100_G_A\tchr1\tBG*01.01\tSYS:1w\tBG*01.01X\tSYS:X+weak\tTrue\tSubA\t100\tNo\tNo\tSYS:1w\tSYS:X+weak
 1:200_T_C\t1:200_T_C\tchr1\tREF*01.02\tSYS:2\tREF*01.02X\tSYS:Y+\tFalse\tSubA\t50\tYes\tNo\tSYS:2\tSYS:Y+
 1:300_T_C,1:301_A_G\t1:300_T_C,1:301_A_G\tchr1\tANTI*01.03\tSYS:3\tANTI*01.03X\tSYS:Z+\tTrue\tSubB\t1\tNo\tYes\tSYS:3\tSYS:Z+
 2:400_A_G\t2:400_A_G\tchr2\tREF*02.01\t.\t.\t.\tFalse\tSubC\t1\tYes\tNo\t.\t.
 """
-        self.mismatch_grch_csv_content = self.headers + \
-"""1:300_T_C,1:301_A_G\t1:300_T_C\tchr1\tBG*01.03\t.\t.\t.\tTrue\tSubB\t1\tNo\tYes\t.\t.
+        )
+        self.mismatch_grch_csv_content = (
+            self.headers
+            + """1:300_T_C,1:301_A_G\t1:300_T_C\tchr1\tBG*01.03\t.\t.\t.\tTrue\tSubB\t1\tNo\tYes\t.\t.
 """
+        )
         # KEL:1 (numeric, positive) vs KEL:K- (alpha, negative) for Phenotype_change/Phenotype_alt_change
         # The Phenotype/Phenotype_alt are KEL:1 vs KEL:K+ (consistent) to not trigger mismatch there
-        self.antigen_mismatch_csv_content = self.headers + \
-"""1:100_G_A\t1:100_G_A\tchr1\tBG*01.01\tKEL:1\tBG*01.01X\tKEL:K-\tTrue\tSubA\t100\tNo\tNo\tKEL:1\tKEL:K+
+        self.antigen_mismatch_csv_content = (
+            self.headers
+            + """1:100_G_A\t1:100_G_A\tchr1\tBG*01.01\tKEL:1\tBG*01.01X\tKEL:K-\tTrue\tSubA\t100\tNo\tNo\tKEL:1\tKEL:K+
 """
+        )
         self.mock_load_db_path = "rbceq2.db.db.load_db"
 
-        global ANTIGEN_MAP # Use the global ANTIGEN_MAP defined later in the file
+        global ANTIGEN_MAP  # Use the global ANTIGEN_MAP defined later in the file
         if "SYS" not in ANTIGEN_MAP:
             ANTIGEN_MAP["SYS"] = {"1": "X", "2": "Y", "3": "Z"}
         if "KEL" not in ANTIGEN_MAP:
@@ -57,18 +64,26 @@ class TestDb(unittest.TestCase):
         mock_load_db_func.return_value = self.mismatch_grch_csv_content
         df_mismatch = prepare_db()
         with self.assertRaises(VariantCountMismatchError):
-            DbDataConsistencyChecker.run_all_checks(df=df_mismatch, ref_genome_name="GRCh37")
+            DbDataConsistencyChecker.run_all_checks(
+                df=df_mismatch, ref_genome_name="GRCh37"
+            )
 
         # Scenario 2: Antigen profile mismatch for Phenotype_change/Phenotype_alt_change
         mock_load_db_func.return_value = self.antigen_mismatch_csv_content
         df_antigen_mismatch = prepare_db()
-        with self.assertRaises(AssertionError): # Expecting mismatch leading to AssertionError
-             DbDataConsistencyChecker.run_all_checks(df=df_antigen_mismatch, ref_genome_name="GRCh37")
+        with self.assertRaises(
+            AssertionError
+        ):  # Expecting mismatch leading to AssertionError
+            DbDataConsistencyChecker.run_all_checks(
+                df=df_antigen_mismatch, ref_genome_name="GRCh37"
+            )
 
         # Scenario 3: Good data
         mock_load_db_func.return_value = self.good_csv_content
         df_good = prepare_db()
-        DbDataConsistencyChecker.run_all_checks(df=df_good, ref_genome_name="GRCh37") # Should pass
+        DbDataConsistencyChecker.run_all_checks(
+            df=df_good, ref_genome_name="GRCh37"
+        )  # Should pass
         db_obj = Db(ref="Genotype", df=df_good)
 
         self.assertIsInstance(db_obj.df, pd.DataFrame)
@@ -82,28 +97,33 @@ class TestDb(unittest.TestCase):
         self.assertIn("ANTI*01.03", db_obj.antitheticals["ANTI"])
 
     def test_check_grch37_38_variant_counts_direct(self):
-        df_mismatch = pd.DataFrame({
-            "GRCh37": ["1:300_T_C,1:301_A_G", "1:1_A_T"],
-            "GRCh38": ["1:300_T_C", "1:1_A_T,1:2_C_G"]
-        })
+        df_mismatch = pd.DataFrame(
+            {
+                "GRCh37": ["1:300_T_C,1:301_A_G", "1:1_A_T"],
+                "GRCh38": ["1:300_T_C", "1:1_A_T,1:2_C_G"],
+            }
+        )
         with self.assertRaises(VariantCountMismatchError) as cm:
             DbDataConsistencyChecker.check_grch37_38_variant_counts(df_mismatch)
         self.assertIn("1:300_T_C,1:301_A_G", str(cm.exception))
         self.assertIn("1:300_T_C", str(cm.exception))
 
-        df_good = pd.DataFrame({
-            "GRCh37": ["1:300_T_C,1:301_A_G", "1:1_A_T"],
-            "GRCh38": ["1:300_T_C,1:301_A_G", "1:1_A_T"]
-        })
+        df_good = pd.DataFrame(
+            {
+                "GRCh37": ["1:300_T_C,1:301_A_G", "1:1_A_T"],
+                "GRCh38": ["1:300_T_C,1:301_A_G", "1:1_A_T"],
+            }
+        )
         DbDataConsistencyChecker.check_grch37_38_variant_counts(df_good)
 
         df_empty_vs_nonempty = pd.DataFrame({"GRCh37": ["."], "GRCh38": ["1:1_A_T"]})
         with self.assertRaises(VariantCountMismatchError):
-            DbDataConsistencyChecker.check_grch37_38_variant_counts(df_empty_vs_nonempty)
+            DbDataConsistencyChecker.check_grch37_38_variant_counts(
+                df_empty_vs_nonempty
+            )
 
         df_both_empty = pd.DataFrame({"GRCh37": ["."], "GRCh38": ["."]})
         DbDataConsistencyChecker.check_grch37_38_variant_counts(df_both_empty)
-
 
     @patch("rbceq2.db.db.load_db")
     def test_line_generator_and_make_alleles(self, mock_load_db_func):
@@ -122,7 +142,7 @@ class TestDb(unittest.TestCase):
         self.assertEqual(len(all_alleles), 4)
         for a in all_alleles:
             self.assertIsInstance(a, Allele)
-        
+
         allele_bg0101 = next(a for a in all_alleles if a.genotype == "BG*01.01")
         # The defining_variants construction adds chrom: before the variant string
         # and assumes GRCh37 column from self.ref being Genotype, and Line.allele_defining_variants
@@ -137,14 +157,18 @@ class TestDb(unittest.TestCase):
         # `db_obj` should be initialized with `ref="GRCh37"` (or "GRCh38").
         # Let's re-initialize db_obj for this specific test part.
 
-        db_obj_for_alleles = Db(ref="GRCh37", df=df) # Use GRCh37 as the source for defining variants
+        db_obj_for_alleles = Db(
+            ref="GRCh37", df=df
+        )  # Use GRCh37 as the source for defining variants
         all_alleles_corrected = list(db_obj_for_alleles.make_alleles())
-        allele_bg0101_corrected = next(a for a in all_alleles_corrected if a.genotype == "BG*01.01")
+        allele_bg0101_corrected = next(
+            a for a in all_alleles_corrected if a.genotype == "BG*01.01"
+        )
         # line.allele_defining_variants will be "1:100_G_A" from df["GRCh37"]
         # and line.chrom will be "chr1"
-        self.assertEqual(allele_bg0101_corrected.defining_variants, frozenset({"1:1:100_G_A"}))
-
-
+        self.assertEqual(
+            allele_bg0101_corrected.defining_variants, frozenset({"1:1:100_G_A"})
+        )
 
 
 # ANTIGEN_MAP: dict[str, dict[str, str]] = {
@@ -182,6 +206,7 @@ class TestDb(unittest.TestCase):
 #     "YT": {"1": "Yt(a", "2": "Yt(b", "3": "YTEG", "4": "YTLI", "5": "YTOT"},
 # }
 
+
 class TestAntigenProfileComparison(unittest.TestCase):
     def _cmp(self, num: str, alpha: str, system: str, strict: bool = True) -> bool:
         return compare_antigen_profiles(num, alpha, ANTIGEN_MAP, system, strict=strict)
@@ -196,9 +221,9 @@ class TestAntigenProfileComparison(unittest.TestCase):
 
     def test_alpha_name_validity(self):
         self.assertTrue(self._cmp("SC:-4,5", "Rd-,STAR+", "SC"))
-        self.assertFalse(self._cmp("SC:-4,5", "rd-,STAR+", "SC")) # 'rd' is not the canonical 'Rd'
-
-    
+        self.assertFalse(
+            self._cmp("SC:-4,5", "rd-,STAR+", "SC")
+        )  # 'rd' is not the canonical 'Rd'
 
     def test_correctly_signed_alpha_expression(self):
         self.assertTrue(self._cmp("RHAG:3,5", "DSLK+,Kg+", "RHAG"))
@@ -206,7 +231,9 @@ class TestAntigenProfileComparison(unittest.TestCase):
 
     def test_order_sensitivity(self):
         self.assertTrue(self._cmp("OK:2,3", "OKGV+,OKVM+", "OK"))
-        self.assertTrue(self._cmp("OK:2,3", "OKVM+,OKGV+", "OK")) # Set comparison, order insensitive
+        self.assertTrue(
+            self._cmp("OK:2,3", "OKVM+,OKGV+", "OK")
+        )  # Set comparison, order insensitive
 
     def test_modifier_weak(self):
         self.assertTrue(self._cmp("RH:4w", "c+weak", "RH"))
@@ -231,9 +258,9 @@ class TestAntigenProfileComparison(unittest.TestCase):
 
     def test_modifier_strong(self):
         self.assertTrue(self._cmp("VEL:1s", "Vel+strong", system="VEL"))
-    
+
     def test_modifier_very_weak(self):
-        ANTIGEN_MAP["KEL"]["2"] = "k" 
+        ANTIGEN_MAP["KEL"]["2"] = "k"
         self.assertTrue(self._cmp("KEL:2v", "k+very_weak", system="KEL"))
         self.assertTrue(self._cmp("KEL:2v", "k+v", system="KEL"))
 
@@ -247,10 +274,30 @@ class TestAntigenProfileComparison(unittest.TestCase):
         self.assertTrue(self._cmp("RH:5pwn", "e+pwn", "RH"))
 
     def test_real_world_examples(self):
-        self.assertTrue(self._cmp("RH:-2,-3,4wp,5wp", "C-,E-,c+weak_partial,e+weak_partial", "RH"))
-        self.assertTrue(self._cmp("RH:-2,-3,4,5n,-18,-19,49w", "C-,E-,c+,e+positive_to_neg,Hr-,hrS-,STEM+weak", "RH"))
-        self.assertFalse(self._cmp("RH:-2,-3,4,5n,-18,-19,49", "C-,E-,c+,e+positive_to_neg,Hr-,hrS-,STEM+weak", "RH"))
-        self.assertFalse(self._cmp("RH:-2,-3,4,5n,-18,-19,49w", "C-,E-,c+,e+positive,Hr-,hrS-,STEM+weak", "RH"))
+        self.assertTrue(
+            self._cmp("RH:-2,-3,4wp,5wp", "C-,E-,c+weak_partial,e+weak_partial", "RH")
+        )
+        self.assertTrue(
+            self._cmp(
+                "RH:-2,-3,4,5n,-18,-19,49w",
+                "C-,E-,c+,e+positive_to_neg,Hr-,hrS-,STEM+weak",
+                "RH",
+            )
+        )
+        self.assertFalse(
+            self._cmp(
+                "RH:-2,-3,4,5n,-18,-19,49",
+                "C-,E-,c+,e+positive_to_neg,Hr-,hrS-,STEM+weak",
+                "RH",
+            )
+        )
+        self.assertFalse(
+            self._cmp(
+                "RH:-2,-3,4,5n,-18,-19,49w",
+                "C-,E-,c+,e+positive,Hr-,hrS-,STEM+weak",
+                "RH",
+            )
+        )
 
     def test_extra_alpha_antigen_strict(self):
         self.assertFalse(self._cmp("RH:-2,3", "C-,E+,hrB+", "RH", strict=True))
@@ -260,9 +307,6 @@ class TestAntigenProfileComparison(unittest.TestCase):
 
     def test_missing_required_modifier(self):
         self.assertFalse(self._cmp("RH:5wp", "e+weak", "RH"))
-
-
-
 
 
 ANTIGEN_MAP: dict[str, dict[str, str]] = {
