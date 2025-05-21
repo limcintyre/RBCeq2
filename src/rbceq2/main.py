@@ -137,10 +137,7 @@ def main():
 
     logger.debug("Logger configured for debug mode.")
     logger.info("Application started.")
-    #db_df = prepare_db()
-
-    # Assuming 'args' is your argparse Namespace or similar config object
-    # args.reference_genome would be "GRCh37" or "GRCh38"
+   
 
     # 1. Prepare the DataFrame
     logger.info("Preparing database DataFrame...")
@@ -148,8 +145,6 @@ def main():
     logger.info("Database DataFrame prepared.")
 
     # 2. Run consistency checks on the prepared DataFrame
-    # The 'ref_genome_name' argument is passed for potential future use by checks;
-    # current checks do not use it. Remove if definitively not needed.
     DbDataConsistencyChecker.run_all_checks(df=db_df, ref_genome_name=args.reference_genome)
     # If any check fails, an exception will be raised here, and the program will halt.
 
@@ -157,11 +152,6 @@ def main():
     logger.info("Consistency checks passed. Initializing Db object...")
     db = Db(ref=args.reference_genome, df=db_df)
     logger.info("Db object initialized.")
-
-# ... now you can use your 'db' object as before ...
-
-    # db_check = DbInternalConsistencyCheck(ref=args.reference_genome, df = db_df)
-    # db = Db(ref=args.reference_genome, df = db_df)
 
     if args.vcf.is_dir():
         patterns = ["*.vcf", "*.vcf.gz"]
