@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use RBCeq2, plz cite this software entry."
+authors:
+  - family-names: McIntyre
+    given-names: Liam
+    orcid: "https://orcid.org/0000-0002-3143-5192"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Perros
+    given-names: Alexis
+    orcid: "https://orcid.org/0000-0001-5596-2934"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Hyland
+    given-names: Catherine
+    orcid: "https://orcid.org/0000-0002-4124-6168"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Robert
+    given-names: Flower
+    orcid: "https://orcid.org/0000-0002-7257-1844"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Eileen
+    given-names: Roulis
+    orcid: "https://orcid.org/0000-0001-6824-5432"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Sandra
+    given-names: Sowah
+    orcid: "https://orcid.org/0000-0003-3339-3763"
+    affiliation: "Australian Red Cross Lifeblood"
+title: "RBCeq2"
+version: 2.3.1
+date-released: 2025-05-29
+url: "https://github.com/liammcintyre/RBCeq2"
+repository-code: "https://github.com/liammcintyre/RBCeq2.git"
+license: MIT
+keywords: [bioinformatics, blood-group, genomics]
+type: software
