@@ -9,6 +9,14 @@ authors:
     given-names: Alexis
     orcid: "https://orcid.org/0000-0001-5596-2934"
     affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Sandra
+    given-names: Sowah
+    orcid: "https://orcid.org/0000-0003-3339-3763"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Eileen
+    given-names: Roulis
+    orcid: "https://orcid.org/0000-0001-6824-5432"
+    affiliation: "Australian Red Cross Lifeblood"
   - family-names: Hyland
     given-names: Catherine
     orcid: "https://orcid.org/0000-0002-4124-6168"
@@ -16,14 +24,6 @@ authors:
   - family-names: Robert
     given-names: Flower
     orcid: "https://orcid.org/0000-0002-7257-1844"
-    affiliation: "Australian Red Cross Lifeblood"
-  - family-names: Eileen
-    given-names: Roulis
-    orcid: "https://orcid.org/0000-0001-6824-5432"
-    affiliation: "Australian Red Cross Lifeblood"
-  - family-names: Sandra
-    given-names: Sowah
-    orcid: "https://orcid.org/0000-0003-3339-3763"
     affiliation: "Australian Red Cross Lifeblood"
 title: "RBCeq2"
 version: 2.3.1
