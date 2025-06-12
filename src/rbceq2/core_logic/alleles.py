@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 from loguru import logger
 
 from rbceq2.core_logic.utils import Zygosity #, chunk_list_by_rank
-
+from rbceq2.core_logic.constants import AlleleState
 if TYPE_CHECKING:
-    from core_logic.constants import AlleleState, PhenoType
+    from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
 
 
@@ -216,7 +216,6 @@ class Line:
     pheno_alt: str
     chrom_str: str
     weight_geno: int
-    #weight_pheno: int
     ref: str
     sub_type: str
     chrom: str = field(init=False)
@@ -292,8 +291,8 @@ class BloodGroup:
         Raises:
             ValueError: If there are no raw alleles to extract phase sets from.
         """
-        if "raw" in self.alleles:
-            return set().union(*[set(a.phases) for a in self.alleles["raw"]])
+        if AlleleState.FILT in self.alleles:
+            return set().union(*[set(a.phases) for a in self.alleles[AlleleState.FILT]])
         else:
             raise ValueError("No raw alleles to get phase set ids from")
 
@@ -313,7 +312,7 @@ class BloodGroup:
         Returns:
             int: The number of raw alleles.
         """
-        return len(self.alleles["raw"])
+        return len(self.alleles[AlleleState.RAW])
 
     def remove_pairs(
         self, to_remove: list[Pair], filter_name: str, allele_type: str = "pairs"
@@ -343,7 +342,7 @@ class BloodGroup:
             filter_name (str): Category name for the filtering reason.
         """
         for allele in to_remove:
-            self.alleles["raw"].remove(allele)
+            self.alleles[AlleleState.RAW].remove(allele)
             self.filtered_out[filter_name].append(allele)
 
 
@@ -451,18 +450,6 @@ class Pair:
         """
         return [allele.phenotype_alt for allele in self._ordered()]
 
-    # @property
-    # def alleles_with_expressed_phenotypes(self) -> list[Allele]:
-    #     """Get a list of the expressed (most weighted) phenotypes of the alleles in
-    #     the pair.
-
-    #     Its ok to compare these without considering zygosity, as they are a
-    #     putative pair
-
-    #     Returns:
-    #         List[str]: A list of the genotypes of the alleles in the pair.
-    #     """
-    #     return chunk_list_by_rank(list(self.alleles))[0]
 
     @property
     def contains_reference(self) -> bool:
