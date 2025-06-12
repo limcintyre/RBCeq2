@@ -12,6 +12,7 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 
+from polars import exclude
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as gf
@@ -113,13 +114,25 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Enable VCF validation. Doubles run time",
+        help="Enable VCF validation. Doubles run time. Might help you intentify input issues",
         default=False,
     )
     parser.add_argument(
         "--PDFs",
         action="store_true",
         help="Generate a per sample PDF report",
+        default=False,
+    )
+    parser.add_argument(
+        "--HPAs",
+        action="store_true",
+        help="Generate results for HPA",
+        default=False,
+    )
+    parser.add_argument(
+        "--RH",
+        action="store_true",
+        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only (so its completely wrong sometimes)!",
         default=False,
     )
 
@@ -131,7 +144,11 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-
+    exclude = ["C4A", "C4B", "ATP11C"]
+    if not args.RH:
+        exclude += ['RHD', 'RHCE']
+    if not args.HPAs:
+        exclude += [f'HPA{i}' for i in range(50)]
     # Configure logging
     UUID = configure_logging(args)
 
@@ -195,6 +212,7 @@ def main():
             db,
             args=args,
             allele_relationships=allele_relationships,
+            excluded=exclude
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
@@ -225,10 +243,11 @@ def find_hits(
     vcf: tuple[pd.DataFrame, str] | Path,
     args: argparse.Namespace,
     allele_relationships: dict[str, dict[str, bool]],
+    excluded: list[str],
 ) -> pd.DataFrame | None:
     vcf = VCF(vcf, db.lane_variants, db.unique_variants)
 
-    res = dp.raw_results(db, vcf)
+    res = dp.raw_results(db, vcf, excluded)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
@@ -248,6 +267,7 @@ def find_hits(
         partial(dp.add_phasing, phased=args.phased, variant_metrics=vcf.variants),
         partial(gf.remove_unphased, phased=args.phased),
         dp.rule_out_impossible_alleles,
+        partial(dp.rule_out_impossible_alleles_phased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
             dp.find_what_was_excluded_due_to_rank,
@@ -297,7 +317,7 @@ def find_hits(
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
-    res = dp.add_refs(db, res)
+    res = dp.add_refs(db, res, excluded)
 
     for allele_pair in res["FUT2"].genotypes:
         res["FUT1"].genotypes.append(allele_pair)

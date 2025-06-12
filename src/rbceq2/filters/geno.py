@@ -3,7 +3,7 @@ from __future__ import annotations
 import operator
 from collections import defaultdict
 from functools import partial
-
+from icecream import ic
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import LOW_WEIGHT, AlleleState
 from rbceq2.core_logic.utils import (
@@ -349,19 +349,27 @@ def filter_pairs_on_antithetical_zygosity(
     """
 
     to_remove = []
+    var_pool_no_chrom = {k.split(':')[1]: v for k, v in bg.variant_pool.items()}
     if bg.type in antitheticals:
+        anti1, anti2 = antitheticals[bg.type]
+        if var_pool_no_chrom.get(anti1) == Zygosity.HOM:
+            return bg
+        if var_pool_no_chrom.get(anti2) == Zygosity.HOM:
+            return bg
         flattened_sub_types = {
             allele.sub_type
             for allele in flatten_alleles(bg.alleles[AlleleState.NORMAL])
         }
-        if len(flattened_sub_types) > 1:
+        if len(flattened_sub_types) > 1: #doesn't work for MNS or others with multiple 
+            #subtypes that aren't associted with an antitetical
             for pair in bg.alleles[AlleleState.NORMAL]:
                 flat_sub_types = {allele.sub_type for allele in pair}
                 if flat_sub_types == flattened_sub_types:
                     continue
                 else:
                     to_remove.append(pair)
-
+    # if to_remove:
+    #     ic(1111, var_pool_no_chrom,to_remove, antitheticals['GYPB'], bg.variant_pool, anti1, anti2, bg.variant_pool.get(anti1), Zygosity.HOM)
     bg.remove_pairs(to_remove, "filter_pairs_on_antithetical_zygosity")
 
     return bg

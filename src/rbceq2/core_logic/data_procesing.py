@@ -4,11 +4,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Protocol
-
 from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import EXCLUDE, AlleleState
+from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
     Zygosity,
     apply_to_dict_values,
@@ -38,7 +37,7 @@ def add_phase(instance: Allele, phases: list[str]) -> Allele:
     return Allele(**new_instance_dict)
 
 
-def raw_results(db: Db, vcf: VCF) -> dict[str, list[Allele]]:
+def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
 
@@ -54,10 +53,8 @@ def raw_results(db: Db, vcf: VCF) -> dict[str, list[Allele]]:
     res: dict[str, list[Allele]] = defaultdict(list)
 
     for allele in db.make_alleles():
-        ###DEL####
-        if any(x in allele.genotype for x in EXCLUDE):
+        if any(x in allele.genotype for x in exclude):
             continue
-        ###########
         if all(var in vcf.variants for var in allele.defining_variants):
             res[allele.blood_group].append(allele)
 
@@ -126,6 +123,7 @@ def add_phasing(
                 )
         assert len(bg.alleles[AlleleState.FILT]) == len(raw_phased)
         bg.alleles[AlleleState.FILT] = raw_phased
+        # ic(11111,bg.alleles[AlleleState.FILT])
 
     return bg
 
@@ -338,7 +336,7 @@ def filter_vcf_metrics(
         KeyError:
             If a required variant or metric is missing in `variant_metrics`.
     """
-    #TODO large dels will have depth zero
+    # TODO large dels will have depth zero
     filtered_out = defaultdict(list)
     passed_filtering = []
     metric_threshold = float(metric_threshold)
@@ -384,7 +382,7 @@ def remove_alleles_with_low_read_depth(
         bg.alleles[AlleleState.RAW], variant_metrics, "DP", min_read_depth, microarray
     )
     if filtered_out:
-        vars_affected = ','.join(filtered_out.keys())
+        vars_affected = ",".join(filtered_out.keys())
         message = f"Read Depth. Sample: {bg.sample}, BG: {bg.type}, variant/s: {vars_affected}"
         logger.warning(message)
     bg.filtered_out["insufficient_read_depth"] = filtered_out
@@ -421,7 +419,7 @@ def remove_alleles_with_low_base_quality(
         microarray,
     )
     if filtered_out:
-        vars_affected = ','.join(filtered_out.keys())
+        vars_affected = ",".join(filtered_out.keys())
         message = f"Base Quality. Sample: {bg.sample}, BG: {bg.type}, variant/s: {vars_affected}"
         logger.warning(message)
     bg.filtered_out["insufficient_min_base_quality"] = filtered_out
@@ -436,13 +434,12 @@ def rule_out_impossible_alleles(bg: BloodGroup) -> BloodGroup:
     Rule out impossible alleles based on Homozygous variants.
 
     Args:
-        res (dict[str, list[Allele]]): Dictionary containing alleles categorized by
-        type.
-        variant_pool (dict[str, str]): Dictionary containing variant zygosity
-        information.
+        bg (BloodGroup): A BloodGroup object containing allele states and phasing
+            information.
 
     Returns:
-        dict[str, list[Allele]]: New dictionary containing only possible alleles.
+        bg (BloodGroup): A BloodGroup object containing allele states and phasing
+            information.
 
     Example:
 
@@ -480,6 +477,175 @@ def rule_out_impossible_alleles(bg: BloodGroup) -> BloodGroup:
         if allele not in impossible_alleles
     ]
     bg.filtered_out["allele1_not_possible_due_to_allele2"] = impossible_pairs
+
+    return bg
+
+
+@apply_to_dict_values
+def rule_out_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
+
+    When `phased` is True, this function attempts to simplify the set of possible
+    alleles (`bg.alleles[AlleleState.POS]`) by:
+    1.  Identifying alleles that are not suitable for phasing comparisons:
+        *   Alleles whose defining variants are predominantly observed as homozygous
+          in the sample's `bg.variant_pool'.
+        *   Alleles that are internally phase-inconsistent, meaning their defining
+          variants span multiple phase blocks or have no defined phasing information
+    2.  For the remaining suitable alleles, it identifies and removes alleles that
+        are 'in' other alleles, the sub-allele is redundant for that haplotype.
+
+    The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
+    alleles deemed "impossible" under these phased conditions. Details of removed
+    allele pairs due to subsumption are stored in
+    `bg.filtered_out["allele_subsumed_by_other_phased"]`.
+
+    Args:
+        bg (BloodGroup): A BloodGroup object containing allele states, variant pool
+            (with observed zygosities), and phasing information within Allele objects.
+        phased (bool): A flag indicating whether phasing rules should be applied.
+            If False, the function returns the BloodGroup object unmodified.
+
+    Returns:
+        BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
+            list may be reduced, and `filtered_out` may be updated.
+
+    
+    Example (same phase mainly HET):
+    GYPB*03/GYPB*03N.03 - in GYPB*03N.04
+    GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
+    GYPB*03/GYPB*06.02 - in GYPB*03N.04
+    Phenotypes (numeric): MNS:3,-4,5 | MNS:3,-4,6
+    Phenotypes (alphanumeric): S+,s-,He+ | S+,s-,U+
+
+    #Data:
+    Vars: {
+    '4:143999443_G_A': 'Homozygous',
+    '4:144001261_T_C': 'Heterozygous',
+    '4:144001254_T_A': 'Heterozygous',
+    '4:144001250_T_C': 'Heterozygous',
+    '4:144001249_C_A': 'Heterozygous',
+    '4:144001262_A_C': 'Heterozygous',
+    '4:143997535_C_A': 'Heterozygous'}
+
+    Filtered:
+    Allele
+    genotype: GYPB*03
+    defining_variants:
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:3,-4 or S+,s-
+    reference: False
+    phases: ('.',)
+
+    Allele
+    genotype: GYPB*06.02
+    defining_variants:
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:3,-4,6 or S+,s-,He+
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '.')
+
+    Allele
+    genotype: GYPB*03N.03
+    defining_variants:
+            4:143997535_C_A
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('.', '143997535')
+
+    Allele
+    genotype: GYPB*03N.04
+    defining_variants:
+            4:143997535_C_A
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '143997535', '.')
+
+    """
+
+    def check_hom(current_allele: Allele) -> bool:
+        """
+        Checks if all elements or all except one element in a list are hom.
+
+        Args:
+            current_allele: Allele
+
+        Returns:
+            True if all elements match the target_str, or if all elements
+            except exactly one match the target_str. False otherwise.
+        """
+
+        # Count how many items are NOT HOM
+        mismatch_count = sum(
+            1
+            for item in [
+                variant
+                for variant in bg.variant_pool
+                if variant in current_allele.defining_variants
+            ]
+            if item != Zygosity.HOM
+        )
+
+        return mismatch_count <= 1
+    
+    def multi_phase(current_allele: Allele) -> bool:
+        """
+        Checks if phases are the same.
+
+        Args:
+            current_allele: Allele
+        Returns:
+            True if > 1 phase
+        """
+
+        return len(set([phase for phase in current_allele.phases if phase != '.'])) != 1
+
+    if phased:
+        impossible_alleles = []
+        impossible_pairs = []
+        for allele in bg.alleles[AlleleState.POS]:
+            if allele in impossible_alleles:
+                continue
+            if check_hom(allele) or multi_phase(allele):
+                continue
+            for allele2 in bg.alleles[AlleleState.POS]:
+                if allele == allele2:
+                    continue
+                if check_hom(allele2) or multi_phase(allele2):
+                    continue
+                if allele in allele2:
+                    impossible_alleles.append(allele)
+                    impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+                    continue
+                if allele2 in allele:
+                    impossible_alleles.append(allele2)
+                    impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+                    continue
+        bg.alleles[AlleleState.POS] = [
+            allele
+            for allele in bg.alleles[AlleleState.POS]
+            if allele not in impossible_alleles
+        ]
+        bg.filtered_out["allele1_not_possible_due_to_allele2_phased"] = impossible_pairs
 
     return bg
 
@@ -858,10 +1024,11 @@ def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
     """
     if bg.genotypes == ["XG*01/XG*01"]:
         bg.genotypes = ["XG*01/XG*01", "CD99*01/CD99*01"]
+    # ic(22222,bg.alleles[AlleleState.FILT])
     return bg
 
 
-def add_refs(db: Db, res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
+def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGroup]:
     """Add reference genotypes to existing results or create new entries for them.
 
     Args:
@@ -879,7 +1046,7 @@ def add_refs(db: Db, res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
     the reference genotype as both a 'raw' and 'paired' allele.
     """
     for blood_group, reference in db.reference_alleles.items():
-        if blood_group in EXCLUDE:
+        if blood_group in exclude:
             continue
         if blood_group not in res:
             res[blood_group] = BloodGroup(

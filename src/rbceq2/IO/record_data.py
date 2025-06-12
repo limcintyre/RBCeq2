@@ -108,6 +108,7 @@ def record_filtered_data(results: tuple[Any]) -> None:
                 f"\n#Data:\n"
                 f"Vars: {bg_data.variant_pool}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
+                f"Filtered: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.FILT]))}\n"
                 f"\n#Filters applied:\n"
             )
             no_filters = True
