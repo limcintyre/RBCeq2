@@ -18,23 +18,25 @@ from rbceq2.core_logic.utils import (
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 
+from icecream import ic
 
-def add_phase(instance: Allele, phases: list[str]) -> Allele:
-    """Add phase information to an Allele instance and return a new Allele with the
-    updated data.
 
-    Args:
-        instance (Allele): The original Allele instance to update.
-        phases (List[str]): A list of strings representing phase information.
+# def add_phase(instance: Allele, phases: list[str]) -> Allele:
+#     """Add phase information to an Allele instance and return a new Allele with the
+#     updated data.
 
-    Returns:
-        Allele: A new Allele instance with updated phase information.
-    """
-    new_instance_dict = instance.__dict__.copy()
+#     Args:
+#         instance (Allele): The original Allele instance to update.
+#         phases (List[str]): A list of strings representing phase information.
 
-    new_instance_dict["phases"] = tuple(phases)
-    del new_instance_dict["number_of_defining_variants"]
-    return Allele(**new_instance_dict)
+#     Returns:
+#         Allele: A new Allele instance with updated phase information.
+#     """
+#     new_instance_dict = instance.__dict__.copy()
+
+#     new_instance_dict["phases"] = phases
+#     del new_instance_dict["number_of_defining_variants"]
+#     return Allele(**new_instance_dict)
 
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
@@ -67,6 +69,60 @@ def add_phasing(
 ) -> BloodGroup:
     """Add phasing information to alleles in a BloodGroup.
 
+    The Biological Scenario (gemini 2.5 pro)
+    Imagine a gene called GENEX. In an individual, we find two different
+    heterozygous variants within this gene:
+    At position chr1:1,000,000, there's a A > G variant.
+    At position chr1:1,002,500, there's a C > T variant.
+    Since this person is diploid, they have two copies of GENEX (one
+    maternal, one paternal). The critical question that phasing answers
+    is: Are the two alternate alleles (G and T) on the same copy of the
+    chromosome, or on different copies?
+    There are two possibilities:
+    Scenario A (Cis configuration): The alternate alleles are on the same chromosome.
+    Maternal Chromosome: ---G---T---
+    Paternal Chromosome: ---A---C--- (reference alleles)
+    Scenario B (Trans configuration): The alternate alleles are on opposite chromosomes.
+    Maternal Chromosome: ---G---C---
+    Paternal Chromosome: ---A---T---
+
+    How This Looks in the VCF
+    A phasing algorithm (using long reads, parental data, or statistical inference)
+    will try to determine whether we are in Scenario A or B. If it succeeds,
+    it will report both variants in the same phase set.
+    Let's assign the PS (Phase Set) identifier 12345 to this phased block.
+    VCF for Scenario A (Cis):
+    The two alternate alleles (1) are on the same haplotype.
+    Generated vcf
+    #CHROM  POS        ID  REF ALT ... FORMAT     SAMPLE1
+    chr1    1000000    .   A   G   ... GT:PS      0|1:12345
+    chr1    1002500    .   C   T   ... GT:PS      0|1:12345
+    Vcf
+    PS:12345: Both variants are in the same phase set.
+    0|1 and 0|1: This tells us that the allele designated '1' (the ALT allele)
+    for the first variant is on the same chromosome as the allele designated
+    '1' for the second variant. Haplotype 1 is G-T, Haplotype 0 is A-C.
+    VCF for Scenario B (Trans):
+    The two alternate alleles (1) are on opposite haplotypes.
+    Generated vcf
+    #CHROM  POS        ID  REF ALT ... FORMAT     SAMPLE1
+    chr1    1000000    .   A   G   ... GT:PS      0|1:12345
+    chr1    1002500    .   C   T   ... GT:PS      1|0:12345
+    Vcf
+
+    PS:12345: They are still in the same phase set. This is the key point. The
+    PS just tells you "the relationship between these variants is known."
+
+    0|1 and 1|0: The GT fields now describe the trans relationship. For the first
+    variant, the alternate allele (G) is on Haplotype 1. For the second variant,
+    the alternate allele (T) is on Haplotype 0. Haplotype 1 is G-C, Haplotype
+    0 is A-T.
+
+    When Would They Be in Different Phase Sets?
+    Variants within the same gene would only appear in different phase sets if
+    the phasing process failed to connect them.
+
+
     If 'phased' is True, updates the alleles in the given 'bg' object by assigning
     phase sets (PS) from 'variant_metrics'. Alleles containing reference-only variants
     are ignored or reduced in count.
@@ -90,40 +146,172 @@ def add_phasing(
             If the number of updated alleles does not match the number of original alleles,
             or if the computed phases do not match the expected length based on 'defining_variants'.
     """
+
+    def assign_ref_phase(
+        current_variant: str,
+        # bg_variant_pool: dict[str, str],
+        # current_phase_pool: dict[str, str],
+    ) -> str:
+        """
+        Assigns the correct phase to a reference variant at a heterozygous site.
+
+        This function finds the corresponding alternate allele at the same genomic
+        position, retrieves its phase, and returns the inverse phase for the
+        reference allele.
+
+        Args:
+            variant: The identifier of the reference variant (e.g., '4:144120554_ref').
+            bg_variant_pool: A dictionary mapping variant IDs to their zygosity.
+            phase_pool: A dictionary mapping variant IDs to their phase string (e.g., '1|0').
+
+        Returns:
+            The calculated phase string for the reference variant (e.g., '0|1').
+
+        Raises:
+            ValueError: If the input variant is not a valid heterozygous reference variant,
+                        if a corresponding alternate variant cannot be found, or if the
+                        phase format is invalid.
+        """
+        zygosity = bg.variant_pool.get(current_variant)
+        if zygosity == Zygosity.HOM:
+            return '.'
+        if '/' in phase_pool[current_variant]:
+            return 'unknown'
+        # 1. Validate that the input variant is a heterozygous reference variant
+        if not current_variant.endswith("_ref"):
+            raise ValueError(
+                f"Input variant '{current_variant}' must be a reference variant (ending in '_ref')."
+            )
+
+        
+        if zygosity != Zygosity.HET:
+            #ic(phase_pool)
+            raise ValueError(
+                f"Variant '{current_variant}' must be present and 'Heterozygous' in bg_variant_pool. "
+                f"Found: {zygosity}"
+            )
+
+        # 2. Find the corresponding alternate allele variant at the same position
+        position = current_variant.split("_")[0]
+        partner_variant = None
+        for key in phase_pool:
+            # Match keys that start with the same position but are not the ref variant itself
+            if key.startswith(position + "_") and key != current_variant:
+                partner_variant = key
+                break  # Found the partner, no need to continue searching
+        #ic(current_variant, phase_pool)
+        if partner_variant is None:
+            return phase_pool[current_variant]
+
+        # 3. Get the phase of the partner variant
+        partner_phase = phase_pool.get(partner_variant)
+        if partner_phase is None:
+            raise ValueError(
+                f"Partner variant '{partner_variant}' found but has no entry in phase_pool."
+            )
+
+        # 4. Calculate the ref phase by "flipping" the partner's phase
+        phase_parts = partner_phase.split("|")
+        if len(phase_parts) != 2:
+            raise ValueError(
+                f"Invalid phase format for partner '{partner_variant}': '{partner_phase}'"
+            )
+
+        # The ref allele is on the opposite haplotype from the alt allele
+        # e.g., if partner is 1|0, ref is 0|1
+        ref_phase = f"{phase_parts[1]}|{phase_parts[0]}"
+
+        return ref_phase
+    
+    def assign_ref_phase_set(current_variant):
+        '''
+        '''
+        zygosity = bg.variant_pool.get(current_variant)
+        if zygosity == Zygosity.HOM:
+            return '.'
+        # 2. Find the corresponding alternate allele variant at the same position
+        position = current_variant.split("_")[0]
+        partner_variant = None
+        for key in phase_set_pool:
+            # Match keys that start with the same position but are not the ref variant itself
+            if key.startswith(position + "_") and key != current_variant:
+                partner_variant = key
+                break  # Found the partner, no need to continue searching
+        #ic(current_variant, phase_set_pool)
+        if partner_variant is None:
+            return 'unknown'
+        return phase_set_pool.get(partner_variant)
+        
+
     if phased:
-        raw_phased = []
-        for allele in bg.alleles[AlleleState.FILT]:
-            phases = []
-            ref_count = 0
-            for variant in allele.defining_variants:
-                if variant.endswith("_ref"):
-                    ref_count += 1
-                    continue  # not known so ignored...
-                # TODO GQ etc like this too
-                # GT:GQ:DP:AD:AF:PS
-                # OR
-                # GT:GQ:DP:AF:PS
-                # or??? TODO
+        phase_pool = {
+            variant: variant_metrics[variant].get("GT", ".")
+            for variant in bg.variant_pool
+        }
+        phase_set_pool = {
+            variant: variant_metrics[variant].get("PS", ".")
+            for variant in bg.variant_pool
+        }
+        phase_pool_ref_fixed = {}
+        
+        for variant, phase in phase_pool.items():
+            if variant.endswith('_ref'):
+                new_phase = assign_ref_phase(variant)
+                #ic(variant,new_phase, phase)
+                phase_pool_ref_fixed[variant] = new_phase
+            else:
+                phase_pool_ref_fixed[variant] = phase
+        phase_set_pool_ref_fixed = {}
+        
+        for variant, phase in phase_set_pool.items():
+            if variant.endswith('_ref'):
+                new_phase = assign_ref_phase_set(variant)
+                #ic(variant,new_phase, phase)
+                phase_set_pool_ref_fixed[variant] = new_phase
+            else:
+                phase_set_pool_ref_fixed[variant] = phase
+        bg.variant_pool_phase = phase_pool_ref_fixed
+        bg.variant_pool_phase_set = phase_set_pool_ref_fixed
+        # raw_phased = []
+        # for allele in bg.alleles[AlleleState.FILT]:
+        #     phases = defaultdict(dict)
+        #     # phase_sets = {}
+        #     for variant in allele.defining_variants:
+        #         if variant.endswith("_ref"):
+        #             # if bg.type == "GYPA":
+        #             #     ic(
+        #             #         variant,
+        #             #         bg.variant_pool,
+        #             #         phase_pool,
+        #             #         phase_set_pool,
+        #             #         assign_ref_phase(variant, bg.variant_pool, phase_pool),
+        #             #     )
+        #             phase_of_variant = assign_ref_phase(variant, bg.variant_pool, phase_pool)
+        #             phase_set = phase_set_pool[variant]
+        #         else:
+        #             phase_of_variant = variant_metrics[variant].get("GT", ".")
+        #             phase_set = variant_metrics[variant].get("PS", ".")
+        #         # TODO GQ etc like this too
+        #         # GT:GQ:DP:AD:AF:PS
+        #         # OR
+        #         # GT:GQ:DP:AF:PS
+        #         # or??? TODO
+                
+        #         # TODO is PS called IPS sometimes? ie GIAB
+        #         phases[variant]["phase_set"] = phase_set
+        #         phases[variant]["phase"] = phase_of_variant
+        #         ic(phases)
 
-                phase_set = variant_metrics[variant].get("PS", ".")
-                # TODO is PS called IPS sometimes? ie GIAB
-                phases.append(phase_set)
-            if not phases:
-                ref_count -= 1
-                phases.append(".")
-
-            assert len(phases) == allele.number_of_defining_variants - ref_count
-
-            allele_phased = add_phase(allele, phases)
-            raw_phased.append(allele_phased)
-            block_numbers = [phase for phase in phases if phase != "."]
-            if len(set(block_numbers)) > 1:
-                logger.warning(
-                    f"first example of unphased vars!!! {allele.defining_variants} {phases}"
-                )
-        assert len(bg.alleles[AlleleState.FILT]) == len(raw_phased)
-        bg.alleles[AlleleState.FILT] = raw_phased
-        # ic(11111,bg.alleles[AlleleState.FILT])
+        #     allele_phased = add_phase(allele, phases)
+        #     raw_phased.append(allele_phased)
+        #     block_numbers = [phase for phase in phases if phase != "."]
+        #     if len(set(block_numbers)) > 1:
+        #         logger.warning(
+        #             f"first example of unphased vars!!! {allele.defining_variants} {phases}"
+        #         )
+        # assert len(bg.alleles[AlleleState.FILT]) == len(raw_phased)
+        # bg.alleles[AlleleState.FILT] = raw_phased
+        # # ic(11111,bg.alleles[AlleleState.FILT])
 
     return bg
 
@@ -487,14 +675,12 @@ def rule_out_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGro
     Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
 
     When `phased` is True, this function attempts to simplify the set of possible
-    alleles (`bg.alleles[AlleleState.POS]`) by:
-    1.  Identifying alleles that are not suitable for phasing comparisons:
-        *   Alleles whose defining variants are predominantly observed as homozygous
-          in the sample's `bg.variant_pool'.
-        *   Alleles that are internally phase-inconsistent, meaning their defining
-          variants span multiple phase blocks or have no defined phasing information
-    2.  For the remaining suitable alleles, it identifies and removes alleles that
-        are 'in' other alleles, the sub-allele is redundant for that haplotype.
+    alleles (`bg.alleles[AlleleState.POS]`) by looking for alleles that are impossibe
+    due to being 'in' (defining variants are subset of) another allele:
+        1. A1 is A2, all vars HOM (should be removed above - not phased dependant)
+        2. A1 is A2, all vars HET and in same phase
+        2. A1 is A2, vars are mix of HET and HOM, all HET are in same phase
+
 
     The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
     alleles deemed "impossible" under these phased conditions. Details of removed
@@ -511,7 +697,7 @@ def rule_out_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGro
         BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
             list may be reduced, and `filtered_out` may be updated.
 
-    
+
     Example (same phase mainly HET):
     GYPB*03/GYPB*03N.03 - in GYPB*03N.04
     GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
@@ -580,11 +766,12 @@ def rule_out_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGro
     phases: ('143997535', '143997535', '143997535',
       '143997535', '143997535', '143997535', '.')
 
+
     """
 
     def check_hom(current_allele: Allele) -> bool:
         """
-        Checks if all elements or all except one element in a list are hom.
+        Checks if all elements in a list are hom.
 
         Args:
             current_allele: Allele
@@ -593,61 +780,274 @@ def rule_out_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGro
             True if all elements match the target_str, or if all elements
             except exactly one match the target_str. False otherwise.
         """
+        variants = [
+            zygo
+            for variant, zygo in bg.variant_pool.items()
+            if variant in current_allele.defining_variants
+        ]
 
-        # Count how many items are NOT HOM
-        mismatch_count = sum(
-            1
-            for item in [
-                variant
-                for variant in bg.variant_pool
-                if variant in current_allele.defining_variants
-            ]
-            if item != Zygosity.HOM
-        )
+        return all(item == Zygosity.HOM for item in variants)
 
-        return mismatch_count <= 1
-    
-    def multi_phase(current_allele: Allele) -> bool:
-        """
-        Checks if phases are the same.
+    # def multi_phase(current_allele: Allele) -> bool: this should alrady be removed?
+    #     """
+    #     Checks if phases are the same.
 
-        Args:
-            current_allele: Allele
-        Returns:
-            True if > 1 phase
-        """
-
-        return len(set([phase for phase in current_allele.phases if phase != '.'])) != 1
-
+    #     Args:
+    #         current_allele: Allele
+    #     Returns:
+    #         True if > 1 phase
+    #     """
+    #     if len(set([phase for phase in current_allele.phases if phase != "."])) > 1:
+    #         ic(
+    #             f"DIF PHASE SEEN! {current_allele}",
+    #             len(set([phase for phase in current_allele.phases if phase != "."])),
+    #         )
+    #     return len(set([phase for phase in current_allele.phases if phase != "."])) > 1
+    # if bg.type == 'KN':
+    #     return bg
+    to_test = 'YT'
     if phased:
-        impossible_alleles = []
-        impossible_pairs = []
+        impossible_alleles = set([])
+        impossible_pairs = set([])
         for allele in bg.alleles[AlleleState.POS]:
+            if bg.type == to_test:
+                ic(11111, allele)
             if allele in impossible_alleles:
+                if bg.type == to_test:
+                    ic(22222)
                 continue
-            if check_hom(allele) or multi_phase(allele):
+            
+            if bg.type == 'KN' and allele.genotype not in ['KN*01','KN*02']:
+                continue
+           
+            if check_hom(allele):
+                if bg.type == to_test:
+                    ic(3333333)
                 continue
             for allele2 in bg.alleles[AlleleState.POS]:
+                if bg.type == to_test:
+                    ic(44444444, allele2)
                 if allele == allele2:
+                    if bg.type == to_test:
+                        ic(555555)
                     continue
-                if check_hom(allele2) or multi_phase(allele2):
+                if bg.type == 'KN' and not allele2.genotype not in ['KN*01','KN*02']:
+                    continue
+                if check_hom(allele2):
+                    if bg.type == to_test:
+                        ic(6666666)
                     continue
                 if allele in allele2:
-                    impossible_alleles.append(allele)
-                    impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+                    if bg.type == to_test:
+                        ic(7777777,allele.genotype, allele2.genotype)
+                    impossible_alleles.add(allele)
+                    impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
                     continue
                 if allele2 in allele:
-                    impossible_alleles.append(allele2)
-                    impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+                    if bg.type == to_test:
+                        ic(888888, allele.genotype, allele2.genotype)
+                    impossible_alleles.add(allele2)
+                    impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
                     continue
+        if bg.type == to_test:
+            ic(impossible_alleles)
         bg.alleles[AlleleState.POS] = [
             allele
             for allele in bg.alleles[AlleleState.POS]
             if allele not in impossible_alleles
         ]
-        bg.filtered_out["allele1_not_possible_due_to_allele2_phased"] = impossible_pairs
-
+        bg.filtered_out["allele1_not_possible_due_to_allele2_phased"] = list(impossible_pairs)
+    if bg.type == to_test:
+        ic(bg.alleles[AlleleState.POS])
     return bg
+
+
+# @apply_to_dict_values
+# def rule_out_impossible_alleles_phased_first_atempt_wrong(bg: BloodGroup, phased: bool) -> BloodGroup:
+#     """
+#     Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
+
+#     When `phased` is True, this function attempts to simplify the set of possible
+#     alleles (`bg.alleles[AlleleState.POS]`) by:
+#     1.  Identifying alleles that are not suitable for phasing comparisons:
+#         *   Alleles whose defining variants are predominantly observed as homozygous
+#           in the sample's `bg.variant_pool'.
+#         *   Alleles that are internally phase-inconsistent, meaning their defining
+#           variants span multiple phase blocks or have no defined phasing information
+#     2.  For the remaining suitable alleles, it identifies and removes alleles that
+#         are 'in' other alleles, the sub-allele is redundant for that haplotype.
+
+#     The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
+#     alleles deemed "impossible" under these phased conditions. Details of removed
+#     allele pairs due to subsumption are stored in
+#     `bg.filtered_out["allele_subsumed_by_other_phased"]`.
+
+#     Args:
+#         bg (BloodGroup): A BloodGroup object containing allele states, variant pool
+#             (with observed zygosities), and phasing information within Allele objects.
+#         phased (bool): A flag indicating whether phasing rules should be applied.
+#             If False, the function returns the BloodGroup object unmodified.
+
+#     Returns:
+#         BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
+#             list may be reduced, and `filtered_out` may be updated.
+
+
+#     Example (same phase mainly HET):
+#     GYPB*03/GYPB*03N.03 - in GYPB*03N.04
+#     GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
+#     GYPB*03/GYPB*06.02 - in GYPB*03N.04
+#     Phenotypes (numeric): MNS:3,-4,5 | MNS:3,-4,6
+#     Phenotypes (alphanumeric): S+,s-,He+ | S+,s-,U+
+
+#     #Data:
+#     Vars: {
+#     '4:143999443_G_A': 'Homozygous',
+#     '4:144001261_T_C': 'Heterozygous',
+#     '4:144001254_T_A': 'Heterozygous',
+#     '4:144001250_T_C': 'Heterozygous',
+#     '4:144001249_C_A': 'Heterozygous',
+#     '4:144001262_A_C': 'Heterozygous',
+#     '4:143997535_C_A': 'Heterozygous'}
+
+#     Filtered:
+#     Allele
+#     genotype: GYPB*03
+#     defining_variants:
+#             4:143999443_G_A #hom
+#     weight_geno: 1000
+#     phenotype: MNS:3,-4 or S+,s-
+#     reference: False
+#     phases: ('.',)
+
+#     Allele
+#     genotype: GYPB*06.02
+#     defining_variants:
+#             4:144001249_C_A
+#             4:143999443_G_A #hom
+#             4:144001254_T_A
+#             4:144001262_A_C
+#             4:144001261_T_C
+#             4:144001250_T_C
+#     weight_geno: 1000
+#     phenotype: MNS:3,-4,6 or S+,s-,He+
+#     reference: False
+#     phases: ('143997535', '143997535', '143997535',
+#       '143997535', '143997535', '.')
+
+#     Allele
+#     genotype: GYPB*03N.03
+#     defining_variants:
+#             4:143997535_C_A
+#             4:143999443_G_A #hom
+#     weight_geno: 1000
+#     phenotype: MNS:-3,-4,5w or S-,s-,U+w
+#     reference: False
+#     phases: ('.', '143997535')
+
+#     Allele
+#     genotype: GYPB*03N.04
+#     defining_variants:
+#             4:143997535_C_A
+#             4:144001249_C_A
+#             4:143999443_G_A #hom
+#             4:144001254_T_A
+#             4:144001262_A_C
+#             4:144001261_T_C
+#             4:144001250_T_C
+#     weight_geno: 1000
+#     phenotype: MNS:-3,-4,5w or S-,s-,U+w
+#     reference: False
+#     phases: ('143997535', '143997535', '143997535',
+#       '143997535', '143997535', '143997535', '.')
+
+
+#     """
+
+#     def check_hom(current_allele: Allele) -> bool:
+#         """
+#         Checks if all elements or all except one element in a list are hom.
+
+#         Args:
+#             current_allele: Allele
+
+#         Returns:
+#             True if all elements match the target_str, or if all elements
+#             except exactly one match the target_str. False otherwise.
+#         """
+#         variants = [
+#                 zygo
+#                 for variant, zygo in bg.variant_pool.items()
+#                 if variant in current_allele.defining_variants
+#             ]
+
+
+#         # Count how many items are NOT HOM
+#         mismatch_count = sum(
+#             1
+#             for item in variants
+#             if item != Zygosity.HOM
+#         )
+
+#         return mismatch_count <= 1
+
+#     def multi_phase(current_allele: Allele) -> bool:
+#         """
+#         Checks if phases are the same.
+
+#         Args:
+#             current_allele: Allele
+#         Returns:
+#             True if > 1 phase
+#         """
+#         ic(f'DIF PHASE SEEN! {current_allele}')
+#         return len(set([phase for phase in current_allele.phases if phase != '.'])) != 1
+
+#     if phased:
+#         impossible_alleles = []
+#         impossible_pairs = []
+#         for allele in bg.alleles[AlleleState.POS]:
+#             # if bg.type == 'FUT3':
+#             #     ic(11111, allele)
+#             if allele in impossible_alleles:
+#                 # if bg.type == 'FUT3':
+#                 #     ic(333333)
+#                 continue
+#             if check_hom(allele) or multi_phase(allele):
+#                 # if bg.type == 'FUT3':
+#                 #     ic(4444444)
+#                 continue
+#             for allele2 in bg.alleles[AlleleState.POS]:
+#                 # if bg.type == 'FUT3':
+#                 #     ic(22222, allele2)
+#                 if allele == allele2:
+#                     # if bg.type == 'FUT3':
+#                     #     ic(555555)
+#                     continue
+#                 if check_hom(allele2) or multi_phase(allele2):
+#                     # if bg.type == 'FUT3':
+#                     #     ic(6666666)
+#                     continue
+#                 if allele in allele2:
+#                     # if bg.type == 'FUT3':
+#                     #     ic(7777777)
+#                     impossible_alleles.append(allele)
+#                     impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+#                     continue
+#                 if allele2 in allele:
+#                     # if bg.type == 'FUT3':
+#                     #     ic(888888)
+#                     impossible_alleles.append(allele2)
+#                     impossible_pairs.append(Pair(allele1=allele2, allele2=allele))
+#                     continue
+#         bg.alleles[AlleleState.POS] = [
+#             allele
+#             for allele in bg.alleles[AlleleState.POS]
+#             if allele not in impossible_alleles
+#         ]
+#         bg.filtered_out["allele1_not_possible_due_to_allele2_phased"] = impossible_pairs
+
+#     return bg
 
 
 def get_fully_homozygous_alleles(
@@ -763,7 +1163,8 @@ class MultipleVariantDispatcher:
 
         first_chunk = ranked_chunks[0]
         trumpiest_homs = homs[0]
-
+        if bg.type == 'YT':
+            ic(options, non_ref_options, ranked_chunks, homs, first_chunk, trumpiest_homs)
         # Sub-strategy selection
         if len(trumpiest_homs) == 1:
             return SingleHomMultiVariantStrategy(
@@ -846,7 +1247,7 @@ class NoHomMultiVariantStrategy:
     def process(
         self, bg: BloodGroup, reference_alleles: dict[str, Allele]
     ) -> list[Pair]:
-        ref_allele = reference_alleles[bg.type]
+        ref_allele = reference_alleles[bg.type] #TODO - this is putting refs back in that have already been discarded as impossible
         ref_options = self.non_ref_options + [ref_allele]
         return combine_all(ref_options, bg.variant_pool_numeric)
 
@@ -887,9 +1288,11 @@ def process_genetic_data(
     strategy: GeneticProcessingProtocol = _pick_strategy(
         bg
     )  # Returns a Protocol implementer
+    ic(strategy)
     normal_pairs = strategy.process(bg, reference_alleles)
     bg.alleles[AlleleState.NORMAL] = normal_pairs
-
+    if bg.type == 'YT':
+        ic(bg.alleles[AlleleState.NORMAL], bg.alleles[AlleleState.POS])
     return bg
 
 
@@ -1060,107 +1463,3 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
                 genotypes=[f"{reference.genotype}/{reference.genotype}"],
             )
     return res
-
-
-# ###do not del!!!! key functionality that works, has been deprecated but need more tests
-# @apply_to_dict_values
-# def process_genetic_data_old(
-#     bg: BloodGroup, reference_alleles: dict[str, Allele]
-# ) -> BloodGroup:
-#     """
-#     now abstracted below
-#     Process genetic data to identify alleles and genotypes.
-
-#     Parameters:
-#     ----------
-#     res (dict[str, list[Allele]]):
-#         A dictionary mapping genotypes to lists of Allele objects.
-#     variant_pool_numeric (dict[str, int]):
-#         A dictionary mapping variants to their counts.
-
-#     Returns:
-#     ----------
-#     list[str]:
-#         A list of called genotypes based on processed data.
-#     """
-#     options = unique_in_order(bg.alleles[AlleleState.POS])
-#     ref_allele = reference_alleles[bg.type]
-#     if len(options) == 0:
-#         bg.alleles[AlleleState.NORMAL] = [Pair(*[ref_allele] * 2)]
-#     elif len(options) == 1:
-#         bg.alleles[AlleleState.NORMAL] = [
-#             make_pair(reference_alleles, bg.variant_pool_numeric, options)
-#         ]
-#     elif len(options) > 1:
-#         non_ref_options = get_non_refs(options)
-#         # TODO shouldnt be using these lists where they're created... noob
-#         ranked_chunks = chunk_geno_list_by_rank(non_ref_options)
-#         assert len(ranked_chunks) > 0
-
-#         homs = get_fully_homozygous_alleles(ranked_chunks, bg.variant_pool_numeric)
-#         # TODO make a class to be rid of indexing
-
-#         first_chunk = ranked_chunks[0]
-#         trumpiest_homs = homs[0]
-
-#         if len(trumpiest_homs) == 1:  # fine - 1+ equal weight genos with at least 1 hom
-#             # - nothing else can get up
-#             hom_allele = trumpiest_homs[0]
-#             hom_pair = [Pair(*[hom_allele] * 2)]
-#             if len(first_chunk) == 1:
-#                 bg.alleles[AlleleState.NORMAL] = hom_pair
-#             elif any(hom_allele in other_allele for other_allele in first_chunk):
-#                 bg.alleles[AlleleState.NORMAL] = combine_all(
-#                     first_chunk, bg.variant_pool_numeric
-#                 )
-#             else:
-#                 bg.alleles[AlleleState.NORMAL] = hom_pair + combine_all(
-#                     first_chunk, bg.variant_pool_numeric
-#                 )
-#         elif len(trumpiest_homs) > 1:
-#             new_pairs = []
-#             for hom_allele in trumpiest_homs:
-#                 new_pairs.append(Pair(*[hom_allele] * 2))
-#             if len(first_chunk) > len(trumpiest_homs):
-#                 bg.alleles[AlleleState.NORMAL] = new_pairs + combine_all(
-#                     first_chunk,
-#                     bg.variant_pool_numeric,
-#                 )
-#             else:
-#                 bg.alleles[AlleleState.NORMAL] = new_pairs
-#         elif any(len(hom_chunk) > 0 for hom_chunk in homs):
-#             if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
-#                 raise ValueError(
-#                     "no homs in first 2 weight tier"
-#                 )  # TODO - this came up in UKB exome data
-#             if len(first_chunk) == 1:  # need to now match 1 with 2nd tier options
-#                 if len(ranked_chunks) == 1:  # fine - 1 hom with any weight...
-#                     # TODO could pull this out for simplicity???
-#                     bg.alleles[AlleleState.NORMAL] = [
-#                         make_pair(
-#                             reference_alleles,
-#                             bg.variant_pool_numeric.copy(),
-#                             first_chunk,
-#                         )
-#                     ]
-#                 else:
-#                     bg.alleles[AlleleState.NORMAL] = combine_all(
-#                         non_ref_options, bg.variant_pool_numeric
-#                     )
-#             else:
-#                 assert len(homs[0]) == 0
-#                 # if the hom is in 3rd tier this wont work, but that'll raise an error
-#                 bg.alleles[AlleleState.NORMAL] = combine_all(
-#                     ranked_chunks[0] + ranked_chunks[1], bg.variant_pool_numeric
-#                 )
-#         else:
-#             # if no hom then ANYthing individually possible, as all SNPS could be on
-#             # other side
-#             # but needs some filtering after to make sure that the pairs can exist
-#             assert non_ref_options[0].blood_group == bg.type
-#             ref_options = non_ref_options + [ref_allele]
-#             bg.alleles[AlleleState.NORMAL] = combine_all(
-#                 ref_options, bg.variant_pool_numeric
-#             )
-
-#     return bg

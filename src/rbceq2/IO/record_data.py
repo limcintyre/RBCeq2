@@ -107,8 +107,9 @@ def record_filtered_data(results: tuple[Any]) -> None:
                 f"Phenotypes (alphanumeric): {alphanumeric_phenos.get(bg_name, '')}\n"
                 f"\n#Data:\n"
                 f"Vars: {bg_data.variant_pool}\n"
+                f"Vars_phase: {bg_data.variant_pool_phase}\n"
+                f"Vars_phase_set: {bg_data.variant_pool_phase_set}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
-                f"Filtered: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.FILT]))}\n"
                 f"\n#Filters applied:\n"
             )
             no_filters = True

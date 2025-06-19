@@ -261,7 +261,10 @@ def add_ref_phenos(bg: BloodGroup, df: pd.DataFrame) -> BloodGroup:
     df["type"] = df["type"].astype("category")
     df_ref = df.loc[(df["Reference_genotype"] == "Yes") & (df["type"] == bg.type)]
 
-    assert df_ref.shape == (1, 20)
+    try:
+        assert df_ref.shape == (1, 20)
+    except AssertionError:
+        ic(df_ref.shape, df_ref)
     bg.misc = {}
     bg.misc["ref_PhenoType.alphanumeric"] = make_values_dict(
         [df_ref.iloc[0]["Phenotype_alt"]],

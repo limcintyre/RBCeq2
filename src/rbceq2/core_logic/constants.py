@@ -122,6 +122,7 @@ class BgName(Enum):
     HPA25 = auto()
     HPA5 = auto()
     HPA15 = auto()
+    CD99 = auto()
 
 
     @classmethod

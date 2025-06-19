@@ -41,8 +41,8 @@ class Allele:
         Whether this allele is the reference allele.
     sub_type: str
         Additional subtype string if needed.
-    phases: tuple[str] | None
-        Phase IDs associated with this allele (if phased).
+    # phases: tuple[str] | None
+    #     Phase IDs associated with this allele (if phased).
     number_of_defining_variants: int
         Automatically set based on the size of defining_variants.
     """
@@ -56,7 +56,7 @@ class Allele:
     weight_geno: int = 1
     reference: bool = False
     sub_type: str = ""
-    phases: tuple[str] | None = None
+    #phases: dict[str, dict[str,str]] | None = None
     number_of_defining_variants: int = field(init=False)
 
     def __post_init__(self: Allele) -> None:
@@ -132,7 +132,7 @@ class Allele:
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
             #f"weight_pheno: {self.weight_pheno} \n "
             f"reference: {self.reference} \n"
-            f"phases: {self.phases} \n"
+            #f"phases: {self.phases} \n"
         )
 
     def __str__(self) -> str:
@@ -233,6 +233,8 @@ class BloodGroup:
     ]  # fix all ANy as per Arjan's comment
     sample: str
     variant_pool: dict[str, Zygosity] = field(default_factory=dict)
+    variant_pool_phase: dict[str, str] = field(default_factory=dict)
+    variant_pool_phase_set: dict[str, str] = field(default_factory=dict)
     genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
         default_factory=lambda: defaultdict(dict)
@@ -262,6 +264,10 @@ class BloodGroup:
             Sample identifier.
         variant_pool (Dict[str, str]): 
             Mapping of variants to zygosity states.
+        variant_pool_phase (Dict[str, str]): 
+            Mapping of variants to phase states, ie 1|0.
+        variant_pool_phase_set (Dict[str, str]): 
+            Mapping of variants to phase sets ie, 126354.
         genotypes (List[str]): 
             List of genotypes associated with the blood group.
         phenotypes (List[str]): 
@@ -270,6 +276,8 @@ class BloodGroup:
             Alleles filtered out during processing, categorized by reason.
         len_dict (Dict[str, int]): 
             Dictionary mapping zygosity states to their associated numerical values.
+        misc (Dict[Any, Any]): 
+            Dictionary for miscellaneous stuff. A little promiscuous, probably too much so
     """
 
     @property
