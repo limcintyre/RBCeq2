@@ -3,7 +3,6 @@ from __future__ import annotations
 import operator
 from collections import defaultdict
 from functools import partial
-from icecream import ic
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import LOW_WEIGHT, AlleleState
 from rbceq2.core_logic.utils import (
@@ -349,8 +348,9 @@ def filter_pairs_on_antithetical_zygosity(
     """
 
     to_remove = []
-    var_pool_no_chrom = {k.split(':')[1]: v for k, v in bg.variant_pool.items()}
+    var_pool_no_chrom = {k.split(":")[1]: v for k, v in bg.variant_pool.items()}
     if bg.type in antitheticals:
+        # ic(1111,antitheticals[bg.type]) RHCe issue
         anti1, anti2 = antitheticals[bg.type]
         if var_pool_no_chrom.get(anti1) == Zygosity.HOM:
             return bg
@@ -360,8 +360,8 @@ def filter_pairs_on_antithetical_zygosity(
             allele.sub_type
             for allele in flatten_alleles(bg.alleles[AlleleState.NORMAL])
         }
-        if len(flattened_sub_types) > 1: #doesn't work for MNS or others with multiple 
-            #subtypes that aren't associted with an antitetical
+        if len(flattened_sub_types) > 1:  # doesn't work for MNS or others with multiple
+            # subtypes that aren't associted with an antitetical
             for pair in bg.alleles[AlleleState.NORMAL]:
                 flat_sub_types = {allele.sub_type for allele in pair}
                 if flat_sub_types == flattened_sub_types:
@@ -1108,6 +1108,11 @@ def filter_pairs_by_context(bg: BloodGroup) -> BloodGroup:
 
     return bg
 
+#TODO tidy up all phase funcs once tested
+def _get_allele_phase_info(allele, phase_dict):
+    """ """
+    return [phase_dict[variant] for variant in allele.defining_variants]
+
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -1130,20 +1135,53 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
     if phased:
         to_remove = []
         for allele in bg.alleles[AlleleState.FILT]:
-            if len(set(allele.phases)) > 2:
-                logger.warning(
-                    f"{bg.sample} : {allele.genotype} is not phased properly: {allele.phases}"
+            phases_with_hom = _get_allele_phase_info(allele, bg.variant_pool_phase)
+            phases = set(
+                [phase_set for phase_set in phases_with_hom if phase_set != "."]
+            )
+            phase_sets_and_hom = _get_allele_phase_info(
+                allele, bg.variant_pool_phase_set
+            )
+            if all(phase_set == "." for phase_set in phase_sets_and_hom):
+                continue  # all hom
+            phase_sets = set(
+                [phase_set for phase_set in phase_sets_and_hom if phase_set != "."]
+            )
+            # ic(allele, phase_sets, phases, bg.variant_pool_phase, bg.variant_pool_phase_set, bg.variant_pool)
+            if len(phase_sets) > 2:
+                logger.info(
+                    f"\n{bg.sample} : {allele} multiple phase sets: {phase_sets}"
                 )
-            elif len(set(allele.phases)) == 2:
-                if "." not in allele.phases:
-                    to_remove.append(allele)
-            elif len(set(allele.phases)) == 1:
-                continue  # should go with ref
+                continue
+            elif len(phase_sets) == 2:
+                logger.info(
+                    f"\n{bg.sample} : {allele} different or unknown phase set: {phase_sets}"
+                )
+                continue
+            elif any('/' in phase for phase in phases):
+                logger.info(
+                    f"\n{bg.sample} : {allele} unknown phase: {phases}"
+                )
+                continue
+            elif len(phase_sets) == 1 and len(phases) > 1:
+                logger.warning(
+                    f"\n{bg.sample} : {allele} is not phased: {phase_sets} & {phases} \n {bg.variant_pool} \n\n{bg.variant_pool_phase} \n\n{bg.variant_pool_phase_set}"
+                )
+                to_remove.append(allele)
+            elif len(phase_sets) == 1 and len(phases) == 1:
+                continue
             else:
-                raise ValueError(f"beyond logic 121212 {allele}")
+                raise ValueError(
+                    f"beyond logic 121212 {allele} phased: {phase_sets} & {phases}"
+                )
         if to_remove:
             bg.remove_alleles(to_remove, "remove_unphased")
     return bg
+
+
+def _get_allele_phase_info2(allele, phase_dict):
+    """ """
+    return [phase_dict[variant] for variant in allele.defining_variants]
 
 
 @apply_to_dict_values
@@ -1151,10 +1189,10 @@ def filter_pairs_by_phase(
     bg: BloodGroup, phased: bool, reference_alleles
 ) -> BloodGroup:
     """
-    Filters out allele pairs where both alleles are on the same phase strand.
+    Filters out allele pairs where both alleles are in the same phase.
 
     This function is intended to remove allele pairs from a BloodGroup object when both
-    alleles in a pair are on the same phase strand, indicating they are on the same
+    alleles in a pair are in the same phase, indicating they are on the same
     chromosome and cannot be inherited together. The function operates under the
     following logic:
 
@@ -1198,14 +1236,14 @@ def filter_pairs_by_phase(
                         weight_pheno=5,
                         reference=False,
                         sub_type='FUT2*01',
-                        phase=48649018),
+                        phase=0|1),
                  Allele(genotype='FUT2*01N.02',
                         defining_variants=frozenset({'19:48703417_G_A'}),
                         weight_geno=1,
                         weight_pheno=5,
                         reference=False,
                         sub_type='FUT2*01',
-                        phase=48649018)]]
+                        phase=0|1)]]
 
     dont remove if ref in pair
     if there is only 1 pair and they are phased then change to 2 pairs (or &) with ref
@@ -1219,16 +1257,31 @@ def filter_pairs_by_phase(
         for pair in bg.alleles[AlleleState.NORMAL]:
             if pair.contains_reference:
                 continue
-            p1 = set(pair.allele1.phases)
-            p2 = set(pair.allele2.phases)
-            if p1 == {"."} and p2 == {"."}:  # all hom
+            p1_phases = set(
+                _get_allele_phase_info2(pair.allele1, bg.variant_pool_phase)
+            )
+            p1_phase_sets = set(
+                _get_allele_phase_info2(pair.allele1, bg.variant_pool_phase_set)
+            )
+            p2_phases = set(_get_allele_phase_info(pair.allele2, bg.variant_pool_phase))
+            p2_phase_sets = set(
+                _get_allele_phase_info(pair.allele2, bg.variant_pool_phase_set)
+            )
+            phase_set = p1_phase_sets.union(p2_phase_sets)
+            if len(phase_set) != 1:
+                continue  # can't use phasing info
+            # if bg.type == 'JK':
+            #     print(11111, pair, p1_phases, p2_phases)
+            if p1_phase_sets == {"."} and p2_phase_sets == {"."}:  # all hom
                 continue
-            elif p1 == p2:
+            # if bg.type == 'JK':
+            #     print(22222, pair,p1_phases, p2_phases)
+            elif p1_phases == p2_phases:
                 to_remove.append(pair)
-            elif remove_homs(p1) != remove_homs(p2):
-                continue
-            elif remove_homs(p1) == remove_homs(p2):
-                to_remove.append(pair)
+            # elif remove_homs(p1) != remove_homs(p2):
+            #     continue
+            # elif remove_homs(p1) == remove_homs(p2):
+            #     to_remove.append(pair)
         if len(bg.alleles[AlleleState.NORMAL]) == len(to_remove):
             for pair in to_remove:
                 bg.alleles[AlleleState.NORMAL].append(
@@ -1240,3 +1293,100 @@ def filter_pairs_by_phase(
         bg.remove_pairs(to_remove, "filter_pairs_by_phase")
 
     return bg
+
+
+# @apply_to_dict_values
+# def filter_pairs_by_phase_set(
+#     bg: BloodGroup, phased: bool, reference_alleles
+# ) -> BloodGroup:
+#     """
+#     Filters out allele pairs where both alleles are on the same phase strand.
+
+#     This function is intended to remove allele pairs from a BloodGroup object when both
+#     alleles in a pair are on the same phase strand, indicating they are on the same
+#     chromosome and cannot be inherited together. The function operates under the
+#     following logic:
+
+#     - If `phased` is False, the function returns the BloodGroup object unchanged.
+#     - For each allele pair in `bg.alleles[AlleleState.NORMAL]`:
+#         - If the pair contains a reference allele, it is retained.
+#         - Extract the phase sets (`p1` and `p2`) for each allele in the pair.
+#         - If both alleles are homozygous (phase sets are {"."}), the pair is retained.
+#         - If the phase sets are identical, the pair is removed.
+#         - If the non-homozygous phase sets differ, the pair is retained.
+#         - If the non-homozygous phase sets are identical, the pair is removed.
+#         - If none of the above conditions are met, a ValueError is raised.
+
+#     - If all pairs are removed and there were pairs with phase information, new pairs
+#     are created by pairing each allele with the reference allele for the blood group
+#     type.
+
+#     Args:
+#         bg (BloodGroup): The BloodGroup object containing allele pairs.
+#         phased (bool): A flag indicating whether phase information is available.
+#         reference_alleles (dict): A dictionary mapping blood group types to reference
+#         alleles.
+
+#     Returns:
+#         BloodGroup: The updated BloodGroup object with inconsistent allele pairs removed.
+
+
+#     Example:
+#     ----------
+#     Suppose you have allele pairs where both alleles are on the same phase strand.
+#     This function will remove such pairs, ensuring that only valid allele combinations
+#     are retained. If all pairs are removed and phase information is present, it will
+#     create new pairs with the reference allele to represent possible allele
+#     combinations.
+
+
+#     Meant to remove pairs where both alleles are on the same strand ie
+#     to_remove: [[Allele(genotype='FUT2*01N.16',
+#                         defining_variants=frozenset({'19:48703728_G_A'}),
+#                         weight_geno=8,
+#                         weight_pheno=5,
+#                         reference=False,
+#                         sub_type='FUT2*01',
+#                         phase=48649018),
+#                  Allele(genotype='FUT2*01N.02',
+#                         defining_variants=frozenset({'19:48703417_G_A'}),
+#                         weight_geno=1,
+#                         weight_pheno=5,
+#                         reference=False,
+#                         sub_type='FUT2*01',
+#                         phase=48649018)]]
+
+#     dont remove if ref in pair
+#     if there is only 1 pair and they are phased then change to 2 pairs (or &) with ref
+#     """
+
+#     def remove_homs(phase_sets):
+#         return [phase_set for phase_set in phase_sets if phase_set != "."]
+
+#     if phased:
+#         to_remove = []
+#         for pair in bg.alleles[AlleleState.NORMAL]:
+#             if pair.contains_reference:
+#                 continue
+#             ic(pair.allele1, pair.allele2)
+#             p1 = set(pair.allele1.phases)
+#             p2 = set(pair.allele2.phases)
+#             if p1 == {"."} and p2 == {"."}:  # all hom
+#                 continue
+#             elif p1 == p2:
+#                 to_remove.append(pair)
+#             elif remove_homs(p1) != remove_homs(p2):
+#                 continue
+#             elif remove_homs(p1) == remove_homs(p2):
+#                 to_remove.append(pair)
+#         if len(bg.alleles[AlleleState.NORMAL]) == len(to_remove):
+#             for pair in to_remove:
+#                 bg.alleles[AlleleState.NORMAL].append(
+#                     Pair(reference_alleles[bg.type], pair.allele1)
+#                 )
+#                 bg.alleles[AlleleState.NORMAL].append(
+#                     Pair(reference_alleles[bg.type], pair.allele2)
+#                 )
+#         bg.remove_pairs(to_remove, "filter_pairs_by_phase")
+
+#     return bg
