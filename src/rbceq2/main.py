@@ -12,14 +12,13 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 
-from polars import exclude
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as gf
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType
 from rbceq2.core_logic.utils import compose, get_allele_relationships
-from rbceq2.db.db import Db, prepare_db,DbDataConsistencyChecker
+from rbceq2.db.db import Db, prepare_db, DbDataConsistencyChecker
 from rbceq2.IO.PDF_reports import generate_all_reports
 from rbceq2.IO.record_data import (
     check_VCF,
@@ -132,7 +131,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--RH",
         action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only (so its completely wrong sometimes)!",
+        help="Generate results for RHD and RHCE. WARNING! EXPERIMENTAL! Based on SNV and small indel only (completely wrong sometimes [unless reads > 50kb and all large indels and CNVs are in your VCF])!",
         default=False,
     )
 
@@ -144,17 +143,16 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", 'CD99']
+    exclude = ["C4A", "C4B", "ATP11C", "CD99"]
     if not args.RH:
-        exclude += ['RHD', 'RHCE']
+        exclude += ["RHD", "RHCE"]
     if not args.HPAs:
-        exclude += [f'HPA{i}' for i in range(50)]
+        exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
     UUID = configure_logging(args)
 
     logger.debug("Logger configured for debug mode.")
     logger.info("Application started.")
-   
 
     # 1. Prepare the DataFrame
     logger.info("Preparing database DataFrame...")
@@ -162,7 +160,9 @@ def main():
     logger.info("Database DataFrame prepared.")
 
     # 2. Run consistency checks on the prepared DataFrame
-    DbDataConsistencyChecker.run_all_checks(df=db_df, ref_genome_name=args.reference_genome)
+    DbDataConsistencyChecker.run_all_checks(
+        df=db_df, ref_genome_name=args.reference_genome
+    )
     # If any check fails, an exception will be raised here, and the program will halt.
 
     # 3. If all checks pass, proceed to create the Db object
@@ -212,7 +212,7 @@ def main():
             db,
             args=args,
             allele_relationships=allele_relationships,
-            excluded=exclude
+            excluded=exclude,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
@@ -264,10 +264,15 @@ def find_hits(
             microarray=args.microarray,
         ),
         partial(dp.make_variant_pool, vcf=vcf),
-        partial(dp.add_phasing, phased=args.phased, variant_metrics=vcf.variants),
+        partial(
+            dp.add_phasing,
+            phased=args.phased,
+            variant_metrics=vcf.variants,
+            phase_sets=vcf.phase_sets,
+        ),
         partial(gf.remove_unphased, phased=args.phased),
         dp.rule_out_impossible_alleles,
-        partial(dp.rule_out_impossible_alleles_phased, phased=args.phased),
+        # partial(dp.rule_out_impossible_alleles_phased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
             dp.find_what_was_excluded_due_to_rank,
@@ -311,6 +316,8 @@ def find_hits(
         gf.filter_co_existing_in_other_allele,
         gf.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         gf.filter_co_existing_subsets,
+        partial(gf.filter_impossible_alleles_phased, phased=args.phased),
+        partial(gf.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
         dp.add_CD_to_XG,
     ]
