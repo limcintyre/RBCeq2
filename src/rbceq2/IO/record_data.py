@@ -11,31 +11,6 @@ from rbceq2.core_logic.constants import DB_VERSION, VERSION, AlleleState
 from rbceq2.IO.validation import validate_vcf
 
 
-# def configure_logging(args) -> str:
-#     """
-#     Configures the logging for the application.
-
-#     Args:
-#         args: Command-line arguments containing debug flag and log file path.
-#     """
-#     log_level = "DEBUG" if args.debug else "INFO"
-#     logger.remove()  # Remove default logger configuration
-#     logger.add(
-#         f"{args.out}_log.txt",  # Log file path from arguments
-#         level=log_level,
-#         format="{time} {level} {message}",
-#         rotation="50 MB",  # Rotate the file when it reaches 10 MB
-#         compression="zip",  # Compress old logs
-#     )
-#     UUID = str(uuid.uuid4())
-#     logger.info("NOT FOR CLINICAL USE")
-#     logger.info(f"RBCeq2 Version: {VERSION}")
-#     logger.info(f"RBCeq2 database Version: {DB_VERSION}")
-#     logger.info(f"Session UUID: {UUID}")
-
-#     return UUID
-
-
 def configure_logging(args: argparse.Namespace) -> str:
     """
     Configures the logging for the application and logs arguments line by line.
@@ -96,6 +71,9 @@ def record_filtered_data(results: tuple[Any]) -> None:
               alphanumeric phenotypes.
             - res: A dict mapping blood group names to BloodGroup objects.
     """
+    def format_vars(pool):
+        return '\n' + '\n'.join([' : '.join([k, v]) for k, v in pool.items()])
+    
     sample, _, numeric_phenos, alphanumeric_phenos, res = results
     for bg_name, bg_data in res.items():
         if bg_data.filtered_out:
@@ -106,9 +84,9 @@ def record_filtered_data(results: tuple[Any]) -> None:
                 f"Phenotypes (numeric): {numeric_phenos.get(bg_name, '')}\n"
                 f"Phenotypes (alphanumeric): {alphanumeric_phenos.get(bg_name, '')}\n"
                 f"\n#Data:\n"
-                f"Vars: {bg_data.variant_pool}\n"
-                f"Vars_phase: {bg_data.variant_pool_phase}\n"
-                f"Vars_phase_set: {bg_data.variant_pool_phase_set}\n"
+                f"Vars: {format_vars(bg_data.variant_pool)}\n"
+                f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"
+                f"Vars_phase_set: {format_vars(bg_data.variant_pool_phase_set)}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
                 f"\n#Filters applied:\n"
             )

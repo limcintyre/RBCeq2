@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from loguru import logger
 
-from rbceq2.core_logic.utils import Zygosity #, chunk_list_by_rank
+from rbceq2.core_logic.utils import Zygosity  # , chunk_list_by_rank
 from rbceq2.core_logic.constants import AlleleState
+
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
@@ -56,7 +57,7 @@ class Allele:
     weight_geno: int = 1
     reference: bool = False
     sub_type: str = ""
-    #phases: dict[str, dict[str,str]] | None = None
+    # phases: dict[str, dict[str,str]] | None = None
     number_of_defining_variants: int = field(init=False)
 
     def __post_init__(self: Allele) -> None:
@@ -130,9 +131,9 @@ class Allele:
             f"defining_variants: {sep_var}{sep_var.join(self.defining_variants)} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
-            #f"weight_pheno: {self.weight_pheno} \n "
+            # f"weight_pheno: {self.weight_pheno} \n "
             f"reference: {self.reference} \n"
-            #f"phases: {self.phases} \n"
+            # f"phases: {self.phases} \n"
         )
 
     def __str__(self) -> str:
@@ -342,7 +343,9 @@ class BloodGroup:
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
 
-    def remove_alleles(self, to_remove: list[str], filter_name: str) -> None:
+    def remove_alleles(
+        self, to_remove: list[str], filter_name: str, allele_type: str = "raw"
+    ) -> None:
         """Remove specific alleles from the raw set.
 
         Args:
@@ -350,7 +353,7 @@ class BloodGroup:
             filter_name (str): Category name for the filtering reason.
         """
         for allele in to_remove:
-            self.alleles[AlleleState.RAW].remove(allele)
+            self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
 
 
@@ -457,7 +460,6 @@ class Pair:
             List[str]: A list of the genotypes of the alleles in the pair.
         """
         return [allele.phenotype_alt for allele in self._ordered()]
-
 
     @property
     def contains_reference(self) -> bool:

@@ -11,7 +11,7 @@ from rbceq2.core_logic.utils import (
     check_available_variants,
     one_HET_variant,
 )
-from loguru import logger
+from icecream import ic
 
 
 def flatten_alleles(pairs: list[Pair]) -> set[Allele]:
@@ -1108,7 +1108,8 @@ def filter_pairs_by_context(bg: BloodGroup) -> BloodGroup:
 
     return bg
 
-#TODO tidy up all phase funcs once tested
+
+# TODO tidy up all phase funcs once tested
 def _get_allele_phase_info(allele, phase_dict):
     """ """
     return [phase_dict[variant] for variant in allele.defining_variants]
@@ -1149,24 +1150,24 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
             )
             # ic(allele, phase_sets, phases, bg.variant_pool_phase, bg.variant_pool_phase_set, bg.variant_pool)
             if len(phase_sets) > 2:
-                logger.info(
-                    f"\n{bg.sample} : {allele} multiple phase sets: {phase_sets}"
-                )
+                # logger.info(
+                #     f"\n{bg.sample} : {allele} multiple phase sets: {phase_sets}"
+                # )
                 continue
             elif len(phase_sets) == 2:
-                logger.info(
-                    f"\n{bg.sample} : {allele} different or unknown phase set: {phase_sets}"
-                )
+                # logger.info(
+                #     f"\n{bg.sample} : {allele} different or unknown phase set: {phase_sets}"
+                # )
                 continue
-            elif any('/' in phase for phase in phases):
-                logger.info(
-                    f"\n{bg.sample} : {allele} unknown phase: {phases}"
-                )
+            elif any("/" in phase for phase in phases):
+                # logger.info(
+                #     f"\n{bg.sample} : {allele} unknown phase: {phases}"
+                # )
                 continue
             elif len(phase_sets) == 1 and len(phases) > 1:
-                logger.warning(
-                    f"\n{bg.sample} : {allele} is not phased: {phase_sets} & {phases} \n {bg.variant_pool} \n\n{bg.variant_pool_phase} \n\n{bg.variant_pool_phase_set}"
-                )
+                # logger.warning(
+                #     f"\n{bg.sample} : {allele} is not phased: {phase_sets} & {phases} \n {bg.variant_pool} \n\n{bg.variant_pool_phase} \n\n{bg.variant_pool_phase_set}"
+                # )
                 to_remove.append(allele)
             elif len(phase_sets) == 1 and len(phases) == 1:
                 continue
@@ -1175,7 +1176,8 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
                     f"beyond logic 121212 {allele} phased: {phase_sets} & {phases}"
                 )
         if to_remove:
-            bg.remove_alleles(to_remove, "remove_unphased")
+            #ic(44455566677744, bg.type, bg.alleles[AlleleState.FILT], to_remove)
+            bg.remove_alleles(to_remove, "remove_unphased", AlleleState.FILT)
     return bg
 
 
@@ -1249,9 +1251,6 @@ def filter_pairs_by_phase(
     if there is only 1 pair and they are phased then change to 2 pairs (or &) with ref
     """
 
-    def remove_homs(phase_sets):
-        return [phase_set for phase_set in phase_sets if phase_set != "."]
-
     if phased:
         to_remove = []
         for pair in bg.alleles[AlleleState.NORMAL]:
@@ -1260,10 +1259,12 @@ def filter_pairs_by_phase(
             p1_phases = set(
                 _get_allele_phase_info2(pair.allele1, bg.variant_pool_phase)
             )
+            p1_zygo = set(_get_allele_phase_info2(pair.allele1, bg.variant_pool))
             p1_phase_sets = set(
                 _get_allele_phase_info2(pair.allele1, bg.variant_pool_phase_set)
             )
             p2_phases = set(_get_allele_phase_info(pair.allele2, bg.variant_pool_phase))
+            p2_zygo = set(_get_allele_phase_info2(pair.allele2, bg.variant_pool))
             p2_phase_sets = set(
                 _get_allele_phase_info(pair.allele2, bg.variant_pool_phase_set)
             )
@@ -1272,7 +1273,7 @@ def filter_pairs_by_phase(
                 continue  # can't use phasing info
             # if bg.type == 'JK':
             #     print(11111, pair, p1_phases, p2_phases)
-            if p1_phase_sets == {"."} and p2_phase_sets == {"."}:  # all hom
+            if p1_zygo == {Zygosity.HOM} and p2_zygo == {Zygosity.HOM}:  # all hom
                 continue
             # if bg.type == 'JK':
             #     print(22222, pair,p1_phases, p2_phases)
@@ -1290,9 +1291,712 @@ def filter_pairs_by_phase(
                 bg.alleles[AlleleState.NORMAL].append(
                     Pair(reference_alleles[bg.type], pair.allele2)
                 )
-        bg.remove_pairs(to_remove, "filter_pairs_by_phase")
+        #ic(9998887776655, bg.type, bg.alleles[AlleleState.NORMAL], to_remove)
+        if to_remove:
+            bg.remove_pairs(to_remove, "filter_pairs_by_phase")
 
     return bg
+
+
+@apply_to_dict_values
+def filter_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
+
+    When `phased` is True, this function attempts to simplify the set of possible
+    alleles (`bg.alleles[AlleleState.POS]`) by looking for alleles that are impossibe
+    due to being 'in' (defining variants are subset of) another allele:
+        1. A1 is A2, all vars HOM (should be removed above - not phased dependant)
+        2. A1 is A2, all vars HET and in same phase
+        2. A1 is A2, vars are mix of HET and HOM, all HET are in same phase
+
+
+    The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
+    alleles deemed "impossible" under these phased conditions. Details of removed
+    allele pairs due to subsumption are stored in
+    `bg.filtered_out["allele_subsumed_by_other_phased"]`.
+
+    Args:
+        bg (BloodGroup): A BloodGroup object containing allele states, variant pool
+            (with observed zygosities), and phasing information within Allele objects.
+        phased (bool): A flag indicating whether phasing rules should be applied.
+            If False, the function returns the BloodGroup object unmodified.
+
+    Returns:
+        BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
+            list may be reduced, and `filtered_out` may be updated.
+
+
+    Example (same phase mainly HET):
+    GYPB*03/GYPB*03N.03 - in GYPB*03N.04
+    GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
+    GYPB*03/GYPB*06.02 - in GYPB*03N.04
+    Phenotypes (numeric): MNS:3,-4,5 | MNS:3,-4,6
+    Phenotypes (alphanumeric): S+,s-,He+ | S+,s-,U+
+
+    #Data:
+    Vars: {
+    '4:143999443_G_A': 'Homozygous',
+    '4:144001261_T_C': 'Heterozygous',
+    '4:144001254_T_A': 'Heterozygous',
+    '4:144001250_T_C': 'Heterozygous',
+    '4:144001249_C_A': 'Heterozygous',
+    '4:144001262_A_C': 'Heterozygous',
+    '4:143997535_C_A': 'Heterozygous'}
+
+    Filtered:
+    Allele
+    genotype: GYPB*03
+    defining_variants:
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:3,-4 or S+,s-
+    reference: False
+    phases: ('.',)
+
+    Allele
+    genotype: GYPB*06.02
+    defining_variants:
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:3,-4,6 or S+,s-,He+
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '.')
+
+    Allele
+    genotype: GYPB*03N.03
+    defining_variants:
+            4:143997535_C_A
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('.', '143997535')
+
+    Allele
+    genotype: GYPB*03N.04
+    defining_variants:
+            4:143997535_C_A
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '143997535', '.')
+
+
+    """
+    if phased:
+
+        if len(bg.alleles[AlleleState.NORMAL]) == 1:
+            return bg
+        if len(bg.alleles[AlleleState.NORMAL]) == 0:
+            # ic(bg.type, bg.alleles)
+            # assert bg.type == 'KN'
+            return bg
+        alleles = list(flatten_alleles(bg.alleles[AlleleState.NORMAL]))
+        #ic(alleles)
+        alleles_not_hom = [
+            allele for allele in alleles if not _check_hom(bg.variant_pool, allele)
+        ]
+        # ic(bg.variant_pool, alleles_not_hom)
+        alleles_with_variants_in_same_phase_set = [
+            allele
+            for allele in alleles_not_hom
+            if _check_phase_set(bg.variant_pool_phase_set, allele)
+        ]
+        #ic(bg.variant_pool_phase_set, alleles_with_variants_in_same_phase_set)
+        alleles_with_variants_in_same_phase = [
+            allele
+            for allele in alleles_with_variants_in_same_phase_set
+            if _check_phase(bg.variant_pool_phase, allele)
+        ]
+        #ic(bg.variant_pool_phase, alleles_with_variants_in_same_phase)
+        l1, l2 = [], []
+        for allele in alleles_with_variants_in_same_phase:
+            phase = bg.variant_pool_phase[list(allele.defining_variants)[0]]
+            if phase == '1|0':
+                l1.append(allele)
+            elif phase == '0|1':
+                l2.append(allele)
+            else:
+                assert phase in 'unknown' or '/' in phase
+                #ic(11111111, allele, phase)
+        #ic(bg.variant_pool_phase, l1,l2)
+        alleles_to_remove = []
+        for allele in l1:
+            for allele2 in l1:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
+        for allele in l2:
+            for allele2 in l2:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
+        #ic(alleles_to_remove)
+        to_remove = []
+        for pair in bg.alleles[AlleleState.NORMAL]:
+            if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
+                to_remove.append(pair)
+        try:
+            assert len(to_remove) != len(bg.alleles[AlleleState.NORMAL])
+        except AssertionError:
+            ic(11111222233333897,to_remove, bg.alleles[AlleleState.NORMAL], len(to_remove), len(bg.alleles[AlleleState.NORMAL]))
+            raise
+        if to_remove:
+            bg.remove_pairs(to_remove, "filter_impossible_alleles_phased")
+        try:
+            assert bg.alleles[AlleleState.NORMAL]
+        except AssertionError:
+            ic(bg.type)
+            raise
+    return bg
+
+
+
+def _check_phase(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+    """
+    True if all same phase set and or HOM
+    """
+    phase_sets = [
+        phase
+        for variant, phase in variant_pool.items()
+        if variant in current_allele.defining_variants
+    ]
+
+    return len(set(phase_sets)) == 1
+
+def _check_phase_set(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+    """
+    True if all same phase set and or HOM
+    """
+    phase_sets = [
+        phase
+        for variant, phase in variant_pool.items()
+        if variant in current_allele.defining_variants and phase != "."
+    ]
+
+    return len(set(phase_sets)) == 1
+
+
+def _check_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+    """
+    Checks if all elements in a list are hom.
+
+    Args:
+        current_allele: Allele
+
+    Returns:
+        True if all elements match the target_str, or if all elements
+        except exactly one match the target_str. False otherwise.
+    """
+    variants = [
+        zygo
+        for variant, zygo in variant_pool.items()
+        if variant in current_allele.defining_variants
+    ]
+
+    return all(item == Zygosity.HOM for item in variants)
+
+
+# @apply_to_dict_values
+# def filter_impossible_alleles_phased_old(bg: BloodGroup, phased: bool) -> BloodGroup:
+#     """
+#     Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
+
+#     When `phased` is True, this function attempts to simplify the set of possible
+#     alleles (`bg.alleles[AlleleState.POS]`) by looking for alleles that are impossibe
+#     due to being 'in' (defining variants are subset of) another allele:
+#         1. A1 is A2, all vars HOM (should be removed above - not phased dependant)
+#         2. A1 is A2, all vars HET and in same phase
+#         2. A1 is A2, vars are mix of HET and HOM, all HET are in same phase
+
+
+#     The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
+#     alleles deemed "impossible" under these phased conditions. Details of removed
+#     allele pairs due to subsumption are stored in
+#     `bg.filtered_out["allele_subsumed_by_other_phased"]`.
+
+#     Args:
+#         bg (BloodGroup): A BloodGroup object containing allele states, variant pool
+#             (with observed zygosities), and phasing information within Allele objects.
+#         phased (bool): A flag indicating whether phasing rules should be applied.
+#             If False, the function returns the BloodGroup object unmodified.
+
+#     Returns:
+#         BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
+#             list may be reduced, and `filtered_out` may be updated.
+
+
+#     Example (same phase mainly HET):
+#     GYPB*03/GYPB*03N.03 - in GYPB*03N.04
+#     GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
+#     GYPB*03/GYPB*06.02 - in GYPB*03N.04
+#     Phenotypes (numeric): MNS:3,-4,5 | MNS:3,-4,6
+#     Phenotypes (alphanumeric): S+,s-,He+ | S+,s-,U+
+
+#     #Data:
+#     Vars: {
+#     '4:143999443_G_A': 'Homozygous',
+#     '4:144001261_T_C': 'Heterozygous',
+#     '4:144001254_T_A': 'Heterozygous',
+#     '4:144001250_T_C': 'Heterozygous',
+#     '4:144001249_C_A': 'Heterozygous',
+#     '4:144001262_A_C': 'Heterozygous',
+#     '4:143997535_C_A': 'Heterozygous'}
+
+#     Filtered:
+#     Allele
+#     genotype: GYPB*03
+#     defining_variants:
+#             4:143999443_G_A #hom
+#     weight_geno: 1000
+#     phenotype: MNS:3,-4 or S+,s-
+#     reference: False
+#     phases: ('.',)
+
+#     Allele
+#     genotype: GYPB*06.02
+#     defining_variants:
+#             4:144001249_C_A
+#             4:143999443_G_A #hom
+#             4:144001254_T_A
+#             4:144001262_A_C
+#             4:144001261_T_C
+#             4:144001250_T_C
+#     weight_geno: 1000
+#     phenotype: MNS:3,-4,6 or S+,s-,He+
+#     reference: False
+#     phases: ('143997535', '143997535', '143997535',
+#       '143997535', '143997535', '.')
+
+#     Allele
+#     genotype: GYPB*03N.03
+#     defining_variants:
+#             4:143997535_C_A
+#             4:143999443_G_A #hom
+#     weight_geno: 1000
+#     phenotype: MNS:-3,-4,5w or S-,s-,U+w
+#     reference: False
+#     phases: ('.', '143997535')
+
+#     Allele
+#     genotype: GYPB*03N.04
+#     defining_variants:
+#             4:143997535_C_A
+#             4:144001249_C_A
+#             4:143999443_G_A #hom
+#             4:144001254_T_A
+#             4:144001262_A_C
+#             4:144001261_T_C
+#             4:144001250_T_C
+#     weight_geno: 1000
+#     phenotype: MNS:-3,-4,5w or S-,s-,U+w
+#     reference: False
+#     phases: ('143997535', '143997535', '143997535',
+#       '143997535', '143997535', '143997535', '.')
+
+
+#     """
+
+#     def check_hom(current_allele: Allele) -> bool:
+#         """
+#         Checks if all elements in a list are hom.
+
+#         Args:
+#             current_allele: Allele
+
+#         Returns:
+#             True if all elements match the target_str, or if all elements
+#             except exactly one match the target_str. False otherwise.
+#         """
+#         variants = [
+#             zygo
+#             for variant, zygo in bg.variant_pool.items()
+#             if variant in current_allele.defining_variants
+#         ]
+
+#         return all(item == Zygosity.HOM for item in variants)
+
+#     def in_all(current_allele: Allele) -> bool:
+#         """
+#         check if an allele is in all other alleles that are either in
+#         the same phase or all HOM, or a mix of HOM and same phase
+
+#         example:
+
+#                 Vars: {
+#         '7:142957921_ref': 'Homozygous',
+#         '7:142944339_C_T': 'Heterozygous',
+#         '7:142943026_A_G': 'Heterozygous'}
+#         Vars_phase: {
+#         '7:142957921_ref': '.',
+#         '7:142944339_C_T': '0|1',
+#         '7:142943026_A_G': '1|0'}
+#         Vars_phase_set: {
+#         '7:142957921_ref': '.',
+#         '7:142944339_C_T': '139403281',
+#         '7:142943026_A_G': '139403281'}
+#         Raw:
+#             Allele
+#             genotype: KEL*02 - is in both other options
+#             defining_variants:
+#                     7:142957921_ref
+#             weight_geno: 1000
+#             phenotype: KEL:-1,2 or K-,k+
+#             reference: True
+
+#             Allele
+#             genotype: KEL*02.-19
+#             defining_variants:
+#                     7:142957921_ref
+#                     7:142944339_C_T
+#             weight_geno: 1000
+#             phenotype: KEL:-1,2,-19 or K-,k+,K19-
+#             reference: False
+
+#             Allele
+#             genotype: KEL*02.06
+#             defining_variants:
+#                     7:142943026_A_G
+#                     7:142957921_ref
+#             weight_geno: 1000
+#             phenotype: KEL:-1,2,6,-7 or K-,k+,Js(a+),Js(b-)
+#             reference: False
+#         """
+#         if len(alleles) <= 2:
+#             return False  # need all
+#         else:
+#             counter = 0
+#             for other_allele in alleles:
+#                 if other_allele == current_allele:
+#                     continue
+#                 if current_allele in other_allele:
+#                     counter += 1
+
+#             return counter == len(alleles) - 1
+
+#     #ic(789, bg.alleles[AlleleState.NORMAL])
+#     alleles = list(flatten_alleles(bg.alleles[AlleleState.NORMAL]))
+
+#     to_test = "JK"
+#     if phased:
+#         impossible_alleles = set([])
+#         impossible_pairs = set([])
+#         for allele in alleles:
+#             if bg.type == to_test:
+#                 ic(11111, allele)
+#             if allele in impossible_alleles:
+#                 if bg.type == to_test:
+#                     ic(22222)
+#                 continue
+#             # if allele.reference:
+#             #     if bg.type == to_test:
+#             #         ic(22222333333333)
+#             #     continue
+
+#             if check_hom(allele) and not in_all(allele):
+#                 if bg.type == to_test:
+#                     ic(3333333)
+#                 continue
+#             for allele2 in alleles:
+#                 if bg.type == to_test:
+#                     ic(44444444, allele2)
+#                 if allele == allele2:
+#                     if bg.type == to_test:
+#                         ic(555555)
+#                     continue
+#                 # if allele2.reference:
+#                 #     continue
+#                 if check_hom(allele2) and not in_all(allele2):
+#                     if bg.type == to_test:
+#                         ic(6666666)
+#                     continue
+#                 if allele in allele2:
+#                     if bg.type == to_test:
+#                         ic(7777777, allele.genotype, allele2.genotype)
+#                     impossible_alleles.add(allele)
+#                     impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
+#                     continue
+#                 if allele2 in allele:
+#                     if bg.type == to_test:
+#                         ic(888888, allele.genotype, allele2.genotype)
+#                     impossible_alleles.add(allele2)
+#                     impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
+#                     continue
+#         if bg.type == to_test:
+#             ic(9999999, impossible_alleles)
+
+#         bg.filtered_out["allele1_not_possible_due_to_allele2_phased"] = list(
+#             impossible_pairs
+#         )
+#         if bg.type == to_test:
+#             ic(111111122222, bg.alleles[AlleleState.POS])
+#         to_remove = []
+#         for pair in bg.alleles[AlleleState.NORMAL]:
+#             if bg.type == to_test:
+#                 ic(1111113333, pair, impossible_alleles)
+#             if pair.allele1 in impossible_alleles or pair.allele2 in impossible_alleles:
+#                 to_remove.append(pair)
+
+#         bg.remove_pairs(to_remove, "filter_impossible_alleles_phased")
+
+#     return bg
+
+
+@apply_to_dict_values
+def filter_impossible_coexisting_alleles_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """
+    Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
+
+    When `phased` is True, this function attempts to simplify the set of possible
+    alleles (`bg.alleles[AlleleState.POS]`) by looking for alleles that are impossibe
+    due to being 'in' (defining variants are subset of) another allele:
+        1. A1 is A2, all vars HOM (should be removed above - not phased dependant)
+        2. A1 is A2, all vars HET and in same phase
+        2. A1 is A2, vars are mix of HET and HOM, all HET are in same phase
+
+
+    The function modifies `bg.alleles[AlleleState.POS]` in-place by removing the
+    alleles deemed "impossible" under these phased conditions. Details of removed
+    allele pairs due to subsumption are stored in
+    `bg.filtered_out["allele_subsumed_by_other_phased"]`.
+
+    Args:
+        bg (BloodGroup): A BloodGroup object containing allele states, variant pool
+            (with observed zygosities), and phasing information within Allele objects.
+        phased (bool): A flag indicating whether phasing rules should be applied.
+            If False, the function returns the BloodGroup object unmodified.
+
+    Returns:
+        BloodGroup: The modified BloodGroup object. The `alleles[AlleleState.POS]`
+            list may be reduced, and `filtered_out` may be updated.
+
+
+    Example (same phase mainly HET):
+    GYPB*03/GYPB*03N.03 - in GYPB*03N.04
+    GYPB*03/GYPB*03N.04 - is the only posibility as all vars in phase
+    GYPB*03/GYPB*06.02 - in GYPB*03N.04
+    Phenotypes (numeric): MNS:3,-4,5 | MNS:3,-4,6
+    Phenotypes (alphanumeric): S+,s-,He+ | S+,s-,U+
+
+    #Data:
+    Vars: {
+    '4:143999443_G_A': 'Homozygous',
+    '4:144001261_T_C': 'Heterozygous',
+    '4:144001254_T_A': 'Heterozygous',
+    '4:144001250_T_C': 'Heterozygous',
+    '4:144001249_C_A': 'Heterozygous',
+    '4:144001262_A_C': 'Heterozygous',
+    '4:143997535_C_A': 'Heterozygous'}
+
+    Filtered:
+    Allele
+    genotype: GYPB*03
+    defining_variants:
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:3,-4 or S+,s-
+    reference: False
+    phases: ('.',)
+
+    Allele
+    genotype: GYPB*06.02
+    defining_variants:
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:3,-4,6 or S+,s-,He+
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '.')
+
+    Allele
+    genotype: GYPB*03N.03
+    defining_variants:
+            4:143997535_C_A
+            4:143999443_G_A #hom
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('.', '143997535')
+
+    Allele
+    genotype: GYPB*03N.04
+    defining_variants:
+            4:143997535_C_A
+            4:144001249_C_A
+            4:143999443_G_A #hom
+            4:144001254_T_A
+            4:144001262_A_C
+            4:144001261_T_C
+            4:144001250_T_C
+    weight_geno: 1000
+    phenotype: MNS:-3,-4,5w or S-,s-,U+w
+    reference: False
+    phases: ('143997535', '143997535', '143997535',
+      '143997535', '143997535', '143997535', '.')
+
+
+    """
+    if phased:
+
+        co_alleles = bg.alleles.get(AlleleState.CO)
+        if co_alleles is None:
+            return bg
+
+        if len(co_alleles) == 1:
+            return bg
+        alleles = list(flatten_alleles(co_alleles))
+        #ic(alleles)
+        alleles_not_hom = [
+            allele for allele in alleles if not _check_hom(bg.variant_pool, allele)
+        ]
+        # ic(bg.variant_pool, alleles_not_hom)
+        alleles_with_variants_in_same_phase_set = [
+            allele
+            for allele in alleles_not_hom
+            if _check_phase_set(bg.variant_pool_phase_set, allele)
+        ]
+        #ic(bg.variant_pool_phase_set, alleles_with_variants_in_same_phase_set)
+        alleles_with_variants_in_same_phase = [
+            allele
+            for allele in alleles_with_variants_in_same_phase_set
+            if _check_phase(bg.variant_pool_phase, allele)
+        ]
+        #ic(bg.variant_pool_phase, alleles_with_variants_in_same_phase)
+        l1, l2 = [], []
+        for allele in alleles_with_variants_in_same_phase:
+            phase = bg.variant_pool_phase[list(allele.defining_variants)[0]]
+            if phase == '1|0':
+                l1.append(allele)
+            elif phase == '0|1':
+                l2.append(allele)
+            else:
+                ic(11111111, allele, phase)
+        #ic(bg.variant_pool_phase, l1,l2)
+        alleles_to_remove = []
+        for allele in l1:
+            for allele2 in l1:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
+        for allele in l2:
+            for allele2 in l2:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
+        #ic(alleles_to_remove)
+        to_remove = []
+        for pair in co_alleles:
+            if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
+                to_remove.append(pair)
+        assert len(to_remove) != len(co_alleles)
+        if to_remove:
+            bg.remove_pairs(to_remove, "filter_impossible_co_alleles_phased", AlleleState.CO)
+    return bg
+    # def check_hom(current_allele: Allele) -> bool:
+    #     """
+    #     Checks if all elements in a list are hom.
+
+    #     Args:
+    #         current_allele: Allele
+
+    #     Returns:
+    #         True if all elements match the target_str, or if all elements
+    #         except exactly one match the target_str. False otherwise.
+    #     """
+    #     variants = [
+    #         zygo
+    #         for variant, zygo in bg.variant_pool.items()
+    #         if variant in current_allele.defining_variants
+    #     ]
+
+    #     return all(item == Zygosity.HOM for item in variants)
+
+    # if bg.type != "KN":
+    #     return bg
+    # alleles_not_flat = bg.alleles.get(AlleleState.CO)
+    # if alleles_not_flat is not None:
+    #     alleles = list(flatten_alleles(alleles_not_flat))
+    # else:
+    #     return bg
+    # to_test = "KN"
+    # if phased:
+    #     impossible_alleles = set([])
+    #     impossible_pairs = set([])
+    #     for allele in alleles:
+    #         # if bg.type == to_test:
+    #         #     ic(11111, allele)
+    #         if allele in impossible_alleles:
+    #             # if bg.type == to_test:
+    #             #     ic(22222)
+    #             continue
+
+    #         if allele.genotype not in ["KN*01", "KN*02"]:
+    #             continue
+    #         if check_hom(allele):
+    #             # if bg.type == to_test:
+    #             #     ic(3333333)
+    #             continue
+    #         for allele2 in alleles:
+    #             # if bg.type == to_test:
+    #             #     ic(44444444, allele2)
+    #             if allele == allele2:
+    #                 # if bg.type == to_test:
+    #                 #     ic(555555)
+    #                 continue
+    #             # if bg.type == 'KN' and not allele2.genotype not in ['KN*01','KN*02']:
+    #             #     continue
+    #             if check_hom(allele2):
+    #                 # if bg.type == to_test:
+    #                 #     ic(6666666)
+    #                 continue
+    #             if allele in allele2:
+    #                 # if bg.type == to_test:
+    #                 #     ic(7777777,allele.genotype, allele2.genotype)
+    #                 impossible_alleles.add(allele)
+    #                 impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
+    #                 continue
+    #             if allele2 in allele:
+    #                 # if bg.type == to_test:
+    #                 #     ic(888888, allele.genotype, allele2.genotype)
+    #                 impossible_alleles.add(allele2)
+    #                 impossible_pairs.add(Pair(allele1=allele2, allele2=allele))
+    #                 continue
+
+    #     bg.filtered_out["allele1_not_possible_due_to_allele2_co_phased"] = list(
+    #         impossible_pairs
+    #     )
+    #     # if bg.type == to_test:
+    #     #     ic(bg.alleles[AlleleState.POS])
+    #     to_remove = []
+
+    #     co_alleles = bg.alleles.get(AlleleState.CO)
+    #     for pair in co_alleles:
+    #         if bg.type == to_test:
+    #             ic(pair, impossible_alleles)
+    #         if pair.allele1 in impossible_alleles or pair.allele2 in impossible_alleles:
+    #             to_remove.append(pair)
+    #     bg.remove_pairs(
+    #         to_remove, "filter_impossible_alleles_co_phased", AlleleState.CO
+    #     )
+
+    # return bg
 
 
 # @apply_to_dict_values
