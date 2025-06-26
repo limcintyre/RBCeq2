@@ -326,9 +326,12 @@ def find_hits(
 
     res = dp.add_refs(db, res, excluded)
 
-    for allele_pair in res["FUT2"].genotypes:
+    #merge FUT 1 and 2
+    fut2s = res["FUT2"].genotypes.copy()
+    fut1s = res["FUT1"].genotypes.copy()
+    for allele_pair in fut2s:
         res["FUT1"].genotypes.append(allele_pair)
-    for allele_pair in res["FUT1"].genotypes:
+    for allele_pair in fut1s:
         res["FUT2"].genotypes.append(allele_pair)
 
     formated_called_genos = {k: ",".join(bg.genotypes) for k, bg in res.items()}

@@ -219,19 +219,24 @@ class Db:
             )
 
     @property
-    def unique_variants(self) -> list[str]:
+    def unique_variants(self) -> set[str]:
         """
         Compute unique variants from the alleles.
 
         Returns:
-            List[str]: A list of unique variant positions extracted from alleles.
+            set[str]: A set of unique variant positions extracted from alleles.
         """
         unique_vars = {
             variant
             for allele in self.make_alleles()
             for variant in allele.defining_variants
         }
-        return [f"{pos.split('_')[0]}" for pos in unique_vars]
+        lanes = []
+        for chrom, poses in self.lane_variants.items():
+            for pos in poses:
+                lanes.append(f"{chrom.replace('chr','')}:{pos}")
+        #ic([f"{pos.split('_')[0]}" for pos in unique_vars][:8], lanes)
+        return set([f"{pos.split('_')[0]}" for pos in unique_vars] + lanes)
 
 
 def prepare_db() -> pd.DataFrame:
