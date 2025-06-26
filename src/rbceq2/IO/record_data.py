@@ -18,8 +18,9 @@ def configure_logging(args: argparse.Namespace) -> str:
     Args:
         args: Command-line arguments (typically from argparse.parse_args()).
     """
+    UUID = str(uuid.uuid4())
     log_level = "DEBUG" if args.debug else "INFO"
-    log_file_path = f"{args.out}_log.txt"
+    log_file_path = f"{args.out}_{UUID}_log.txt"
 
     logger.remove()
     logger.add(
@@ -30,7 +31,7 @@ def configure_logging(args: argparse.Namespace) -> str:
         compression="zip",
     )
 
-    UUID = str(uuid.uuid4())
+    
     logger.info("="*20 + " SESSION START " + "="*20)
     logger.info("NOT FOR CLINICAL USE")
     logger.info(f"RBCeq2 Version: {VERSION}")
@@ -80,6 +81,7 @@ def record_filtered_data(results: tuple[Any]) -> None:
             logger.debug(
                 f"Sample: {sample} BG Name: {bg_name}\n"
                 f"\n#Results:\n"
+                f"Genotypes count: {len(bg_data.genotypes)}\n"
                 f"Genotypes: {'\n'.join(bg_data.genotypes)}\n"
                 f"Phenotypes (numeric): {numeric_phenos.get(bg_name, '')}\n"
                 f"Phenotypes (alphanumeric): {alphanumeric_phenos.get(bg_name, '')}\n"

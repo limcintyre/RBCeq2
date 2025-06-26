@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
+from icecream import ic
 import pandas as pd
 
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
@@ -34,7 +34,7 @@ class VCF:
     df: pd.DataFrame = field(init=False)
     loci: set[str] = field(init=False)
     variants: dict[str, str] = field(init=False)
-    phase_sets: dict[str, dict[int, tuple[int, int]]] = field(init=False) 
+    phase_sets: dict[str, dict[int, tuple[int, int]]] = field(init=False)
 
     def __post_init__(self):
         """Handle initialization after data class creation."""
@@ -48,7 +48,6 @@ class VCF:
         self.add_lane_variants()
         object.__setattr__(self, "variants", self.get_variants())
         self._create_phase_sets()
-        
 
     def _create_phase_sets(self) -> None:
         """Parses the VCF DataFrame to find phased variants and stores their
@@ -89,6 +88,8 @@ class VCF:
                     temp_phase_data.setdefault(chrom, {}).setdefault(ps_id, []).append(
                         pos
                     )
+                    # if chrom == "9":
+                    #     ic(temp_phase_data)
 
         # Convert the lists of positions to (min, max) tuples
         final_phase_sets = {}
@@ -100,8 +101,6 @@ class VCF:
 
         object.__setattr__(self, "phase_sets", final_phase_sets)
 
-    
-    
     def handle_single_or_multi(self) -> pd.DataFrame:
         """Handle single or multiple entries in the VCF, returning a DataFrame.
 
@@ -275,6 +274,68 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
         yield sample_vcf_df, sample
 
 
+def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
+    """
+    rescues ABOs c.261delG - indels don't always get phased properly"""
+    central_loci_to_find = {
+        "9:133257521": 133257521,
+        "9:136132908": 136132908,
+    }
+
+    # 1. Create the sorted list of all PHASED loci on Chromosome 9
+    phased_on_chrom9 = (
+        df.filter(pl.col("CHROM") == "9")
+        .with_columns(pl.col("POS").cast(pl.Int64))
+        .filter(pl.col("FORMAT").str.contains("PS"))
+        .sort("POS")
+    )
+
+    # If there are no phased loci at all, exit
+    if phased_on_chrom9.height == 0:
+        print("No phased loci found on chromosome 9.")
+        return pl.DataFrame()
+
+    # Extract the positions and loci as separate series for quick lookups
+    phased_positions = phased_on_chrom9.get_column("POS")
+    phased_loci_series = phased_on_chrom9.get_column("LOCI")
+
+    results = []
+    # 2. For each central locus, find its place in the sorted list
+    for locus_id, locus_pos in central_loci_to_find.items():
+        # search_sorted finds the index where `locus_pos` would be inserted
+        # to maintain the sort order. This is the index of the first variant
+        # at or after our central locus.
+        idx = phased_positions.search_sorted(locus_pos)
+
+        # 3. Use this index to find the neighbors from our list of phased loci
+        # We need to be careful about edges (e.g., asking for index -2 when idx is 0 or 1)
+        results.append(
+            {
+                "LOCI": locus_id,
+                "prev_2": phased_loci_series[idx - 2] if idx > 1 else None,
+                "prev_1": phased_loci_series[idx - 1] if idx > 0 else None,
+                "next_1": phased_loci_series[idx]
+                if idx < len(phased_loci_series)
+                else None,
+                "next_2": phased_loci_series[idx + 1]
+                if idx < len(phased_loci_series) - 1
+                else None,
+            }
+        )
+    neighbor_cols = ["prev_2", "prev_1", "next_1", "next_2"]
+    neighbours_df = pl.from_dicts(results)
+    # 4. Convert the list of dictionaries to a final DataFrame
+    unique_loci_set = {
+    locus
+    for row in neighbours_df.select(neighbor_cols).rows()
+    for locus in row
+    if locus is not None  # Filter out the nulls
+    }
+
+    print(unique_loci_set)   
+    return unique_loci_set
+
+
 def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame:
     """Filter a VCF represented as a Polars DataFrame to only include specified variants.
 
@@ -296,7 +357,9 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
     df = df.with_columns(
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
-    filtered_df = df.filter(pl.col("LOCI").is_in(unique_variants))
+    neighbours = find_phased_neighbors(df)
+    merged_set = neighbours | unique_variants
+    filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)
     else:
@@ -451,7 +514,8 @@ def check_if_multi_sample_vcf(file_path: str) -> bool:
 
     return True
 
-#backup while adding phase sets
+
+# backup while adding phase sets
 # import gzip
 # import io
 # import os
@@ -488,7 +552,7 @@ def check_if_multi_sample_vcf(file_path: str) -> bool:
 #     df: pd.DataFrame = field(init=False)
 #     loci: set[str] = field(init=False)
 #     variants: dict[str, str] = field(init=False)
-#     #add phases here 
+#     #add phases here
 
 #     def __post_init__(self):
 #         """Handle initialization after data class creation."""

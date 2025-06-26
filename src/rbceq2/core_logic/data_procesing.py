@@ -3,6 +3,7 @@ import operator
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
+from tkinter import NO
 from typing import Any, Protocol
 from loguru import logger
 
@@ -249,6 +250,7 @@ def add_phasing(
 
             # Get all phase sets for the given chromosome
             chrom_phase_sets = phase_sets.get(chrom)
+            ic(11111,chrom, chrom_phase_sets, pos)
             if not chrom_phase_sets:
                 return "unknown"
 
@@ -258,6 +260,7 @@ def add_phasing(
                     return str(ps_id)
 
             # If no matching phase set is found
+            ic(66666)
             return "unknown"
 
         zygosity = bg.variant_pool.get(current_variant)
@@ -274,14 +277,18 @@ def add_phasing(
         # ic(current_variant, phase_set_pool)
         if partner_variant is None:
             return get_phase_set_for_loci()
-        return phase_set_pool.get(partner_variant)
+        partner = phase_set_pool.get(partner_variant)
+        if partner is not None:
+            return partner
+        else:
+            return get_phase_set_for_loci()
 
     if phased:  # TODO enum for GT, PS etc
         phase_pool = {
             variant: variant_metrics[variant]["GT"] for variant in bg.variant_pool
         }
         phase_set_pool = {
-            variant: variant_metrics[variant].get("PS", "None")
+            variant: variant_metrics[variant].get("PS")
             for variant in bg.variant_pool
         }
         phase_pool_ref_fixed = {}
@@ -298,14 +305,15 @@ def add_phasing(
 
         for variant, phase in phase_set_pool.items():
             #ic(variant)
-            if variant.endswith("_ref"):
+            if variant.endswith("_ref") or phase is None:
                 new_phase = assign_ref_phase_set(variant)
-                # ic(variant,new_phase, phase)
+                #ic(variant,new_phase, phase)
                 phase_set_pool_ref_fixed[variant] = new_phase
             else:
                 phase_set_pool_ref_fixed[variant] = phase
         bg.variant_pool_phase = phase_pool_ref_fixed
         bg.variant_pool_phase_set = phase_set_pool_ref_fixed
+        #ic(bg.type,phase_set_pool_ref_fixed)
         # if bg.type == 'ABO':
         #     ic(22222,phase_pool_ref_fixed, phase_set_pool_ref_fixed)
         # raw_phased = []
