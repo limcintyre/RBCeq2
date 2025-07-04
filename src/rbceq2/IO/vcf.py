@@ -292,8 +292,7 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
 
     # If there are no phased loci at all, exit
     if phased_on_chrom9.height == 0:
-        print("No phased loci found on chromosome 9.")
-        return pl.DataFrame()
+        return set()
 
     # Extract the positions and loci as separate series for quick lookups
     phased_positions = phased_on_chrom9.get_column("POS")
@@ -331,8 +330,6 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
     for locus in row
     if locus is not None  # Filter out the nulls
     }
-
-    print(unique_loci_set)   
     return unique_loci_set
 
 
@@ -358,6 +355,7 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
     neighbours = find_phased_neighbors(df)
+    #ic(type(neighbours), type(unique_variants))
     merged_set = neighbours | unique_variants
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty

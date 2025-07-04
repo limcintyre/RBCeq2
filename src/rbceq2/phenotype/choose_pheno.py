@@ -1073,7 +1073,8 @@ def null_or_mod(pair: Pair, check: str) -> bool:
     Returns:
         bool: True if the pattern is present in both allele genotypes, otherwise False.
     """
-    pattern = f"{check}."
+    
+    pattern = f"{check}." #TODO AUG*01N not covered!
     return (
         pattern in pair.allele1.genotype.upper()
         and pattern in pair.allele2.genotype.upper()

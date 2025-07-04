@@ -182,7 +182,7 @@ def homs(
     if bg.type != "KN":
         bg.alleles[AlleleState.CO] = None
         return bg
-    unique_alleles = set(bg.alleles[AlleleState.POS])
+    unique_alleles = set(bg.alleles[AlleleState.FILT])
 
     check_hom_vars = partial(
         check_available_variants, 2, bg.variant_pool_numeric, operator.eq
@@ -216,7 +216,7 @@ def max_rank(
     if bg.type != "KN":
         bg.alleles[AlleleState.CO] = None
         return bg
-    unique_alleles = set(bg.alleles[AlleleState.POS])
+    unique_alleles = set(bg.alleles[AlleleState.FILT])
 
     trumpiest = [
         allele.weight_geno
@@ -281,7 +281,7 @@ def prep_co_putative_combos(
         return bg
 
     unique_alleles = sorted(
-        set(bg.alleles[AlleleState.POS]), key=lambda allele: allele.genotype
+        set(bg.alleles[AlleleState.FILT]), key=lambda allele: allele.genotype
     )
     bg.misc["combos"] = make_allele_combos(
         unique_alleles, bg.misc["homs"], allele_relationships[bg.type]
