@@ -342,6 +342,8 @@ class BloodGroup:
                 self.alleles[allele_type].remove(pair)
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
+        if not self.alleles[allele_type]:
+            logger.warning(f'all pairs removed!: {self.sample} {self.type} {filter_name}')
 
     def remove_alleles(
         self, to_remove: list[str], filter_name: str, allele_type: str = "raw"
@@ -355,7 +357,8 @@ class BloodGroup:
         for allele in to_remove:
             self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
-
+        if not self.alleles[allele_type]:
+            logger.warning(f'all alleles removed!: {self.sample} {self.type} {filter_name}')
 
 @dataclass(slots=True, frozen=True)
 class Pair:

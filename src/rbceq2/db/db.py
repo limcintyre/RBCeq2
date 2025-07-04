@@ -191,6 +191,8 @@ class Db:
 
         return res
 
+
+
     def make_alleles(self) -> Iterable[Allele]:
         """
         Generate Allele objects from the database rows.
@@ -212,7 +214,7 @@ class Db:
                 line.geno_alt,
                 line.pheno_alt,
                 frozenset(allele_defining_variants),
-                'N.' in line.geno.upper(),
+                _is_null_genotype(line.geno),
                 int(line.weight_geno),
                 line.ref == "Yes",
                 sub_type=line.sub_type,
@@ -238,6 +240,23 @@ class Db:
         #ic([f"{pos.split('_')[0]}" for pos in unique_vars][:8], lanes)
         return set([f"{pos.split('_')[0]}" for pos in unique_vars] + lanes)
 
+def _is_null_genotype(genotype: str) -> bool:
+    """
+    Determines if a blood group genotype is a null allele.
+
+    According to blood group nomenclature, a null allele is typically indicated
+    by the presence of "N." in the allele designation or by ending in 'N'.
+    This function checks for these two patterns.
+
+    Args:
+        genotype: A string representing the blood group genotype
+                (e.g., 'JK*02N.22', 'FY*01', 'AUG*01N').
+
+    Returns:
+        True if the genotype is identified as null, False otherwise.
+    """
+    geno_upper = genotype.upper()
+    return "N." in geno_upper or geno_upper.endswith('N')
 
 def prepare_db() -> pd.DataFrame:
     """Read and prepare the database from a TSV file, applying necessary transformations.
@@ -273,7 +292,12 @@ def prepare_db() -> pd.DataFrame:
     )
 
     pd.set_option("future.no_silent_downcasting", True)
-    df.Weight_of_genotype = df.Weight_of_genotype.fillna(LOW_WEIGHT)
+    
+    #defaults weights; null = LOW_WEIGHT/2 and normal = LOW_WEIGHT
+    is_null_mask = df['Genotype'].apply(_is_null_genotype)
+    df.loc[is_null_mask & df['Weight_of_genotype'].isnull(), 'Weight_of_genotype'] = LOW_WEIGHT / 2
+    df['Weight_of_genotype'] = df['Weight_of_genotype'].fillna(LOW_WEIGHT)
+
     df = df.fillna(".")
     df = df.infer_objects(copy=False)
 

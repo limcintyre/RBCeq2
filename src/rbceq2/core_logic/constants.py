@@ -23,7 +23,7 @@ class AlleleState:
     CO = "co_existing"
     NORMAL = "pairs"
     RAW = "raw"
-    POS = "possible"
+    #POS = "possible" #everything now a filter
     FILT = "filtered"
 
 
