@@ -88,8 +88,7 @@ class VCF:
                     temp_phase_data.setdefault(chrom, {}).setdefault(ps_id, []).append(
                         pos
                     )
-                    # if chrom == "9":
-                    #     ic(temp_phase_data)
+                   
 
         # Convert the lists of positions to (min, max) tuples
         final_phase_sets = {}
@@ -355,7 +354,6 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
     neighbours = find_phased_neighbors(df)
-    #ic(type(neighbours), type(unique_variants))
     merged_set = neighbours | unique_variants
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty

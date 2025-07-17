@@ -5,7 +5,7 @@ from functools import partial, reduce
 from itertools import zip_longest
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Any, Callable
-
+from icecream import ic
 if TYPE_CHECKING:
     from src.core_logic.alleles import Allele, BloodGroup
 
@@ -274,6 +274,8 @@ def sub_alleles_relationships(
     lst = all_alleles[key]
     for allele1 in lst:
         for allele2 in lst:
+            # if allele1.sub_type != allele2.sub_type:
+            #     continue
             relationship[f"{allele1.genotype}_isin_{allele2.genotype}"] = (
                 allele1 in allele2
             )
@@ -303,7 +305,7 @@ def get_allele_relationships(
     Each process handles a subset of the alleles as specified by the
     keys in `all_alleles`.
     """
-
+    ic('get_allele_relationships')
     relationships = {}
     with Pool(processes=processes) as pool:
         sub_all = partial(sub_alleles_relationships, all_alleles)

@@ -10,7 +10,7 @@ from rbceq2.core_logic.utils import (
     check_available_variants,
     chunk_geno_list_by_rank,
 )
-
+from icecream import ic
 
 def sub_alleles(lst: tuple[Allele], allele_relationship: dict[str, bool]) -> bool:
     """look up a precomputed relationship with a special key - KN only
@@ -26,6 +26,9 @@ def sub_alleles(lst: tuple[Allele], allele_relationship: dict[str, bool]) -> boo
             key = f"{allele1.genotype}_isin_{allele2.genotype}"
             if allele1 == allele2:
                 continue
+            # print(allele1, allele2)
+            # if allele1.sub_type != allele2.sub_type:
+            #     continue
             if allele_relationship[key]:
                 return True
     return False
@@ -262,18 +265,24 @@ def prep_co_putative_combos(
         combos = []
         for i in range(1, len(flattened_alleles) + 1)[::-1]:
             for combo1 in combinations(flattened_alleles, i):
+                ic(333333,combo1)
                 if all_hom_variants(homs, combo1):
                     continue
+                ic(444444,combo1)
                 if sub_alleles(combo1, allele_relationship):
                     continue
+                ic(555555,combo1)
                 if any(a.reference for a in combo1):
                     continue
+                ic(666666,combo1)
                 if len({a.sub_type for a in combo1}) > 1:
                     continue  # TODO can't combine subtypes - have asked Eileen
+                ic(777777,combo1)
                 ranked_combo1 = tuple(chunk_geno_list_by_rank(combo1)[0])
 
                 assert ranked_combo1 not in combos
                 combos.append(ranked_combo1)
+        ic(8888888, combos)
         return combos
 
     if bg.type != "KN":
@@ -286,6 +295,7 @@ def prep_co_putative_combos(
     bg.misc["combos"] = make_allele_combos(
         unique_alleles, bg.misc["homs"], allele_relationships[bg.type]
     )
+
 
     return bg
 
@@ -328,6 +338,7 @@ def add_co_existing_alleles(
     co_existing = []
     for combo1, combo2 in combinations_with_replacement(bg.misc["combos"], 2):
         # This includes pairs like (A, A), (A, B), (B, B), but not both (A, B) and (B, A)
+        ic(combo1, combo2)
         mushed_combo1 = mushed_vars(combo1)
         tmp_pool2 = bg.variant_pool_numeric
         for variant_on_other_strand in mushed_vars(combo2):
@@ -650,5 +661,6 @@ def list_excluded_co_existing_pairs(
     bg.filtered_out[AlleleState.CO] = [
         pair for pair in tested if pair not in bg.alleles[AlleleState.CO]
     ]
+    print(1111112,bg.alleles[AlleleState.CO], '\n', bg.filtered_out[AlleleState.CO])
 
     return bg
