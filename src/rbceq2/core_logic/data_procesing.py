@@ -19,22 +19,6 @@ from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 from icecream import ic
 
-# def add_phase(instance: Allele, phases: list[str]) -> Allele:
-#     """Add phase information to an Allele instance and return a new Allele with the
-#     updated data.
-
-#     Args:
-#         instance (Allele): The original Allele instance to update.
-#         phases (List[str]): A list of strings representing phase information.
-
-#     Returns:
-#         Allele: A new Allele instance with updated phase information.
-#     """
-#     new_instance_dict = instance.__dict__.copy()
-
-#     new_instance_dict["phases"] = phases
-#     del new_instance_dict["number_of_defining_variants"]
-#     return Allele(**new_instance_dict)
 
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
@@ -235,12 +219,8 @@ def add_phasing(
                 int | None: The phase set ID if the locus falls within a known
                             phased block, otherwise None.
             """
-            # try:
             chrom, pos_str = current_variant.split("_")[0].split(":")
             pos = int(pos_str)
-            # except (ValueError, AttributeError):
-            #     logger.warning(f"Invalid loci format for query: {current_variant}")
-            #     return None
 
             # Normalize chromosome name to match internal representation (e.g. '1' not 'chr1')
             chrom = chrom.replace("chr", "")
@@ -396,51 +376,6 @@ def ABO_phasing(
     bg.variant_pool_phase = new_phases
 
     return bg
-
-
-# @apply_to_dict_values
-# def add_phasing_for_antitheticals(
-#     bg: BloodGroup, phased: bool, antitheticals: dict[str, str]
-# ) -> BloodGroup:
-#     """There are actually 5 SNPs that define JK*01N.20, the 4 shown plus it assumes
-#     that 18:45739554 is ref (right??). But we know that '18:45739554_G_A' is on the
-#     same strand. So, this is useful to rule out alleles. But it makes it very hard
-#     to call alleles with phased data as there's no phase data for SNPs positions
-#     that are meant to be reference...
-#     chr18	JK*01			c.838G
-
-#     chr18	JK*01N.20		c.226G>A;c.28G>A;c.303G>A;c.588A>G
-
-#     Steps:
-
-#     1. Check the ref pos
-#         if not in VCF:
-#             hom - phased
-#         elif hom alt:
-#             phased
-#         else:
-#             get phase of SNP - can rule out that, then just have to assume that it
-#             is the other phase (if only 1) or unknown phase if multiple options
-
-#     TODO - this is covered (almost???) by filter_pairs_by_phase
-#     just by checking if phase of pair1 == pair2
-#     should be enough, right? cuz the dif subtypes are based on antitheticals and they're
-#     internally phased (even if they skip the ref (no change ie c.838G)).
-
-#     hmm TODO manually validate a bunch (get Alexis to maybe??)
-
-#     FYI its GM19473 that has:
-#      all_phases: {'18:45730348_G_A': '20911299',
-#                  '18:45731089_G_A': '20911299',
-#                  '18:45731166_G_A': '20911299',
-#                  '18:45736573_A_G': '.',
-#                  '18:45739554_G_A': '20911299'} (c.838G)
-#     """
-#     if phased:
-#         if bg.type == "JK":
-#             pass
-
-#     return bg
 
 
 @apply_to_dict_values

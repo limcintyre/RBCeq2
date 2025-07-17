@@ -237,7 +237,6 @@ class Db:
         for chrom, poses in self.lane_variants.items():
             for pos in poses:
                 lanes.append(f"{chrom.replace('chr','')}:{pos}")
-        #ic([f"{pos.split('_')[0]}" for pos in unique_vars][:8], lanes)
         return set([f"{pos.split('_')[0]}" for pos in unique_vars] + lanes)
 
 def _is_null_genotype(genotype: str) -> bool:

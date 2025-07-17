@@ -15,7 +15,7 @@ from rbceq2.core_logic.constants import AlleleState
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
-
+from icecream import ic
 
 @dataclass(slots=False, frozen=True)
 class Allele:
@@ -78,6 +78,16 @@ class Allele:
         Returns:
             bool: True if all variants in other defining_variants, False otherwise.
         """
+        if self.__eq__(other):
+            return False #if compared to self
+        assert other.sub_type != ""
+        assert self.sub_type != ""
+        if self.sub_type != other.sub_type:
+            return False # 'in' relationship only exists within subtypes
+        if other.reference:
+            assert self.sub_type == other.sub_type
+            return True # ref is always 'in' in any child allele
+            #especially necesary for KN and any BGs with no SNV for ref
         if self.number_of_defining_variants > other.number_of_defining_variants:
             return other.defining_variants.issubset(self.defining_variants)
         return False
