@@ -1,7 +1,7 @@
 RBCeq2 documentation
 ====================
 
-.. image:: images/Lifeblood-R_Primary_Keyline_RGB.png
+.. image:: https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png
    :alt: Lifeblood-R Logo
    
 
