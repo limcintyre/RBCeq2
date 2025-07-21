@@ -4,7 +4,6 @@ RBCeq2 documentation
 .. image:: https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png
    :alt: Lifeblood-R Logo
    
-
 .. warning::
    NOT FOR CLINICAL USE
 
