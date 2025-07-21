@@ -3,7 +3,7 @@ RBCeq2 documentation
 
 .. raw:: html
 
-   <img src="https://raw.githubusercontent.com/limcintyre/RBCeq2/blob/feature/hpa/images/Lifeblood-R_Primary_Keyline_RGB.png" alt="Lifeblood-R Logo" width="400">
+   <img src="https://raw.githubusercontent.com/limcintyre/RBCeq2/feature/hpa/images/Lifeblood-R_Primary_Keyline_RGB.png" alt="Lifeblood-R Logo" width="400">
 
 .. warning::
    NOT FOR CLINICAL USE
