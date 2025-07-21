@@ -468,7 +468,7 @@ def filter_coexisting_pairs_on_antithetical_zygosity(
                 continue
             else:
                 to_remove.append(pair)
-    ic(bg.variant_pool_phase,flattened_sub_types,bg.alleles[AlleleState.CO],(bg.alleles[AlleleState.NORMAL]), to_remove, '############\n')
+    #ic(bg.variant_pool_phase,flattened_sub_types,bg.alleles[AlleleState.CO],(bg.alleles[AlleleState.NORMAL]), to_remove, '############\n')
     if to_remove:
         bg.remove_pairs(
         to_remove, "filter_co_pairs_on_antithetical_zygosity", AlleleState.CO
@@ -590,7 +590,7 @@ def remove_unphased_co(bg: BloodGroup, phased: bool) -> BloodGroup:
                 to_remove.append(pair)
 
         if to_remove:
-            ic(1233445,bg.sample, to_remove, bg.variant_pool_phase, bg.variant_pool, bg.variant_pool_phase_set)
+            #ic(1233445,bg.sample, to_remove, bg.variant_pool_phase, bg.variant_pool, bg.variant_pool_phase_set)
             bg.remove_pairs(to_remove, "remove_unphased_co", AlleleState.CO)
     return bg
 

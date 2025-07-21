@@ -80,12 +80,11 @@ class Allele:
         """
         if self.__eq__(other):
             return False #if compared to self
-        assert other.sub_type != ""
-        assert self.sub_type != ""
-        if self.sub_type != other.sub_type:
-            return False # 'in' relationship only exists within subtypes
-        if other.reference:
-            assert self.sub_type == other.sub_type
+        # assert other.sub_type != ""
+        # assert self.sub_type != ""
+        # if self.sub_type != other.sub_type:
+        #     return False # 'in' relationship only exists within subtypes. nope. crazy friday brain...
+        if other.reference and self.sub_type == other.sub_type:
             return True # ref is always 'in' in any child allele
             #especially necesary for KN and any BGs with no SNV for ref
         if self.number_of_defining_variants > other.number_of_defining_variants:

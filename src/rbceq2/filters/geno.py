@@ -904,7 +904,7 @@ def filter_pairs_by_context(bg: BloodGroup) -> BloodGroup:
 
 
 @apply_to_dict_values
-def rule_out_impossible_alleles(bg: BloodGroup) -> BloodGroup:
+def impossible_alleles(bg: BloodGroup) -> BloodGroup:
     """
     Rule out impossible alleles based on Homozygous variants.
 
@@ -932,24 +932,29 @@ def rule_out_impossible_alleles(bg: BloodGroup) -> BloodGroup:
 
     JK*02W.04 is impossible because '18:43316538_A_G' is Homozygous
     """
-    alleles = list(flatten_alleles(bg.alleles[AlleleState.NORMAL]))
-    homs = {
-        variant for variant, zygo in bg.variant_pool.items() if zygo == Zygosity.HOM
-    }
-    impossible_alleles = []
-    for allele in alleles:
-        for allele2 in alleles:
-            if allele.genotype != allele2.genotype and allele2 in allele:
-                dif = allele.defining_variants.difference(allele2.defining_variants)
-                if all(variant in homs for variant in dif):
-                    impossible_alleles.append(allele2)
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if allele_state == AlleleState.CO and bg.type != 'KN':
+            continue
+        if allele_state == AlleleState.CO and bg.alleles[allele_state] is None:
+            continue
+        alleles = list(flatten_alleles(bg.alleles[allele_state]))
+        homs = {
+            variant for variant, zygo in bg.variant_pool.items() if zygo == Zygosity.HOM
+        }
+        impossible_alleles = []
+        for allele in alleles:
+            for allele2 in alleles:
+                if allele.genotype != allele2.genotype and allele2 in allele:
+                    dif = allele.defining_variants.difference(allele2.defining_variants)
+                    if all(variant in homs for variant in dif):
+                        impossible_alleles.append(allele2)
 
-    to_remove = []
-    for pair in bg.alleles[AlleleState.NORMAL]:
-        if pair.allele1 in impossible_alleles or pair.allele2 in impossible_alleles:
-            to_remove.append(pair)
-    if to_remove:
-        bg.remove_pairs(to_remove, "filter_impossible_alleles")
+        to_remove = []
+        for pair in bg.alleles[allele_state]:
+            if pair.allele1 in impossible_alleles or pair.allele2 in impossible_alleles:
+                to_remove.append(pair)
+        if to_remove:
+            bg.remove_pairs(to_remove, "filter_impossible_alleles",allele_state)
     return bg
 
 
