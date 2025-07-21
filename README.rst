@@ -1,9 +1,10 @@
 RBCeq2 documentation
 ====================
 
-.. image:: https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png
-   :alt: Lifeblood-R Logo
-   
+.. raw:: html
+
+   <img src="https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png" alt="Lifeblood-R Logo" width="400">
+
 .. warning::
    NOT FOR CLINICAL USE
 
