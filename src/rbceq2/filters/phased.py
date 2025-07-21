@@ -346,7 +346,6 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                         to_remove.append(pair)
                         
         if to_remove:
-            ic(66666, to_remove)
             bg.remove_pairs(
                 to_remove, "filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased", allele_state
             )
@@ -462,7 +461,7 @@ def filter_pairs_by_phase(
     return bg
 
 @apply_to_dict_values
-def filter_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     """
     Filters alleles in a BloodGroup object based on phasing consistency and subsumption.
 
@@ -562,120 +561,125 @@ def filter_impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup
     """
     if not phased:
         return bg
-    if len(bg.alleles[AlleleState.NORMAL]) == 1:
-        return bg
-    if len(bg.alleles[AlleleState.NORMAL]) == 0:
-        return bg
-    alleles = list(flatten_alleles(bg.alleles[AlleleState.NORMAL]))
-    #ic(alleles)
-    alleles_not_hom = [
-        allele for allele in alleles if not check_hom(bg.variant_pool, allele)
-    ]
-    #ic(alleles_not_hom)
-    alleles_with_variants_in_same_phase_set = [
-        allele
-        for allele in alleles_not_hom
-        if check_phase_set(bg.variant_pool_phase_set, allele)
-    ]
-    #ic(alleles_with_variants_in_same_phase_set)
-    alleles_with_variants_in_same_phase = [
-        allele
-        for allele in alleles_with_variants_in_same_phase_set
-        if check_phase(bg.variant_pool_phase, allele)
-    ]
-    #ic(alleles_with_variants_in_same_phase)
-    l1, l2 = [], []
-    for allele in sorted(
-        alleles_with_variants_in_same_phase,
-        key=lambda allele: len(allele.defining_variants),
-        reverse=True,
-    ):
-        phases = set([])
-        for variant in allele.defining_variants:
-            phase = bg.variant_pool_phase[variant]
-            if phase != "1/1":
-                phases.add(bg.variant_pool_phase[variant])
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if allele_state == AlleleState.CO and bg.type != 'KN':
+            continue
+        if allele_state == AlleleState.CO and bg.alleles[allele_state] is None:
+            continue
+        if len(bg.alleles[allele_state]) == 1:
+            return bg
+        if len(bg.alleles[allele_state]) == 0:
+            return bg
+        alleles = list(flatten_alleles(bg.alleles[allele_state]))
+        #ic(alleles)
+        alleles_not_hom = [
+            allele for allele in alleles if not check_hom(bg.variant_pool, allele)
+        ]
+        #ic(alleles_not_hom)
+        alleles_with_variants_in_same_phase_set = [
+            allele
+            for allele in alleles_not_hom
+            if check_phase_set(bg.variant_pool_phase_set, allele)
+        ]
+        #ic(alleles_with_variants_in_same_phase_set)
+        alleles_with_variants_in_same_phase = [
+            allele
+            for allele in alleles_with_variants_in_same_phase_set
+            if check_phase(bg.variant_pool_phase, allele)
+        ]
+        #ic(alleles_with_variants_in_same_phase)
+        l1, l2 = [], []
+        for allele in sorted(
+            alleles_with_variants_in_same_phase,
+            key=lambda allele: len(allele.defining_variants),
+            reverse=True,
+        ):
+            phases = set([])
+            for variant in allele.defining_variants:
+                phase = bg.variant_pool_phase[variant]
+                if phase != "1/1":
+                    phases.add(bg.variant_pool_phase[variant])
 
-        assert len(phases) == 1
-        phase = phases.pop()
-        if phase == "1|0":
-            l1.append(allele)
-        elif phase == "0|1":
-            l2.append(allele)
-        else:
-            assert phase in "unknown" or "/" in phase
-    #ic(l1, l2)
-    alleles_to_remove = []
-    for allele in l1:
-        for allele2 in l1:
-            if allele in allele2:
-                alleles_to_remove.append(allele)
-    for allele in l2:
-        for allele2 in l2:
-            if allele in allele2:
-                alleles_to_remove.append(allele)
+            assert len(phases) == 1
+            phase = phases.pop()
+            if phase == "1|0":
+                l1.append(allele)
+            elif phase == "0|1":
+                l2.append(allele)
+            else:
+                assert phase in "unknown" or "/" in phase
+        #ic(l1, l2)
+        alleles_to_remove = []
+        for allele in l1:
+            for allele2 in l1:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
+        for allele in l2:
+            for allele2 in l2:
+                if allele in allele2:
+                    alleles_to_remove.append(allele)
 
-    to_remove = []
-    for pair in bg.alleles[AlleleState.NORMAL]:
-        if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
-            to_remove.append(pair)
-    #ic(bg.type, alleles_to_remove, to_remove, bg.variant_pool, bg.variant_pool_phase)
-    assert len(to_remove) != len(bg.alleles[AlleleState.NORMAL])
+        to_remove = []
+        for pair in bg.alleles[allele_state]:
+            if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
+                to_remove.append(pair)
+        #ic(bg.type, alleles_to_remove, to_remove, bg.variant_pool, bg.variant_pool_phase)
+        assert len(to_remove) != len(bg.alleles[allele_state])
 
-    if to_remove:
-        bg.remove_pairs(to_remove, "filter_impossible_alleles_phased")
-    assert bg.alleles[AlleleState.NORMAL]
+        if to_remove:
+            bg.remove_pairs(to_remove, "filter_impossible_alleles_phased",allele_state)
+        assert bg.alleles[allele_state]
 
     return bg
 
 
-def _check_phase(variant_pool: dict[str, str], current_allele: Allele) -> bool:
-    """
-    True if all same phase set and or HOM
-    """
+# def _check_phase(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+#     """
+#     True if all same phase set and or HOM
+#     """
 
-    phase_sets = [
-        phase
-        for variant, phase in variant_pool.items()
-        if variant in current_allele.defining_variants and phase != "1/1"
-    ]
+#     phase_sets = [
+#         phase
+#         for variant, phase in variant_pool.items()
+#         if variant in current_allele.defining_variants and phase != "1/1"
+#     ]
 
-    if not phase_sets and "ABO" in current_allele.genotype:
-        return True  # TODO still needed?
-    return len(set(phase_sets)) == 1
-
-
-def _check_phase_set(variant_pool: dict[str, str], current_allele: Allele) -> bool:
-    """
-    True if all same phase set and or HOM
-    """
-    phase_sets = [
-        phase
-        for variant, phase in variant_pool.items()
-        if variant in current_allele.defining_variants and phase != "."
-    ]
-
-    return len(set(phase_sets)) == 1
+#     if not phase_sets and "ABO" in current_allele.genotype:
+#         return True  # TODO still needed?
+#     return len(set(phase_sets)) == 1
 
 
-def _check_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
-    """
-    Checks if all elements in a list are hom.
+# def _check_phase_set(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+#     """
+#     True if all same phase set and or HOM
+#     """
+#     phase_sets = [
+#         phase
+#         for variant, phase in variant_pool.items()
+#         if variant in current_allele.defining_variants and phase != "."
+#     ]
 
-    Args:
-        current_allele: Allele
+#     return len(set(phase_sets)) == 1
 
-    Returns:
-        True if all elements match the target_str, or if all elements
-        except exactly one match the target_str. False otherwise.
-    """
-    variants = [
-        zygo
-        for variant, zygo in variant_pool.items()
-        if variant in current_allele.defining_variants
-    ]
 
-    return all(item == Zygosity.HOM for item in variants)
+# def _check_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
+#     """
+#     Checks if all elements in a list are hom.
+
+#     Args:
+#         current_allele: Allele
+
+#     Returns:
+#         True if all elements match the target_str, or if all elements
+#         except exactly one match the target_str. False otherwise.
+#     """
+#     variants = [
+#         zygo
+#         for variant, zygo in variant_pool.items()
+#         if variant in current_allele.defining_variants
+#     ]
+
+#     return all(item == Zygosity.HOM for item in variants)
 
 
 

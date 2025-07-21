@@ -12,6 +12,7 @@ from rbceq2.core_logic.utils import (
 )
 from icecream import ic
 
+
 def sub_alleles(lst: tuple[Allele], allele_relationship: dict[str, bool]) -> bool:
     """look up a precomputed relationship with a special key - KN only
 
@@ -83,12 +84,22 @@ def all_hom_variants(all_homs: list[Allele], current_combo: tuple[Allele, ...]) 
     phenotypes=[],
     """
     hom_count = 0
-    for hom_allele in all_homs:
+    current_sub_type = {allele.sub_type for allele in current_combo}
+    assert len(current_sub_type) == 1
+    current_sub_type_str = current_sub_type.pop()
+    homs_of_same_sub_type = {
+        allele for allele in all_homs if allele.sub_type == current_sub_type_str
+    }
+    #ic(homs_of_same_sub_type)
+    if not homs_of_same_sub_type:
+        return False
+    for hom_allele in homs_of_same_sub_type:
         for allele in current_combo:
             if hom_allele == allele:
                 hom_count += 1
             if hom_allele in allele:
                 hom_count += 1
+   
     return hom_count != len(all_homs)  # not less OR MORE
 
 
@@ -191,7 +202,7 @@ def homs(
         check_available_variants, 2, bg.variant_pool_numeric, operator.eq
     )
     bg.misc = {}  # TODO misc is a bit promiscuous
-    bg.misc["homs"] = {
+    bg.misc["homs"] = {  # URGENT TODO - this needs to be split by subtype!!
         allele
         for allele in unique_alleles
         if all(check_hom_vars(allele))
@@ -265,38 +276,36 @@ def prep_co_putative_combos(
         combos = []
         for i in range(1, len(flattened_alleles) + 1)[::-1]:
             for combo1 in combinations(flattened_alleles, i):
-                ic(333333,combo1)
+                if len({a.sub_type for a in combo1}) > 1:
+                    continue
+                #ic(333333, combo1, homs)
                 if all_hom_variants(homs, combo1):
                     continue
-                ic(444444,combo1)
+                #ic(444444, combo1)
                 if sub_alleles(combo1, allele_relationship):
                     continue
-                ic(555555,combo1)
+                #ic(555555, combo1)
                 if any(a.reference for a in combo1):
                     continue
-                ic(666666,combo1)
-                if len({a.sub_type for a in combo1}) > 1:
-                    continue  # TODO can't combine subtypes - have asked Eileen
-                ic(777777,combo1)
+                #ic(666666, combo1)
                 ranked_combo1 = tuple(chunk_geno_list_by_rank(combo1)[0])
 
                 assert ranked_combo1 not in combos
                 combos.append(ranked_combo1)
-        ic(8888888, combos)
+        #ic(8888888, combos)
         return combos
 
     if bg.type != "KN":
         bg.alleles[AlleleState.CO] = None
         return bg
-
+    
     unique_alleles = sorted(
         set(bg.alleles[AlleleState.FILT]), key=lambda allele: allele.genotype
     )
     bg.misc["combos"] = make_allele_combos(
         unique_alleles, bg.misc["homs"], allele_relationships[bg.type]
     )
-
-
+    #ic(555555666666665,set(bg.alleles[AlleleState.FILT]))
     return bg
 
 
@@ -338,7 +347,7 @@ def add_co_existing_alleles(
     co_existing = []
     for combo1, combo2 in combinations_with_replacement(bg.misc["combos"], 2):
         # This includes pairs like (A, A), (A, B), (B, B), but not both (A, B) and (B, A)
-        ic(combo1, combo2)
+        # ic(combo1, combo2)
         mushed_combo1 = mushed_vars(combo1)
         tmp_pool2 = bg.variant_pool_numeric
         for variant_on_other_strand in mushed_vars(combo2):
@@ -661,6 +670,6 @@ def list_excluded_co_existing_pairs(
     bg.filtered_out[AlleleState.CO] = [
         pair for pair in tested if pair not in bg.alleles[AlleleState.CO]
     ]
-    print(1111112,bg.alleles[AlleleState.CO], '\n', bg.filtered_out[AlleleState.CO])
+    # print(1111112,bg.alleles[AlleleState.CO], '\n', bg.filtered_out[AlleleState.CO])
 
     return bg
