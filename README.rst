@@ -2,6 +2,8 @@ RBCeq2 documentation
 ====================
 
 .. image:: images/Lifeblood-R_Primary_Keyline_RGB.png
+   :alt: Lifeblood-R Logo
+   
 
 .. warning::
    NOT FOR CLINICAL USE
