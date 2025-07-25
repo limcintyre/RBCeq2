@@ -90,7 +90,6 @@ def all_hom_variants(all_homs: list[Allele], current_combo: tuple[Allele, ...]) 
     homs_of_same_sub_type = {
         allele for allele in all_homs if allele.sub_type == current_sub_type_str
     }
-    #ic(homs_of_same_sub_type)
     if not homs_of_same_sub_type:
         return False
     for hom_allele in homs_of_same_sub_type:

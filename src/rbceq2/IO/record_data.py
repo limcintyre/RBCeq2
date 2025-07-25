@@ -75,16 +75,16 @@ def record_filtered_data(results: tuple[Any]) -> None:
     def format_vars(pool):
         return '\n' + '\n'.join([' : '.join([k, v]) for k, v in pool.items()])
     
-    sample, _, numeric_phenos, alphanumeric_phenos, res = results
+    sample, genos, numeric_phenos, alphanumeric_phenos, res = results
     for bg_name, bg_data in res.items():
         if bg_data.filtered_out:
             logger.debug(
                 f"Sample: {sample} BG Name: {bg_name}\n"
                 f"\n#Results:\n"
-                f"Genotypes count: {len(bg_data.genotypes)}\n"
-                f"Genotypes: {'\n'.join(bg_data.genotypes)}\n"
-                f"Phenotypes (numeric): {numeric_phenos.get(bg_name, '')}\n"
-                f"Phenotypes (alphanumeric): {alphanumeric_phenos.get(bg_name, '')}\n"
+                f"Genotypes count: {len(genos.get(bg_name, '').split(','))}\n"
+                f"Genotypes: {'\n'.join(genos.get(bg_name, '').split(','))}\n"
+                f"Phenotypes (numeric): {'\n'.join(numeric_phenos.get(bg_name, '').split(' | '))}\n"
+                f"Phenotypes (alphanumeric): {'\n'.join(alphanumeric_phenos.get(bg_name, '').split(' | '))}\n"
                 f"\n#Data:\n"
                 f"Vars: {format_vars(bg_data.variant_pool)}\n"
                 f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"

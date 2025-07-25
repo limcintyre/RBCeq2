@@ -5,7 +5,7 @@ from functools import partial, reduce
 from itertools import zip_longest
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Any, Callable
-from icecream import ic
+
 if TYPE_CHECKING:
     from src.core_logic.alleles import Allele, BloodGroup
 
@@ -70,24 +70,6 @@ def compose(*functions: Preprocessor) -> Preprocessor:
             sequence.
     """
     return reduce(lambda func1, func2: lambda x: func2(func1(x)), functions)
-
-
-# def chunk_list_by_rank(input_list: list[Allele]) -> list[list[Allele]]:
-#     """Split a list into chunks of Allele objects with the same phenotype weight.
-
-#     Args:
-#         input_list (list[Allele]): A list of Allele objects to be grouped by their
-#             weight_pheno attribute.
-
-#     Returns:
-#         list[list[Allele]]: A list of lists, where each inner list contains Allele
-#             objects sharing the same weight_pheno, ordered by increasing weight_pheno.
-#     """
-#     result = defaultdict(list)
-#     for allele in input_list:
-#         result[allele.weight_pheno].append(allele)
-
-#     return [result[i] for i in sorted(result.keys())]
 
 
 def apply_to_dict_values(func: Callable[..., Any]) -> Callable[..., dict]:
@@ -179,7 +161,7 @@ def check_available_variants(
 ) -> bool:
     """Check variant counts for a given allele.
 
-    Unaltered counts: 2 indicates HOM (homozygous) and 1 indicates HET 
+    Unaltered counts: 2 indicates HOM (homozygous) and 1 indicates HET
     (heterozygous). An altered count of 0 means none are left.
 
     Args:
@@ -274,8 +256,6 @@ def sub_alleles_relationships(
     lst = all_alleles[key]
     for allele1 in lst:
         for allele2 in lst:
-            # if allele1.sub_type != allele2.sub_type:
-            #     continue
             relationship[f"{allele1.genotype}_isin_{allele2.genotype}"] = (
                 allele1 in allele2
             )
@@ -287,7 +267,7 @@ def get_allele_relationships(
     all_alleles: dict[str, list[Allele]], processes: int
 ) -> dict[str, dict[str, bool]]:
     """
-    Compute relationships between alleles across multiple processes. 
+    Compute relationships between alleles across multiple processes.
     (Was needed when doing & on ABO, left it here incase KN grows)
 
     Args:
@@ -305,7 +285,6 @@ def get_allele_relationships(
     Each process handles a subset of the alleles as specified by the
     keys in `all_alleles`.
     """
-    ic('get_allele_relationships')
     relationships = {}
     with Pool(processes=processes) as pool:
         sub_all = partial(sub_alleles_relationships, all_alleles)

@@ -78,7 +78,6 @@ class TestBloodGroup(unittest.TestCase):
             defining_variants=frozenset({"variant1", "variant2"}),
             null=False,
             weight_geno=2,
-            phases=("ps1", "ps2"),
         )
         self.allele2 = Allele(
             genotype="KN*02",
@@ -88,7 +87,6 @@ class TestBloodGroup(unittest.TestCase):
             defining_variants=frozenset({"variant1"}),
             null=False,
             weight_geno=1,
-            phases=("ps2",),
         )
 
         self.blood_group = BloodGroup(
@@ -103,15 +101,6 @@ class TestBloodGroup(unittest.TestCase):
     def test_variant_pool_numeric(self) -> None:
         expected = {"variant1": 2, "variant2": 1}
         self.assertEqual(self.blood_group.variant_pool_numeric, expected)
-
-    def test_phase_set_ids(self) -> None:
-        self.blood_group.alleles["raw"] = [self.allele1, self.allele2]
-        expected = {"ps1", "ps2"}
-        self.assertEqual(self.blood_group.phase_set_ids, expected)
-
-    def test_number_of_phase_set_ids(self) -> None:
-        self.blood_group.alleles["raw"] = [self.allele1, self.allele2]
-        self.assertEqual(self.blood_group.number_of_phase_set_ids, 2)
 
     def test_number_of_putative_alleles(self) -> None:
         self.assertEqual(self.blood_group.number_of_putative_alleles, 2)
