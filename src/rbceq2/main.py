@@ -16,7 +16,7 @@ import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as filt
 import rbceq2.filters.phased as filt_phase
-import rbceq2.filters.co_existing as filt_co
+import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType
 from rbceq2.core_logic.utils import compose, get_allele_relationships
@@ -272,10 +272,6 @@ def find_hits(
             variant_metrics=vcf.variants,
             phase_sets=vcf.phase_sets,
         ),
-        # partial( #TODO not needed now that remove_unphased improved?
-        #     dp.ABO_phasing,
-        #     phased=args.phased,
-        # ),
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
@@ -285,10 +281,6 @@ def find_hits(
         filt.cant_not_include_null,
         partial(
             filt.filter_pairs_on_antithetical_zygosity, antitheticals=db.antitheticals
-        ),
-        partial(
-            filt.filter_pairs_on_antithetical_modyfying_SNP,
-            antitheticals=db.antitheticals,
         ),
         partial(
             filt_phase.filter_pairs_by_phase,
@@ -313,6 +305,10 @@ def find_hits(
         ),
         partial(filt_co.remove_unphased_co, phased=args.phased),
         filt.cant_pair_with_ref_cuz_trumped,
+        partial(
+            filt.antithetical_modifying_SNP_is_HOM,
+            antitheticals=db.antitheticals,
+        ),
         filt.ensure_HET_SNP_used,
         filt.ABO_cant_pair_with_ref_cuz_261delG_HET,
         filt.cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
@@ -327,7 +323,7 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
+        #partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
         dp.add_CD_to_XG,
     ]

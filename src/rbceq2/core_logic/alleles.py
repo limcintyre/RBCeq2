@@ -80,10 +80,6 @@ class Allele:
         """
         if self.__eq__(other):
             return False #if compared to self
-        # assert other.sub_type != ""
-        # assert self.sub_type != ""
-        # if self.sub_type != other.sub_type:
-        #     return False # 'in' relationship only exists within subtypes. nope. crazy friday brain...
         if other.reference and self.sub_type == other.sub_type:
             return True # ref is always 'in' in any child allele
             #especially necesary for KN and any BGs with no SNV for ref
@@ -299,20 +295,20 @@ class BloodGroup:
         """
         return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
 
-    @property
-    def phase_set_ids(self) -> set[str]:
-        """Extract unique phase set IDs from raw alleles.
+    # @property
+    # def phase_set_ids(self) -> set[str]:
+    #     """Extract unique phase set IDs from raw alleles.
 
-        Returns:
-            Set[str]: A set of unique phase set IDs.
+    #     Returns:
+    #         Set[str]: A set of unique phase set IDs.
 
-        Raises:
-            ValueError: If there are no raw alleles to extract phase sets from.
-        """
-        if AlleleState.FILT in self.alleles:
-            return set().union(*[set(a.phases) for a in self.alleles[AlleleState.FILT]])
-        else:
-            raise ValueError("No raw alleles to get phase set ids from")
+    #     Raises:
+    #         ValueError: If there are no raw alleles to extract phase sets from.
+    #     """
+    #     if AlleleState.FILT in self.alleles:
+    #         return set().union(*[set(a.phases) for a in self.alleles[AlleleState.FILT]])
+    #     else:
+    #         raise ValueError("No raw alleles to get phase set ids from")
 
     @property
     def number_of_phase_set_ids(self) -> int:

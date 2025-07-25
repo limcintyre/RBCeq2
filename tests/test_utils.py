@@ -10,66 +10,30 @@ from rbceq2.core_logic.utils import (
 )
 
 
-# class TestChunklistByRank(unittest.TestCase):
-#     def test_empty_list(self):
-#         """Test chunking an empty list."""
-
-#     def test_same_weight(self):
-#         """Test all alleles with the same weight."""
-#         alleles = [
-#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-#             Allele("A2", "M", ".", ".", frozenset(), 1, 1),
-#             Allele("A3", "M", ".", ".", frozenset(), 1, 1),
-#         ]
-#         expected = [alleles]
-#         self.assertEqual(chunk_list_by_rank(alleles), expected)
-
-#     def test_different_weights(self):
-#         """Test alleles with different weights."""
-#         alleles = [
-#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-#             Allele("B1", "N", ".", ".", frozenset(), 1, 2),
-#             Allele("C1", "O", ".", ".", frozenset(), 1, 3),
-#         ]
-#         expected = [[alleles[0]], [alleles[1]], [alleles[2]]]
-#         self.assertEqual(chunk_list_by_rank(alleles), expected)
-
-#     def test_mixed_weights(self):
-#         """Test alleles with mixed and repeated weights."""
-#         alleles = [
-#             Allele("A1", "M", ".", ".", frozenset(), 1, 1),
-#             Allele("B1", "N", ".", ".", frozenset(), 1, 2),
-#             Allele("A2", "M", ".", ".", frozenset(), 1, 1),
-#             Allele("C1", "O", ".", ".", frozenset(), 1, 3),
-#             Allele("B2", "N", ".", ".", frozenset(), 1, 2),
-#         ]
-#         expected = [[alleles[0], alleles[2]], [alleles[1], alleles[4]], [alleles[3]]]
-#         self.assertEqual(chunk_list_by_rank(alleles), expected)
-
 
 class TestCheckAvailableVariants(unittest.TestCase):
     def test_all_variants_available(self):
         """Test all variants available"""
-        allele = Allele("A1", "M", ".", ".", frozenset({"A", "B", "C"}), False, 1, 1)
+        allele = Allele("A1", "M", ".", ".", frozenset({"A", "B", "C"}), False, 1)
         variant_pool = {"A": 2, "B": 2, "C": 2}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertTrue(all(result))
 
     def test_some_variants_unavailable(self):
         """Test some variants unavailable"""
-        allele = Allele("A2", "N", ".", ".", frozenset({"A", "B", "C"}),False, 1, 1)
+        allele = Allele("A2", "N", ".", ".", frozenset({"A", "B", "C"}),False, 1)
         variant_pool = {"A": 0, "B": 2, "C": 1}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertFalse(all(result))
 
     def test_no_variants_available(self):
-        allele = Allele("A3", "O", ".", ".", frozenset({"A", "B", "C"}),False, 1, 1)
+        allele = Allele("A3", "O", ".", ".", frozenset({"A", "B", "C"}),False, 1)
         variant_pool = {"A": 0, "B": 0, "C": 0}
         result = check_available_variants(1, variant_pool, lambda x, y: x >= y, allele)
         self.assertFalse(all(result))
 
     def test_variants_exceeding_count(self):
-        allele = Allele("A4", "P", ".", ".", frozenset({"A", "B"}),False, 1, 1)
+        allele = Allele("A4", "P", ".", ".", frozenset({"A", "B"}),False, 1)
         variant_pool = {"A": 3, "B": 5}
         result = check_available_variants(2, variant_pool, lambda x, y: x > y, allele)
         self.assertTrue(all(result))
@@ -121,7 +85,6 @@ class TestGetNonRefs(unittest.TestCase):
                 1,
                 False,
                 "subtype1",
-                None,
             ),
             Allele(
                 "genotype2",
@@ -133,7 +96,6 @@ class TestGetNonRefs(unittest.TestCase):
                 1,
                 True,
                 "subtype2",
-                None,
             ),
             Allele(
                 "genotype3",
@@ -145,7 +107,6 @@ class TestGetNonRefs(unittest.TestCase):
                 1,
                 False,
                 "subtype3",
-                None,
             ),
         ]
 
@@ -173,7 +134,6 @@ class TestGetNonRefs(unittest.TestCase):
                 weight_geno=1,
                 reference=True,
                 sub_type="subtype4",
-                phases=None,
             )
         ]
         result = get_non_refs(options)
@@ -273,7 +233,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 1,
                 False,
                 "C",
-                None,
             ),
             Allele(
                 "genotype6",
@@ -285,7 +244,6 @@ class TestChunkGenoListByRank(unittest.TestCase):
                 1,
                 False,
                 "C",
-                None,
             ),
             *self.alleles[:2],
         ]
@@ -310,7 +268,6 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 1,
                 False,
                 "subtype1",
-                None,
             ),
             Allele(
                 "genotype2",
@@ -322,7 +279,6 @@ class TestSubAllelesRelationships(unittest.TestCase):
                 2,
                 False,
                 "subtype2",
-                None,
             ),
         ]
 

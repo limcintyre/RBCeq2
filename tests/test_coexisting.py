@@ -8,7 +8,6 @@ from rbceq2.core_logic.co_existing import (
     can_co_exist,
     decide_if_co_existing,
     filter_redundant_pairs,
-    # geno_str,
     homs,
     list_excluded_co_existing_pairs,
     max_rank,
@@ -180,7 +179,7 @@ class TestAddCoExistingAllelesNotAllHom(unittest.TestCase):
         self.bg = BloodGroup(
             type="KN",
             alleles={
-                AlleleState.POS: [
+                AlleleState.FILT: [
                     self.allele_ref,
                     self.allele10,
                     self.allele12,
@@ -211,7 +210,6 @@ class TestAddCoExistingAllelesNotAllHom(unittest.TestCase):
                 weight_geno=1000,
                 reference=True,
                 sub_type="KN*01",
-                phases=None,
             )
         }
 
@@ -365,7 +363,6 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
             weight_geno=1000,
             reference=False,
             sub_type="KN*01",
-            phases=None,
         )
         self.allele10 = Allele(
             genotype="KN*01.10",
@@ -377,7 +374,6 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
             weight_geno=1000,
             reference=False,
             sub_type="KN*01",
-            phases=None,
         )
 
         # alleles={'co_existing': [Pair(Genotype: KN*01.07+KN*01.10/KN*01.07+KN*01.10 Phenotype: WIP/WIP)],
@@ -385,7 +381,7 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
         # Pair(Genotype: KN*01.07/KN*01.07 Phenotype: KN:1,-2,3,-6,-4,7,5,8,9,-10,11,-12/KN:1,-2,3,-6,-4,7,5,8,9,-10,11,-12)],
         self.bg = BloodGroup(
             type="KN",
-            alleles={AlleleState.POS: [self.allele_ref, self.allele10]},
+            alleles={AlleleState.FILT: [self.allele_ref, self.allele10]},
             sample="231",
             variant_pool={},
             filtered_out={},
@@ -402,7 +398,6 @@ class TestAddCoExistingAllelesAllHom(unittest.TestCase):  # has been replaced, r
                 weight_geno=1000,
                 reference=True,
                 sub_type="KN*01",
-                phases=None,
             )
         }
 
@@ -493,7 +488,7 @@ class TestAddCoExistingAllelesFunction(unittest.TestCase):
         )
         self.bg = BloodGroup(
             type="KN",
-            alleles={AlleleState.POS: [self.allele_ref, self.allele10]},
+            alleles={AlleleState.FILT: [self.allele_ref, self.allele10]},
             sample="sample1",
             genotypes=["KN*01", "KN*02"],
             phenotypes=["positive", "negative"],
@@ -1220,7 +1215,7 @@ class TestMaxRankFunction(unittest.TestCase):
         )
         self.bg = BloodGroup(
             type="KN",
-            alleles={AlleleState.POS: [self.allele_ref, self.allele02]},
+            alleles={AlleleState.FILT: [self.allele_ref, self.allele02]},
             sample="sample1",
             genotypes=["KN*01", "KN*02"],
             phenotypes=["positive", "negative"],
@@ -1283,7 +1278,7 @@ class TestHomsFunction(unittest.TestCase):
         # Create BloodGroup
         self.bg = BloodGroup(
             type="KN",
-            alleles={AlleleState.POS: [self.allele_ref, self.allele10]},
+            alleles={AlleleState.FILT: [self.allele_ref, self.allele10]},
             sample="sample1",
             genotypes=["KN*01", "KN*02"],
             phenotypes=["positive", "negative"],
@@ -1334,7 +1329,7 @@ class TestHomsFunction(unittest.TestCase):
             reference=False,
             sub_type="KN*03",
         )
-        self.bg.alleles[AlleleState.POS].append(self.allele12)
+        self.bg.alleles[AlleleState.FILT].append(self.allele12)
         # self.bg.variant_pool_numeric["variant4"] = 2
 
         # Apply the homs function
@@ -1463,7 +1458,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
         self.bg = BloodGroup(
             type="KN",
             alleles={
-                AlleleState.POS: [
+                AlleleState.FILT: [
                     self.allele10,
                     self.allele12,
                     self.allele7,
@@ -1483,7 +1478,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
         self.bg_with_ref = BloodGroup(
             type="KN",
             alleles={
-                AlleleState.POS: [
+                AlleleState.FILT: [
                     self.allele_ref,
                     self.allele10,
                     self.allele12,
@@ -1531,7 +1526,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
 
     def test_prep_co_putative_combos_no_homs(self):
         # Remove homozygous alleles
-        self.bg.alleles[AlleleState.POS] = [self.allele_ref, self.allele12]
+        self.bg.alleles[AlleleState.FILT] = [self.allele_ref, self.allele12]
         # Call the function
         # prep_co_putative_combos(self.bg, self.allele_relationships)
         result_bg = list(
@@ -1552,7 +1547,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
         # self.allele12.reference = False
 
         # Update the alleles in bg
-        self.bg_with_ref.alleles[AlleleState.POS] = [
+        self.bg_with_ref.alleles[AlleleState.FILT] = [
             self.allele_ref,
             self.allele12,
         ]
@@ -1610,7 +1605,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
         # self.allele12.reference = False
 
         # Update the alleles in bg
-        self.bg.alleles[AlleleState.POS] = [
+        self.bg.alleles[AlleleState.FILT] = [
             self.allele10,
             self.allele12,
             self.allele7,
@@ -1650,7 +1645,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
 
     def test_prep_co_putative_combos_excluding_reference_allele(self):
         # Keep allele3 as reference
-        self.bg.alleles[AlleleState.POS] = [
+        self.bg.alleles[AlleleState.FILT] = [
             self.allele_ref,
             self.allele10,
             self.allele12,
@@ -1677,7 +1672,7 @@ class TestPrepCoPutativeCombos(unittest.TestCase):
     def test_combos_with_multiple_subtypes_are_excluded(self):
         # Add alleles with different subtypes
         # self.allele2.sub_type = "KN*02.02"
-        self.bg.alleles[AlleleState.POS] = [
+        self.bg.alleles[AlleleState.FILT] = [
             self.allele10,
             self.allele7,
             self.allele2,
@@ -1834,7 +1829,7 @@ class TestAddCoExistingAlleleAndRef(unittest.TestCase):
         # Create BloodGroup
         self.bg = BloodGroup(
             type="KN",
-            alleles={AlleleState.POS: [self.allele1, self.allele2]},
+            alleles={AlleleState.FILT: [self.allele1, self.allele2]},
             sample="sample1",
             variant_pool=self.variant_pool,
             genotypes=[],

@@ -14,7 +14,6 @@ from rbceq2.core_logic.data_procesing import (
     SingleVariantStrategy,
     SomeHomMultiVariantStrategy,
     add_CD_to_XG,
-    add_phase,
     add_phasing,
     add_refs,
     combine_all,
@@ -31,7 +30,6 @@ from rbceq2.core_logic.data_procesing import (
     raw_results,
     remove_alleles_with_low_base_quality,
     remove_alleles_with_low_read_depth,
-    rule_out_impossible_alleles,
     unique_in_order,
 )
 from rbceq2.db.db import Db
@@ -302,192 +300,173 @@ class TestGetGenotypes(unittest.TestCase):
         self.assertEqual(result_bg.genotypes, expected_genotypes)
 
 
-# TODO test AlleleState.RAW -> FILT
-class TestRuleOutImpossibleAlleles2(unittest.TestCase):
-    def setUp(self):
-        self.bg = MagicMock()
+# # TODO test AlleleState.RAW -> FILT
+# class TestRuleOutImpossibleAlleles2(unittest.TestCase):
+#     def setUp(self):
+#         self.bg = MagicMock()
 
-        self.allele1 = MagicMock()
-        self.allele1.genotype = "JK*02W.03"
-        self.allele1.defining_variants = {
-            "18:43310415_G_A",
-            "18:43316538_A_G",
-            "18:43319519_G_A",
-        }
+#         self.allele1 = MagicMock()
+#         self.allele1.genotype = "JK*02W.03"
+#         self.allele1.defining_variants = {
+#             "18:43310415_G_A",
+#             "18:43316538_A_G",
+#             "18:43319519_G_A",
+#         }
 
-        self.allele2 = MagicMock()
-        self.allele2.genotype = "JK*02W.04"
-        self.allele2.defining_variants = {"18:43310415_G_A", "18:43319519_G_A"}
+#         self.allele2 = MagicMock()
+#         self.allele2.genotype = "JK*02W.04"
+#         self.allele2.defining_variants = {"18:43310415_G_A", "18:43319519_G_A"}
 
-        self.allele3 = MagicMock()
-        self.allele3.genotype = "JK*02W.05"
-        self.allele3.defining_variants = {"18:43310415_G_A"}
+#         self.allele3 = MagicMock()
+#         self.allele3.genotype = "JK*02W.05"
+#         self.allele3.defining_variants = {"18:43310415_G_A"}
 
-        self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele2, self.allele3]}
-
-    # def test_basic_functionality(self):
-    #     self.bg.variant_pool = {
-    #         '18:43310415_G_A': Zygosity.HET,
-    #         '18:43316538_A_G': Zygosity.HOM,
-    #         '18:43319519_G_A': Zygosity.HET,
-    #     }
-
-    #     result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-    #     print(999999,result_bg)
-
-    #     expected_possible_alleles = [self.allele1, self.allele3]
-    #     print(111111,expected_possible_alleles, result_bg.alleles[AlleleState.POS])
-
-    #     # Check the length of the possible alleles list
-    #     self.assertEqual(len(result_bg.alleles[AlleleState.POS]),
-    #                      len(expected_possible_alleles))
-
-    #     # Check the contents of the possible alleles list
-    #     self.assertCountEqual(result_bg.alleles[AlleleState.POS], expected_possible_alleles)
-
-    def test_no_homozygous_variants(self):
-        self.bg.variant_pool = {
-            "18:43310415_G_A": Zygosity.HET,
-            "18:43316538_A_G": Zygosity.HET,
-            "18:43319519_G_A": Zygosity.HET,
-        }
-
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-        expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-        self.assertCountEqual(
-            result_bg.alleles[AlleleState.POS], expected_possible_alleles
-        )
-
-    def test_all_possible_alleles(self):
-        self.bg.variant_pool = {
-            "18:43310415_G_A": Zygosity.HET,
-            "18:43316538_A_G": Zygosity.HET,
-            "18:43319519_G_A": Zygosity.HET,
-        }
-
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-        expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-        self.assertCountEqual(
-            result_bg.alleles[AlleleState.POS], expected_possible_alleles
-        )
-
-    def test_empty_alleles_list(self):
-        self.bg.alleles = {AlleleState.FILT: []}
-        self.bg.variant_pool = {}
-
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-        self.assertEqual(result_bg.alleles[AlleleState.POS], [])
+#         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele2, self.allele3]}
 
 
-class TestRuleOutImpossibleAlleles(unittest.TestCase):
-    def setUp(self):
-        self.allele1 = Allele(
-            genotype="JK*02W.03",
-            phenotype="Phenotype1",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset(
-                {"18:43310415_G_A", "18:43316538_A_G", "18:43319519_G_A"}
-            ),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="subtype1",
-        )
-        self.allele2 = Allele(
-            genotype="JK*02W.04",
-            phenotype="Phenotype2",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"18:43310415_G_A", "18:43319519_G_A"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="subtype2",
-        )
-        self.allele3 = Allele(
-            genotype="JK*02W.05",
-            phenotype="Phenotype3",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"18:43310415_G_A"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="subtype3",
-        )
+#     def test_no_homozygous_variants(self):
+#         self.bg.variant_pool = {
+#             "18:43310415_G_A": Zygosity.HET,
+#             "18:43316538_A_G": Zygosity.HET,
+#             "18:43319519_G_A": Zygosity.HET,
+#         }
 
-        self.bg = BloodGroup(
-            type="ExampleType",
-            alleles={AlleleState.FILT: [self.allele1, self.allele2, self.allele3]},
-            sample="sample230",
-            variant_pool={},
-            filtered_out={},
-        )
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
 
-    def test_basic_functionality(self):
-        self.bg.variant_pool = {
-            "18:43310415_G_A": Zygosity.HET,
-            "18:43316538_A_G": Zygosity.HOM,
-            "18:43319519_G_A": Zygosity.HET,
-        }
+#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
+#         self.assertCountEqual(
+#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
+#         )
 
-        # result_bg = rule_out_impossible_alleles(self.bg)
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+#     def test_all_possible_alleles(self):
+#         self.bg.variant_pool = {
+#             "18:43310415_G_A": Zygosity.HET,
+#             "18:43316538_A_G": Zygosity.HET,
+#             "18:43319519_G_A": Zygosity.HET,
+#         }
 
-        expected_possible_alleles = [self.allele1, self.allele3]
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
 
-        # Check the length of the possible alleles list
-        self.assertEqual(
-            len(result_bg.alleles[AlleleState.POS]), len(expected_possible_alleles)
-        )
+#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
+#         self.assertCountEqual(
+#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
+#         )
 
-        # Check the contents of the possible alleles list
-        self.assertCountEqual(
-            result_bg.alleles[AlleleState.POS], expected_possible_alleles
-        )
+#     def test_empty_alleles_list(self):
+#         self.bg.alleles = {AlleleState.FILT: []}
+#         self.bg.variant_pool = {}
 
-    def test_no_homozygous_variants(self):
-        self.bg.variant_pool = {
-            "18:43310415_G_A": Zygosity.HET,
-            "18:43316538_A_G": Zygosity.HET,
-            "18:43319519_G_A": Zygosity.HET,
-        }
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
 
-        # result_bg = rule_out_impossible_alleles(self.bg)
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+#         self.assertEqual(result_bg.alleles[AlleleState.FILT], [])
 
-        expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-        self.assertCountEqual(
-            result_bg.alleles[AlleleState.POS], expected_possible_alleles
-        )
 
-    def test_all_possible_alleles(self):
-        self.bg.variant_pool = {
-            "18:43310415_G_A": Zygosity.HET,
-            "18:43316538_A_G": Zygosity.HET,
-            "18:43319519_G_A": Zygosity.HET,
-        }
+# class TestRuleOutImpossibleAlleles(unittest.TestCase):
+#     def setUp(self):
+#         self.allele1 = Allele(
+#             genotype="JK*02W.03",
+#             phenotype="Phenotype1",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset(
+#                 {"18:43310415_G_A", "18:43316538_A_G", "18:43319519_G_A"}
+#             ),
+#             null=False,
+#             weight_geno=1,
+#             reference=False,
+#             sub_type="subtype1",
+#         )
+#         self.allele2 = Allele(
+#             genotype="JK*02W.04",
+#             phenotype="Phenotype2",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"18:43310415_G_A", "18:43319519_G_A"}),
+#             null=False,
+#             weight_geno=1,
+#             reference=False,
+#             sub_type="subtype2",
+#         )
+#         self.allele3 = Allele(
+#             genotype="JK*02W.05",
+#             phenotype="Phenotype3",
+#             genotype_alt=".",
+#             phenotype_alt=".",
+#             defining_variants=frozenset({"18:43310415_G_A"}),
+#             null=False,
+#             weight_geno=1,
+#             reference=False,
+#             sub_type="subtype3",
+#         )
 
-        # result_bg = rule_out_impossible_alleles(self.bg)
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+#         self.bg = BloodGroup(
+#             type="ExampleType",
+#             alleles={AlleleState.FILT: [self.allele1, self.allele2, self.allele3]},
+#             sample="sample230",
+#             variant_pool={},
+#             filtered_out={},
+#         )
 
-        expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-        self.assertCountEqual(
-            result_bg.alleles[AlleleState.POS], expected_possible_alleles
-        )
+#     def test_basic_functionality(self):
+#         self.bg.variant_pool = {
+#             "18:43310415_G_A": Zygosity.HET,
+#             "18:43316538_A_G": Zygosity.HOM,
+#             "18:43319519_G_A": Zygosity.HET,
+#         }
 
-    def test_empty_alleles_list(self):
-        self.bg.alleles = {AlleleState.FILT: []}
-        self.bg.variant_pool = {}
+#         # result_bg = rule_out_impossible_alleles(self.bg)
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
 
-        # result_bg = rule_out_impossible_alleles(self.bg)
-        result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+#         expected_possible_alleles = [self.allele1, self.allele3]
 
-        self.assertEqual(result_bg.alleles[AlleleState.POS], [])
+#         # Check the length of the possible alleles list
+#         self.assertEqual(
+#             len(result_bg.alleles[AlleleState.FILT]), len(expected_possible_alleles)
+#         )
+
+#         # Check the contents of the possible alleles list
+#         self.assertCountEqual(
+#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
+#         )
+
+#     def test_no_homozygous_variants(self):
+#         self.bg.variant_pool = {
+#             "18:43310415_G_A": Zygosity.HET,
+#             "18:43316538_A_G": Zygosity.HET,
+#             "18:43319519_G_A": Zygosity.HET,
+#         }
+
+#         # result_bg = rule_out_impossible_alleles(self.bg)
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+
+#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
+#         self.assertCountEqual(
+#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
+#         )
+
+#     def test_all_possible_alleles(self):
+#         self.bg.variant_pool = {
+#             "18:43310415_G_A": Zygosity.HET,
+#             "18:43316538_A_G": Zygosity.HET,
+#             "18:43319519_G_A": Zygosity.HET,
+#         }
+
+#         # result_bg = rule_out_impossible_alleles(self.bg)
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+
+#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
+#         self.assertCountEqual(
+#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
+#         )
+
+#     def test_empty_alleles_list(self):
+#         self.bg.alleles = {AlleleState.FILT: []}
+#         self.bg.variant_pool = {}
+
+#         # result_bg = rule_out_impossible_alleles(self.bg)
+#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
+
+#         self.assertEqual(result_bg.alleles[AlleleState.FILT], [])
 
 
 class TestGetFullyHomozygousAlleles(unittest.TestCase):
@@ -891,207 +870,6 @@ class TestMushedVars(unittest.TestCase):
 
 
 
-class TestAddPhase(unittest.TestCase):
-    def test_add_phase_updates_phases(self):
-        # Create an Allele instance
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt Genotype",
-            phenotype_alt="Alt Phenotype",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            weight_geno=2,
-            reference=False,
-            sub_type="SubType1",
-            phases=("phase1",),
-        )
-
-        # List of new phases to add
-        new_phases = ["phase2", "phase3"]
-
-        # Call add_phase function
-        new_allele = add_phase(allele, new_phases)
-
-        # Assert that the new Allele has the updated phases
-        self.assertEqual(new_allele.phases, tuple(new_phases))
-
-        # Assert that other attributes remain the same
-        self.assertEqual(new_allele.genotype, allele.genotype)
-        self.assertEqual(new_allele.phenotype, allele.phenotype)
-        self.assertEqual(new_allele.genotype_alt, allele.genotype_alt)
-        self.assertEqual(new_allele.phenotype_alt, allele.phenotype_alt)
-        self.assertEqual(new_allele.defining_variants, allele.defining_variants)
-        self.assertEqual(new_allele.weight_geno, allele.weight_geno)
-        self.assertEqual(new_allele.reference, allele.reference)
-        self.assertEqual(new_allele.sub_type, allele.sub_type)
-        self.assertEqual(
-            new_allele.number_of_defining_variants, allele.number_of_defining_variants
-        )
-
-        # Assert that the original allele's phases remain unchanged
-        self.assertEqual(allele.phases, ("phase1",))
-
-    def test_add_phase_with_empty_phases(self):
-        # Create an Allele instance with no phases
-        allele = Allele(
-            genotype="A*02",
-            phenotype="Phenotype B",
-            genotype_alt="Alt Genotype B",
-            phenotype_alt="Alt Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="SubType2",
-            phases=None,
-        )
-
-        # Empty list of phases
-        new_phases = []
-
-        # Call add_phase function
-        new_allele = add_phase(allele, new_phases)
-
-        # Assert that the new Allele has empty phases tuple
-        self.assertEqual(new_allele.phases, ())
-
-        # Assert that other attributes remain the same
-        self.assertEqual(new_allele.genotype, allele.genotype)
-        self.assertEqual(new_allele.phenotype, allele.phenotype)
-        self.assertEqual(new_allele.genotype_alt, allele.genotype_alt)
-        self.assertEqual(new_allele.phenotype_alt, allele.phenotype_alt)
-        self.assertEqual(new_allele.defining_variants, allele.defining_variants)
-        self.assertEqual(new_allele.weight_geno, allele.weight_geno)
-        self.assertEqual(new_allele.reference, allele.reference)
-        self.assertEqual(new_allele.sub_type, allele.sub_type)
-        self.assertEqual(
-            new_allele.number_of_defining_variants, allele.number_of_defining_variants
-        )
-
-        # Assert that the original allele's phases remain None
-        self.assertIsNone(allele.phases)
-
-    def test_add_phase_does_not_modify_original(self):
-        # Create an Allele instance
-        allele = Allele(
-            genotype="A*03",
-            phenotype="Phenotype C",
-            genotype_alt="Alt Genotype C",
-            phenotype_alt="Alt Phenotype C",
-            defining_variants=frozenset({"var4", "var5"}),
-            null=False,
-            weight_geno=3,
-            reference=True,
-            sub_type="SubType3",
-            phases=("phaseX", "phaseY"),
-        )
-
-        # New phases
-        new_phases = ["phaseZ"]
-
-        # Call add_phase function
-        new_allele = add_phase(allele, new_phases)
-
-        # Assert that the original allele's phases remain unchanged
-        self.assertEqual(allele.phases, ("phaseX", "phaseY"))
-
-        # Assert that the new allele has the updated phases
-        self.assertEqual(new_allele.phases, tuple(new_phases))
-
-        # Assert other attributes remain the same
-        self.assertEqual(new_allele.genotype, allele.genotype)
-        self.assertEqual(new_allele.reference, allele.reference)
-        self.assertEqual(new_allele.sub_type, allele.sub_type)
-        self.assertEqual(new_allele.defining_variants, allele.defining_variants)
-
-    def test_add_phase_with_none_phases(self):
-        # Create an Allele instance with phases set to None
-        allele = Allele(
-            genotype="A*04",
-            phenotype="Phenotype D",
-            genotype_alt="Alt Genotype D",
-            phenotype_alt="Alt Phenotype D",
-            defining_variants=frozenset({"var6"}),
-            null=False,
-            weight_geno=2,
-            reference=False,
-            sub_type="SubType4",
-            phases=None,
-        )
-
-        # New phases
-        new_phases = ["phase1"]
-
-        # Call add_phase function
-        new_allele = add_phase(allele, new_phases)
-
-        # Assert that the new allele has the updated phases
-        self.assertEqual(new_allele.phases, tuple(new_phases))
-
-        # Assert that the original allele's phases remain None
-        self.assertIsNone(allele.phases)
-
-
-class TestAddPhase2(unittest.TestCase):
-    def test_add_phase_updates_phases(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt Genotype",
-            phenotype_alt="Alt Phenotype",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            weight_geno=2,
-            reference=False,
-            sub_type="SubType1",
-            phases=("phase1",),
-        )
-        new_phases = ["phase2", "phase3"]
-        new_allele = add_phase(allele, new_phases)
-        self.assertEqual(new_allele.phases, tuple(new_phases))
-        self.assertEqual(allele.phases, ("phase1",))
-        self.assertEqual(
-            new_allele.number_of_defining_variants, allele.number_of_defining_variants
-        )
-        self.assertEqual(new_allele.defining_variants, allele.defining_variants)
-
-    def test_add_phase_with_empty_phases(self):
-        allele = Allele(
-            genotype="A*02",
-            phenotype="Phenotype B",
-            genotype_alt="Alt Genotype B",
-            phenotype_alt="Alt Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="SubType2",
-            phases=None,
-        )
-        new_phases = []
-        new_allele = add_phase(allele, new_phases)
-        self.assertEqual(new_allele.phases, ())
-        self.assertIsNone(allele.phases)
-
-    def test_add_phase_does_not_modify_original(self):
-        allele = Allele(
-            genotype="A*03",
-            phenotype="Phenotype C",
-            genotype_alt="Alt Genotype C",
-            phenotype_alt="Alt Phenotype C",
-            defining_variants=frozenset({"var4", "var5"}),
-            null=False,
-            weight_geno=3,
-            reference=True,
-            sub_type="SubType3",
-            phases=("phaseX", "phaseY"),
-        )
-        new_phases = ["phaseZ"]
-        new_allele = add_phase(allele, new_phases)
-        self.assertEqual(allele.phases, ("phaseX", "phaseY"))
-        self.assertEqual(new_allele.phases, tuple(new_phases))
-
 
 class TestRawResults(unittest.TestCase):
     def setUp(self):
@@ -1142,7 +920,7 @@ class TestRawResults(unittest.TestCase):
         # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
         vcf.variants = {"var1": {}, "var2": {}}
 
-        results = raw_results(db, vcf)
+        results = raw_results(db, vcf, ['None'])
 
         self.assertIn("A", results)
         self.assertIn("B", results)
@@ -1169,7 +947,7 @@ class TestRawResults(unittest.TestCase):
         # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
         vcf.variants = {"var1": {}}
 
-        results = raw_results(db, vcf)
+        results = raw_results(db, vcf, ['1'])
 
         self.assertNotIn("A", results)
 
@@ -1191,270 +969,11 @@ class TestRawResults(unittest.TestCase):
         # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
         vcf.variants = {}
 
-        results = raw_results(db, vcf)
+        results = raw_results(db, vcf, ['1'])
 
         self.assertIn("A", results)
         self.assertEqual(len(results["A"]), 1)
         self.assertIn(allele, results["A"])
-
-
-class TestAddPhasingExtraCoverage(unittest.TestCase):
-    def setUp(self):
-        """
-        Minimal setup. We'll create a BloodGroup with one or more Alleles in FILT,
-        then call add_phasing({key: bg}, phased=True, variant_metrics=...).
-        """
-        # A minimal Allele with a placeholder number_of_defining_variants
-        # so 'assert len(phases) == allele.number_of_defining_variants - ref_count' doesn't fail.
-        self.allele_ref_variant = Allele(
-            genotype="BG*REFVAR",
-            phenotype="RefVarPh",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset(
-                {"var1_ref", "var2"}
-            ),  # triggers the lines we want
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="SubRefVar",
-        )
-        # For demonstration, we force the property number_of_defining_variants
-        # to reflect the actual count in defining_variants:
-        object.__setattr__(self.allele_ref_variant, "number_of_defining_variants", 2)
-
-        # Another Allele for the second test (or we can reuse the same).
-        # This time we only have ref variants => we want 'if not phases: ref_count -=1; phases.append('1')'
-        self.allele_only_ref = Allele(
-            genotype="BG*ONLYREF",
-            phenotype="OnlyRefPh",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"var_refA"}),  # only ends with "_ref"
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="SubRefOnly",
-        )
-        object.__setattr__(self.allele_only_ref, "number_of_defining_variants", 1)
-
-        # A minimal BloodGroup with FILT containing our test Alleles
-        self.bg = BloodGroup(
-            type="BG", alleles={AlleleState.FILT: []}, sample="SampleRef"
-        )
-
-    def test_add_phasing_ref_variant_ignored(self):
-        """
-        Covers the line:
-          if variant.endswith("_ref"):
-              ref_count += 1
-              continue
-
-        We'll confirm that a variant like 'var1_ref' is skipped,
-        incrementing ref_count but not adding a phase.
-        """
-        self.bg.alleles[AlleleState.FILT] = [self.allele_ref_variant]
-        # Provide variant_metrics for the non-_ref variant only
-        # 'var2' => { PS: '22' }, 'var1_ref' => we omit or let an empty dict
-        variant_metrics = {
-            "var2": {"PS": "22"},
-            # "var1_ref": {...}  # not needed or can be empty
-        }
-
-        # phased=True => we run the phasing logic
-        updated_dict = add_phasing(
-            {99: self.bg}, phased=True, variant_metrics=variant_metrics
-        )
-        updated_bg = updated_dict[99]
-        # Our single AlleleState.FILT => now has phases
-        phased_allele = updated_bg.alleles[AlleleState.FILT][0]
-
-        # Because var1_ref was skipped, we should only see 1 phase => '22'
-        # ref_count => 1 => so we do 'assert len(phases) == 2 - 1 => 1 => matches phases
-        self.assertEqual(len(phased_allele.phases), 1)
-        self.assertEqual(phased_allele.phases[0], "22")
-
-    def test_add_phasing_no_phases_appended(self):
-        """
-        Covers the line:
-        if not phases:
-            ref_count -= 1
-            phases.append('1')
-
-        We'll pass an Allele that has only variants ending with "_ref",
-        so after skipping them all, phases=[] => triggers that block.
-        """
-
-        # Change "var_refA" to something that truly ends with "_ref"
-        # so variant.endswith("_ref") works:
-        only_ref_allele = Allele(
-            genotype="BG*ONLYREF",
-            phenotype="OnlyRefPh",
-            genotype_alt=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"varA_ref"}),  # MUST end with "_ref"
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="SubRefOnly",
-        )
-        # Adjust the number_of_defining_variants to 1, matching the single variant
-        object.__setattr__(only_ref_allele, "number_of_defining_variants", 1)
-
-        self.bg.alleles[AlleleState.FILT] = [only_ref_allele]
-
-        # Provide minimal variant_metrics so we don't get a KeyError;
-        # the code sees varA_ref => endswith("_ref") => skip
-        variant_metrics = {
-            "varA_ref": {}  # no "PS" needed, it's skipped anyway
-        }
-
-        updated_dict = add_phasing(
-            {88: self.bg}, phased=True, variant_metrics=variant_metrics
-        )
-        updated_bg = updated_dict[88]
-        phased_allele = updated_bg.alleles[AlleleState.FILT][0]
-
-        # The code now:
-        #  1) sees variant="varA_ref" => if variant.endswith("_ref"): ref_count++ ; continue
-        #  2) phases=[] => if not phases => ref_count-- ; phases.append('1')
-
-        # So phases => ['1'] in the end
-        self.assertEqual(
-            len(phased_allele.phases),
-            1,
-            "We appended '1' to phases after skipping the only _ref variant.",
-        )
-        self.assertEqual(
-            phased_allele.phases[0],
-            ".",
-            "Expected fallback phase '1' for an Allele with only _ref variants.",
-        )
-
-
-class TestAddPhasing(unittest.TestCase):
-    def test_phased_false(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt A",
-            phenotype_alt="Alt Pheno A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        bg = BloodGroup(
-            type="A",
-            alleles={AlleleState.FILT: [allele]},
-            sample="Sample1",
-        )
-        variant_metrics = {"var1": {"PS": "1"}, "var2": {"PS": "1"}}
-        result_bg = add_phasing({1: bg}, phased=False, variant_metrics=variant_metrics)[
-            1
-        ]
-        self.assertEqual(result_bg.alleles[AlleleState.FILT][0], allele)
-
-    def test_phased_true(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt A",
-            phenotype_alt="Alt Pheno A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        bg = BloodGroup(
-            type="A",
-            alleles={AlleleState.FILT: [allele]},
-            sample="Sample1",
-        )
-        variant_metrics = {"var1": {"PS": "1"}, "var2": {"PS": "2"}}
-        result_bg = add_phasing({1: bg}, phased=True, variant_metrics=variant_metrics)[
-            1
-        ]
-        updated_allele = result_bg.alleles[AlleleState.FILT][0]
-        ic(updated_allele.phases)
-        self.assertEqual(sorted(updated_allele.phases), sorted(("1", "2")))
-
-    def test_missing_variant_metrics2(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt A",
-            phenotype_alt="Alt Pheno A",
-            defining_variants=frozenset({"var1", "var_missing"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        bg = BloodGroup(
-            type="A",
-            alleles={AlleleState.FILT: [allele]},
-            sample="Sample1",
-        )
-        variant_metrics = {"var1": {"PS": "1"}}
-
-        with self.assertRaises(KeyError):
-            add_phasing({1: bg}, phased=True, variant_metrics=variant_metrics)[1]
-
-    def test_missing_variant_metrics(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt A",
-            phenotype_alt="Alt Pheno A",
-            defining_variants=frozenset({"var1"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        bg = BloodGroup(
-            type="A",
-            alleles={AlleleState.FILT: [allele]},
-            sample="Sample1",
-        )
-        variant_metrics = {"var1": {"PS": "1"}}
-
-        result_bg = add_phasing({1: bg}, phased=True, variant_metrics=variant_metrics)[
-            1
-        ]
-        updated_allele = result_bg.alleles[AlleleState.FILT][0]
-        self.assertEqual(updated_allele.phases, ("1",))
-
-    def test_inconsistent_phases(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            genotype_alt="Alt A",
-            phenotype_alt="Alt Pheno A",
-            defining_variants=frozenset({"var1", "var2", "var3"}),
-            null=False,
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        bg = BloodGroup(
-            type="A",
-            alleles={AlleleState.FILT: [allele]},
-            sample="Sample1",
-        )
-        variant_metrics = {
-            "var1": {"PS": "1"},
-            "var2": {"PS": "2"},
-            "var3": {"PS": "."},
-        }
-        result_bg = add_phasing({1: bg}, phased=True, variant_metrics=variant_metrics)[
-            1
-        ]
-        updated_allele = result_bg.alleles[AlleleState.FILT][0]
-        self.assertEqual(sorted(updated_allele.phases), sorted(("1", "2", ".")))
 
 
 class TestMakeBloodGroups(unittest.TestCase):
@@ -1469,7 +988,6 @@ class TestMakeBloodGroups(unittest.TestCase):
             weight_geno=1,
             reference=False,
             sub_type="Sub1",
-            phases=None,
         )
         allele2 = Allele(
             genotype="B*02",
@@ -1481,7 +999,6 @@ class TestMakeBloodGroups(unittest.TestCase):
             weight_geno=2,
             reference=False,
             sub_type="Sub2",
-            phases=None,
         )
         res = {"A": [allele1], "B": [allele2]}
         sample = "Sample1"
@@ -1914,7 +1431,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         """
         bg = MockBloodGroup("BG")
         # No hits => len(options) == 0
-        bg.alleles[AlleleState.POS] = set()
+        bg.alleles[AlleleState.FILT] = set()
 
         # new_bg = process_genetic_data(bg, self.reference_alleles)
         new_bg = process_genetic_data({1: bg}, self.reference_alleles)[1]
@@ -1957,7 +1474,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubA",
         )
-        bg.alleles[AlleleState.POS] = {single_allele}
+        bg.alleles[AlleleState.FILT] = {single_allele}
 
         # new_bg = process_genetic_data(bg, self.reference_alleles)
         new_bg = process_genetic_data({1: bg}, self.reference_alleles)[1]
@@ -2012,7 +1529,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubA",
         )
-        bg.alleles[AlleleState.POS] = {hom_allele, other_allele}
+        bg.alleles[AlleleState.FILT] = {hom_allele, other_allele}
 
         # new_bg = process_genetic_data(bg, self.reference_alleles)
         new_bg = process_genetic_data({1: bg}, self.reference_alleles)[1]
@@ -2074,7 +1591,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubA",
         )
-        bg.alleles[AlleleState.POS] = {hom_allele, other_allele}
+        bg.alleles[AlleleState.FILT] = {hom_allele, other_allele}
 
         # Mock get_non_refs => returns both alleles as non-ref
         mock_non_refs.return_value = {hom_allele, other_allele}
@@ -2145,7 +1662,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubB",
         )
-        bg.alleles[AlleleState.POS] = {allele1, allele2}
+        bg.alleles[AlleleState.FILT] = {allele1, allele2}
 
         # We want the code to go into elif any(len(hom_chunk)>0 for hom_chunk in homs):
         # then if len(first_chunk) == 1 => if len(ranked_chunks) ==1 => ...
@@ -2218,7 +1735,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubC",
         )
-        bg.alleles[AlleleState.POS] = {alleleA, alleleB}
+        bg.alleles[AlleleState.FILT] = {alleleA, alleleB}
 
         # Step 1: We want the code in `elif any(len(hom_chunk)>0 for hom_chunk in homs):`
         # => homs => e.g. [ [], [someAllele]] => means homs[0] = [] => homs[1] non-empty => any(...)=True
@@ -2292,7 +1809,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubC",
         )
-        bg.alleles[AlleleState.POS] = {alleleA, alleleB}
+        bg.alleles[AlleleState.FILT] = {alleleA, alleleB}
 
         # get_non_refs => both are non-ref
         mock_non_refs.return_value = {alleleA, alleleB}
@@ -2363,7 +1880,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubZ",
         )
-        bg.alleles[AlleleState.POS] = {alleleC, alleleD}
+        bg.alleles[AlleleState.FILT] = {alleleC, alleleD}
 
         # Both are non-ref
         mock_non_refs.return_value = {alleleC, alleleD}
@@ -2448,7 +1965,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubZ",
         )
-        bg.alleles[AlleleState.POS] = {alleleA, alleleB}
+        bg.alleles[AlleleState.FILT] = {alleleA, alleleB}
 
         # Ensure get_non_refs => returns both
         mock_non_refs.return_value = {alleleA, alleleB}
@@ -2530,7 +2047,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             reference=False,
             sub_type="SubZ",
         )
-        bg.alleles[AlleleState.POS] = {alleleA, alleleB}
+        bg.alleles[AlleleState.FILT] = {alleleA, alleleB}
 
         # non_refs => both
         mock_non_refs.return_value = {alleleA, alleleB}
@@ -2573,7 +2090,7 @@ class TestGeneticStrategies(unittest.TestCase):
         # Create the BloodGroup WITHOUT variant_pool_numeric=...
         self.bg = BloodGroup(
             type="BG",
-            alleles={AlleleState.POS: [], AlleleState.NORMAL: []},
+            alleles={AlleleState.FILT: [], AlleleState.NORMAL: []},
             sample="mockSample",
         )
         # Instead of self.bg.variant_pool_numeric = {...},
@@ -2583,7 +2100,7 @@ class TestGeneticStrategies(unittest.TestCase):
     def test_no_variant_strategy(self):
         """If POS has no alleles => NoVariantStrategy => Pair(ref, ref)."""
         # no Alleles => len(options)=0
-        self.bg.alleles[AlleleState.POS] = []
+        self.bg.alleles[AlleleState.FILT] = []
         # For completeness, assign some variant zygos if desired:
         self.bg.variant_pool = {}
 
@@ -2612,7 +2129,7 @@ class TestGeneticStrategies(unittest.TestCase):
             reference=False,
             sub_type="VarSub",
         )
-        self.bg.alleles[AlleleState.POS] = [single_allele]
+        self.bg.alleles[AlleleState.FILT] = [single_allele]
         self.bg.variant_pool = {"varX": "Heterozygous"}  # or "Homozygous"; up to you
 
         strategy = SingleVariantStrategy()
@@ -2645,7 +2162,7 @@ class TestGeneticStrategies(unittest.TestCase):
             reference=False,
             sub_type="SVar",
         )
-        self.bg.alleles[AlleleState.POS] = [single_allele]
+        self.bg.alleles[AlleleState.FILT] = [single_allele]
         self.bg.variant_pool = {"varOne": "Heterozygous"}
 
         # updated_bg = process_genetic_data(self.bg, self.reference_alleles)
@@ -2691,7 +2208,7 @@ class TestGeneticStrategies(unittest.TestCase):
             reference=False,
             sub_type="HomSub",
         )
-        self.bg.alleles[AlleleState.POS] = [hom1, hom2]
+        self.bg.alleles[AlleleState.FILT] = [hom1, hom2]
         self.bg.variant_pool = {
             "var1": "Homozygous",
             "var2": "Homozygous",
@@ -2723,7 +2240,7 @@ class TestGeneticStrategies(unittest.TestCase):
         allele2 = Allele(
             "BG*03", "", "", "", frozenset({"varY"}), 13, 13, False, "MVar"
         )
-        self.bg.alleles[AlleleState.POS] = [allele1, allele2]
+        self.bg.alleles[AlleleState.FILT] = [allele1, allele2]
         self.bg.variant_pool = {
             "varX": "Homozygous",
             "varY": "Heterozygous",
@@ -2762,7 +2279,7 @@ class TestGeneticStrategies(unittest.TestCase):
             reference=False,
             sub_type="SubNoHom",
         )
-        self.bg.alleles[AlleleState.POS] = [alleleA, alleleB]
+        self.bg.alleles[AlleleState.FILT] = [alleleA, alleleB]
         # Mark them as Heterozygous => not fully hom => triggers the "no hom" path
         self.bg.variant_pool = {
             "varA1": "Heterozygous",
@@ -2777,7 +2294,7 @@ class TestGeneticStrategies(unittest.TestCase):
 
     def test_process_genetic_data_no_variants(self):
         """E2E: no POS => NoVariantStrategy => reference pair."""
-        self.bg.alleles[AlleleState.POS] = []
+        self.bg.alleles[AlleleState.FILT] = []
         self.bg.variant_pool = {}
         # updated_bg = process_genetic_data(self.bg, self.reference_alleles)
         updated_bg = process_genetic_data({1: self.bg}, self.reference_alleles)[1]
@@ -2844,7 +2361,7 @@ class TestGeneticStrategies(unittest.TestCase):
 
         # Our 'bg' is the same as in setUp
         # Just ensure it has a variant_pool so combine_all can do something
-        self.bg.alleles[AlleleState.POS] = [hom_allele] + first_chunk
+        self.bg.alleles[AlleleState.FILT] = [hom_allele] + first_chunk
         self.bg.variant_pool = {
             "varHOM": "Homozygous",
             "varA1": "Heterozygous",
@@ -2909,7 +2426,7 @@ class TestGeneticStrategies(unittest.TestCase):
         strategy = SomeHomMultiVariantStrategy(ranked_chunks=ranked_chunks)
 
         # Our bg. This time we just ensure it has the same POS & variant_pool for consistency
-        self.bg.alleles[AlleleState.POS] = [single_allele]
+        self.bg.alleles[AlleleState.FILT] = [single_allele]
         # variant_pool => "var9" => "Heterozygous" or anything
         self.bg.variant_pool = {"var9": "Heterozygous"}
 
@@ -2963,7 +2480,7 @@ class TestFindWhatWasExcludedDueToRank(unittest.TestCase):
         """
         bg = MockBloodGroup("BG")
         # No POS => no non-ref
-        bg.alleles[AlleleState.POS] = {
+        bg.alleles[AlleleState.FILT] = {
             # Only the reference allele, or empty
             self.reference_alleles["BG"]
         }
@@ -2998,7 +2515,7 @@ class TestFindWhatWasExcludedDueToRank(unittest.TestCase):
         a2 = Allele(
             "BG*01HOM", "phHom", "", "", frozenset(), 20, 20, False, sub_type="Sx"
         )
-        bg.alleles[AlleleState.POS] = {a1, a2}
+        bg.alleles[AlleleState.FILT] = {a1, a2}
         # We'll set NORMAL to just [Pair(a1, a1)] to simulate the code didn't pick a2
         bg.alleles[AlleleState.NORMAL] = [Pair(a1, a1)]
         # So the pair(a1,a2), pair(a2,a2) might be 'excluded'
@@ -3299,7 +2816,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
             def __init__(self):
                 self.type = "BG"
                 self.alleles = defaultdict(list)
-                self.alleles[AlleleState.POS] = list(alleles)
+                self.alleles[AlleleState.FILT] = list(alleles)
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
@@ -3346,7 +2863,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
             def __init__(self):
                 self.type = "BG"
                 self.alleles = defaultdict(list)
-                self.alleles[AlleleState.POS] = list(alleles)
+                self.alleles[AlleleState.FILT] = list(alleles)
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
@@ -3683,7 +3200,7 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
             def __init__(self):
                 self.type = "BG"
                 self.alleles = defaultdict(list)
-                self.alleles[AlleleState.POS] = list(alleles)
+                self.alleles[AlleleState.FILT] = list(alleles)
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
@@ -3880,7 +3397,7 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
             def __init__(self):
                 self.type = "BG"
                 self.alleles = defaultdict(list)
-                self.alleles[AlleleState.POS] = list(alleles)
+                self.alleles[AlleleState.FILT] = list(alleles)
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
@@ -4061,7 +3578,7 @@ class TestAddRefs(unittest.TestCase):
         but not for RHCE (because it's in EXCLUDE).
         """
         res = {}
-        updated = add_refs(self.db, res)
+        updated = add_refs(self.db, res, ['f'])
 
         # BG1, BG2 are created
         self.assertIn("BG1", updated)
@@ -4109,7 +3626,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["BG1*REF/BG1*REF"],
         )
         res = {"BG1": existing_bg1}
-        updated = add_refs(self.db, res)
+        updated = add_refs(self.db, res, ['3'])
 
         # BG1 remains as-is
         self.assertIs(updated["BG1"], existing_bg1)
@@ -4140,7 +3657,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["BG1*REF/BG1*REF"],
         )
         res = {"BG1": existing_bg1}
-        updated = add_refs(self.db, res)
+        updated = add_refs(self.db, res, ['3'])
 
         # BG1 unchanged
         self.assertEqual(updated["BG1"].sample, "existing_sample")
@@ -4171,7 +3688,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["RHCE*REF/RHCE*REF"],
         )
         res = {"RHCE": existing_RHCE}
-        updated = add_refs(self.db, res)
+        updated = add_refs(self.db, res, ['4'])
 
         # Check that RHCE remains exactly as is
         self.assertIs(updated["RHCE"], existing_RHCE)
