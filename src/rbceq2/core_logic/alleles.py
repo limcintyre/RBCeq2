@@ -310,14 +310,14 @@ class BloodGroup:
     #     else:
     #         raise ValueError("No raw alleles to get phase set ids from")
 
-    @property
-    def number_of_phase_set_ids(self) -> int:
-        """Count the number of unique phase set IDs.
+    # @property
+    # def number_of_phase_set_ids(self) -> int:
+    #     """Count the number of unique phase set IDs.
 
-        Returns:
-            int: The number of unique phase set IDs.
-        """
-        return len(self.phase_set_ids)
+    #     Returns:
+    #         int: The number of unique phase set IDs.
+    #     """
+    #     return len(self.phase_set_ids)
 
     @property
     def number_of_putative_alleles(self) -> int:

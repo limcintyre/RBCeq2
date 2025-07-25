@@ -1443,8 +1443,8 @@ chrX	XK*N.26		c.509-1G>A	Alt.splice		XK:-1		kx-	No	No	16	5	37586888_G_A	37727635
 chrX	XK*N.27		c.664C>G	R222G		XK:-1		kx-	No	No	16	5	37587044_C_G	37727791_C_G	NM_021083.2	XK*01	FALSE	
 chrX	XK*N.28		c.880T>C	C294R		XK:-1		kx-	No	No	16	5	37587260_T_C	37728007_T_C	NM_021083.2	XK*01	FALSE	
 chrX	XK*N.29		c.979G>A	E327K		XK:-1		kx-	No	No	16	5	37587359_G_A	37728106_G_A	NM_021083.2	XK*01	FALSE	
-chrX	XK*N.30		c.1124G>C	R375P		XK:-1		kx-	No	No	16	5	37587504_ref	37728251_ref	NM_021083.2	XK*01	TRUE	"comes up all the time as ref but not in answers. Needs expert look - done. Right, for now"
-chrX	XK*N.31		c.1134C>G	N378K		XK:-1		kx-	No	No	16	5	37587514_ref	37728261_ref	NM_021083.2	XK*01	TRUE	comes up all the time as ref but not in answers. Needs expert look
+chrX	XK*N.30		c.1124C>G	p.(Pro375Arg)		XK:-1		kx-	No	No	16	5	37587504_C_G	37728251_C_G	NM_021083.2	XK*01	TRUE	"comes up all the time as ref but not in answers. Needs expert look - done. Right, for now"
+chrX	XK*N.31		c.1134G>C	p.(Lys378Asn)		XK:-1		kx-	No	No	16	5	37587514_G_C	37728261_G_C	NM_021083.2	XK*01	TRUE	comes up all the time as ref but not in answers. Needs expert look
 chrX	XK*N.32		c.962A>G	Y321C		XK:-1		kx-	No	No	16	5	37587342_A_G	37728089_A_G	NM_021083.2	XK*01	FALSE	
 chrX	XK*N.33		c.509-13C>G	Alt.splicesite		XK:-1		kx-	No	No	16	5	37586876_C_G	37727623_C_G	NM_021083.2	XK*01	FALSE	
 chrX	XK*N.34		c.523insA	I175N+fs198X		XK:-1		kx-	No	No	9	5	37586902_C_CA	37727649_C_CA	NM_021083.2	XK*01	FALSE	
