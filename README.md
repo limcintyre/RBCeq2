@@ -1,7 +1,7 @@
 <table>
   <tr>
     <td>
-      <h1>RBCeq2 documentation</h1>
+      <h1> RBCeq2 documentation</h1>
     </td>
     <td align="right">
       <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
@@ -10,10 +10,8 @@
 </table>
 
 
-<blockquote style="color: red;">
-  <p><strong>Warning</strong></p>
-  <p>NOT FOR CLINICAL USE</p>
-</blockquote>
+> [!WARNING]
+> NOT FOR CLINICAL USE
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotypes and phenotypes. The user docs (Word) explains how RBCeq2 constructs possible allele combinations and then filters them until only possible genotype/phenotype combinations remain. Internal to the tool, all variants are based on human genome release GRCh37 or GRCh38, and in the context of a variant ‘_ref’ means no change to the reference nucleotide for the associated position.
 
