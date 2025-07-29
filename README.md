@@ -1,6 +1,10 @@
+<div style="text-align: right;">
+  <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
+</div>
+
 # RBCeq2 documentation
 
-![Alt Text](images/Lifeblood-R_Primary_Keyline_RGB.jpg)
+#![Alt Text](images/Lifeblood-R_Primary_Keyline_RGB.jpg)
 
 > **Warning**
 > NOT FOR CLINICAL USE
