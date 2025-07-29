@@ -1,4 +1,3 @@
-```markdown
 # RBCeq2 documentation
 
 ![Lifeblood-R Logo](https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png)
