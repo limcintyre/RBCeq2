@@ -1,6 +1,6 @@
 # RBCeq2 documentation
 
-![Lifeblood-R Logo](https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png)
+![Lifeblood-R Logo](https://cdn.jsdelivr.net/gh/limcintyre/RBCeq2@main/images/Lifeblood-R_Primary_Keyline_RGB.png)
 
 > **Warning**
 > NOT FOR CLINICAL USE
