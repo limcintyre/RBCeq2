@@ -10,8 +10,12 @@
 </table>
 
 
+<div style="color: red;">
+
 > **Warning**
 > NOT FOR CLINICAL USE
+
+</div>
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotypes and phenotypes. The user docs (Word) explains how RBCeq2 constructs possible allele combinations and then filters them until only possible genotype/phenotype combinations remain. Internal to the tool, all variants are based on human genome release GRCh37 or GRCh38, and in the context of a variant ‘_ref’ means no change to the reference nucleotide for the associated position.
 
