@@ -1,3 +1,4 @@
+```markdown
 # RBCeq2 documentation
 
 ![Lifeblood-R Logo](https://raw.githubusercontent.com/limcintyre/RBCeq2/main/images/Lifeblood-R_Primary_Keyline_RGB.png)
@@ -46,4 +47,3 @@ options:
   --PDFs                Generate a per sample PDF report (default: False)
   --HPAs                Generate results for HPA (default: False)
   --RH                  Generate results for RHD and RHCE. WARNING! EXPERIMENTAL! Based on SNV and small indel
-```
