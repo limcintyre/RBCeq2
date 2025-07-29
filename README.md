@@ -4,8 +4,6 @@
 
 # RBCeq2 documentation
 
-#![Alt Text](images/Lifeblood-R_Primary_Keyline_RGB.jpg)
-
 > **Warning**
 > NOT FOR CLINICAL USE
 
