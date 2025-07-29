@@ -1,8 +1,14 @@
-<div style="text-align: right;">
-  <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
-</div>
+<table>
+  <tr>
+    <td>
+      <h1>RBCeq2 documentation</h1>
+    </td>
+    <td align="right">
+      <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
+    </td>
+  </tr>
+</table>
 
-# RBCeq2 documentation
 
 > **Warning**
 > NOT FOR CLINICAL USE
