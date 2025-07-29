@@ -195,7 +195,7 @@ def filter_if_all_HET_vars_on_same_side_and_phased(
                     if bg.variant_pool.get(variant2) != Zygosity.HET:
                         continue
                     phase2 = bg.variant_pool_phase[variant2]
-                    if phase == phase2:
+                    if phase == phase2 and '|' in phase:
                         to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(
@@ -278,6 +278,14 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
     """
     # If an allele is HOM and it's 'in' every other properly phased allele
     # AND the there's at least 1 of those on each side, it can't exist
+    def find_phase(allele):
+        return set(
+                [
+                    bg.variant_pool_phase.get(variant)
+                    for variant in allele.defining_variants
+                    if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", '1/0']
+                ]
+            )
     if not phased:
         return bg
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
@@ -286,20 +294,8 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
         to_remove = []
         for pair in bg.alleles[allele_state]:
             pair_with_unphased_HETs = False
-            phase1 = set(
-                [
-                    bg.variant_pool_phase.get(variant)
-                    for variant in pair.allele1.defining_variants
-                    if bg.variant_pool_phase.get(variant) != "1/1"
-                ]
-            )
-            phase2 = set(
-                [
-                    bg.variant_pool_phase.get(variant)
-                    for variant in pair.allele2.defining_variants
-                    if bg.variant_pool_phase.get(variant) != "1/1"
-                ]
-            )
+            phase1 = find_phase(pair.allele1)
+            phase2 = find_phase(pair.allele2)
             assert len(phase1) < 2
             assert len(phase2) < 2
             if phase1 == {None} or phase2 == {None}:

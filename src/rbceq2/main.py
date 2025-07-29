@@ -12,13 +12,14 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 
+
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as filt
 import rbceq2.filters.phased as filt_phase
 import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
-from rbceq2.core_logic.constants import PhenoType
+from rbceq2.core_logic.constants import PhenoType,DB_VERSION, VERSION
 from rbceq2.core_logic.utils import compose, get_allele_relationships
 from rbceq2.db.db import Db, prepare_db, DbDataConsistencyChecker
 from rbceq2.IO.PDF_reports import generate_all_reports
@@ -56,6 +57,16 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         description="Calls ISBT defined alleles from VCF/s",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         usage="rbceq2 --vcf example.vcf.gz --out example --reference_genome GRCh37",
+    )
+    version_str = f"%(prog)s {VERSION} (DB: {DB_VERSION})"
+
+
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=version_str,
+        help="Show program's version number and exit.",
     )
     parser.add_argument(
         "--vcf",
@@ -115,7 +126,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Enable VCF validation. Doubles run time. Might help you intentify input issues",
+        help="Enable VCF validation. Doubles run time. Might help you identify input issues",
         default=False,
     )
     parser.add_argument(
@@ -136,6 +147,8 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for RHD and RHCE. WARNING! EXPERIMENTAL! Based on SNV and small indel only (completely wrong sometimes [unless reads > 50kb and all large indels and CNVs are in your VCF])!",
         default=False,
     )
+    
+    
 
     return parser.parse_args(args)
 

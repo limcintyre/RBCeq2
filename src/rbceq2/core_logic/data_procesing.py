@@ -291,6 +291,10 @@ def ABO_phasing(
     bg: BloodGroup,
     phased: bool,
 ) -> BloodGroup:
+    # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
+    # do it at DB level #TODO look for vars that have only ever been observed in cis with
+    # ABO*O, or never been observed with it and take phasing info from there. Best 
+    # to actually phase indels though 
     """9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
     calls but aren't always assigned a phase group by phasing algos
 
@@ -359,8 +363,19 @@ def ABO_phasing(
         if not variant.startswith(("9:133257521", "9:136132908")):
             phase = bg.variant_pool_phase[variant]
             aboO_phases.add(phase)
-            
-    if len(aboO_phases) != 1:
+    # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
+    # do it at DB level #TODO look for vars that have only ever been observed in cis with
+    # ABO*O, or never been observed with it and take phasing info from there. Best 
+    # to actually phase indels though 
+    # for variant in other.difference(aboO):
+    #     if not variant.startswith(("9:133257521", "9:136132908")):
+    #         phase = bg.variant_pool_phase[variant]
+    #         aboO_phases2.add(phase)
+    #ic(aboO_phases,aboO_phases2,aboO, other, aboO.difference(other), other.difference(aboO))    
+    if len(aboO_phases) == 0:
+        return bg #can't rescue ABO 
+    if len(aboO_phases) > 1:
+        #ic(aboO_phases,aboO, other, aboO.difference(other), other.difference(aboO))    
         return bg #can't rescue ABO 
     abo_phase = aboO_phases.pop()
     not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"

@@ -17,7 +17,7 @@ from rbceq2.filters.shared_filter_functionality import (
     all_hom,
     check_var,
 )
-
+from icecream import ic
 
 def split_pair_by_ref(pair: Pair) -> tuple[Allele, Allele]:
     """Split a pair of alleles into reference and non-reference.

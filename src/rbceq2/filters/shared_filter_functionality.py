@@ -4,6 +4,7 @@ from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.utils import Zygosity
 
+from icecream import ic
 
 def flatten_alleles(pairs: list[Pair]) -> set[Allele]:
     """Flatten the pairs into a set of alleles.
@@ -30,21 +31,33 @@ def all_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
 
 def identify_unphased(bg: BloodGroup, alleles: list[Allele]) -> list[Allele]:
     ''''''
+    def get_var_phase_info(current_var):
+        return bg.variant_pool_phase[current_var], bg.variant_pool_phase_set[current_var]
+    
+    def variant_not_phased(current_phase):
+        return '/' in current_phase
+    
+    def variant_not_HET(current_var):
+        return bg.variant_pool.get(current_var) != Zygosity.HET
+    
+    
     to_remove = []
     for allele in alleles:
         allele_added = False
         for variant in allele.defining_variants:
-            if bg.variant_pool.get(variant) != Zygosity.HET:
+            if variant_not_HET(variant):
                 continue
-            phase = bg.variant_pool_phase[variant]
-            phase_set = bg.variant_pool_phase_set[variant]
+            phase, phase_set = get_var_phase_info(variant)
+            if variant_not_phased(phase):
+                continue
             for variant2 in allele.defining_variants:
                 if variant == variant2:
                     continue
-                if bg.variant_pool.get(variant2) != Zygosity.HET:
+                if variant_not_HET(variant2):
                     continue
-                phase2 = bg.variant_pool_phase[variant2]
-                phase_set2 = bg.variant_pool_phase_set[variant2]
+                phase2, phase_set2 = get_var_phase_info(variant2)
+                if variant_not_phased(phase2):
+                    continue
                 if phase_set == phase_set2 and phase != phase2:
                     to_remove.append(allele)
                     allele_added = True
