@@ -14,17 +14,21 @@
 
 ## Version v2.3.1
 
-RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotypes and phenotypes. The user docs (Word) explains how RBCeq2 constructs possible allele combinations and then filters them until only possible genotype/phenotype combinations remain. Internal to the tool, all variants are based on human genome release GRCh37 or GRCh38, and in the context of a variant ‘_ref’ means no change to the reference nucleotide for the associated position.
+RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
 
 ## Overview
 
-At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result. Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Some tools in this space employ Baysian or other likihood methods to filter results – we chose not to do that initially but might add it as an optional feature in the future. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups.
+At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result. Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups. 
 
-This initial release of RBCeq2 is focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants (i.e single nucleotide variant -SNVs/small INDEL) that can be found in standard short read or microarray derived VCFs. Further, it supports the use of long read VCFs (i.e large indels and phased data). However, these features are not as polished.
+The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). Further, it supported the use of long read derived VCFs (i.e. addition of large indels and phased data). However, these features were not as polished. This release (v2.3.1) includes major improvements to the phasing logic – see section 7 of the docs and the change log for details. 
 
 ## Bugs
 
-This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. These docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not. We will endeavor to fix any black and white bugs in less than one week. Most of these will be rare variants that are encoded wrong in our database. Further, we value any and all feedback and feature requests.
+This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened). We will endeavor to fix any black and white bugs ASAP. Most of these will be rare variants that are encoded wrong in our database. We value any and all feedback and feature requests.
+
+## Documentation
+
+Documentation can be downloaded from the release page, you will need to signed in to github to access it.
 
 ## How To
 
