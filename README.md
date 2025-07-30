@@ -1,7 +1,7 @@
 <table>
   <tr>
     <td>
-      <h1>RBCeq2</h1>
+      <h1>RBCeq2 blood group inference</h1>
     </td>
     <td align="right">
       <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
