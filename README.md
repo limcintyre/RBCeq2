@@ -1,7 +1,7 @@
 <table>
   <tr>
     <td>
-      <h1>RBCeq2 documentation</h1>
+      <h1>RBCeq2</h1>
     </td>
     <td align="right">
       <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
@@ -15,8 +15,6 @@
 ## Version v2.3.1
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
-
-## Overview
 
 At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result. Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups. 
 
@@ -39,7 +37,7 @@ pip install RBCeq2
 
 rbceq2 -h
 
-usage: py main.py --vcf example_multi_sample.vcf.gz --out example --reference_genome GRCh37
+usage: rbceq2 --vcf example_multi_sample.vcf.gz --out example --reference_genome GRCh37
 
 options:
   -h, --help            show this help message and exit

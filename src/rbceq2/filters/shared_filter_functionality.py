@@ -30,7 +30,8 @@ def all_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
 
 
 def identify_unphased(bg: BloodGroup, alleles: list[Allele]) -> list[Allele]:
-    ''''''
+    '''
+    logic to check if an alleles varaints are in phase or not'''
     def get_var_phase_info(current_var):
         return bg.variant_pool_phase[current_var], bg.variant_pool_phase_set[current_var]
     
