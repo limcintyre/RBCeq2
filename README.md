@@ -2,14 +2,15 @@
   <tr>
     <td>
       <h1>RBCeq2 documentation</h1>
-      <h2>v2.3.1</h2>
     </td>
     <td align="right">
-      <img src="images/Lifeblood-R_Primary_Keyline_RGB.png" alt="Lifeblood Logo" width="150">
+      <img src="images/Lifeblood-R_Primary_Keyline_RGB.jpg" alt="Lifeblood Logo" width="150">
     </td>
   </tr>
 </table>
 
+## Version
+v2.3.1
 
 > [!WARNING]
 > NOT FOR CLINICAL USE
