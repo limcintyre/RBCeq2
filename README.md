@@ -41,7 +41,7 @@ usage: rbceq2 --vcf example_multi_sample.vcf.gz --out example --reference_genome
 
 options:
   -h, --help            show this help message and exit
-  -v, --version         Show program's version number and exit.
+  -v, --version         Show programs version number and exit.
   --vcf VCF             Path to VCF file/s. Give a folder if you want to pass multiple separate files (file names must end in .vcf or .vcf.gz), or alternatively give a file if using a multi-sample VCF. (default: None)
   --out OUT             Prefix for output files (default: None)
   --depth DEPTH         Minimum number of reads for a variant (default: 10)

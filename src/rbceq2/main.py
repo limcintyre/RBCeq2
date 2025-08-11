@@ -141,14 +141,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
-    parser.add_argument(
-        "--RH",
-        action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! EXPERIMENTAL! Based on SNV and small indel only (completely wrong sometimes [unless reads > 50kb and all large indels and CNVs are in your VCF])!",
-        default=False,
-    )
-    
-    
+    # parser.add_argument(
+    #     "--RH",
+    #     action="store_true",
+    #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
+    #     default=False,
+    # )
 
     return parser.parse_args(args)
 
