@@ -156,9 +156,9 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", "CD99"]
-    if not args.RH:
-        exclude += ["RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
+    # if not args.RH:
+    #     exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
