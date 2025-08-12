@@ -5,10 +5,10 @@ requires = ["setuptools>=61.0"]  # Minimum version of setuptools needed
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "RBCeq2"
-version = "2.3.1"
+name = "rbceq2"
+version = "2.3.1rc1"
 description = "Call ISBT alleles from VCF/s"
-readme = "README.rst"  # <-- Use the RST file we created
+readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 authors = [
@@ -42,8 +42,6 @@ dev = [
     "coverage>=7.0",
 ]
 
-# --- Setuptools specific configuration ---
-# Corresponds to [options] and sub-sections in setup.cfg
 
 [tool.setuptools]
 include-package-data = true # Corresponds to include_package_data in [options]
@@ -52,6 +50,5 @@ include-package-data = true # Corresponds to include_package_data in [options]
 where = ["src"]  # Corresponds to package_dir = = src and where = src
 
 [tool.setuptools.package-data]
-# Corresponds to [options.package_data]
-# The key is the package name, the value is a list of glob patterns
+
 rbceq2 = ["resources/*.tsv"]
