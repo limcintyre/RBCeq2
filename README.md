@@ -26,7 +26,7 @@ This software is extensively tested and accurately reports genotypes/phenotypes 
 
 ## Documentation
 
-Documentation can be downloaded from the release page, you will need to signed in to github to access it.
+Documentation can be downloaded from the release page, you will need to be signed in to github to access it.
 
 ## How To
 
@@ -56,4 +56,4 @@ options:
   --validate            Enable VCF validation. Doubles run time. Might help you identify input issues (default: False)
   --PDFs                Generate a per sample PDF report (default: False)
   --HPAs                Generate results for HPA (default: False)
-  --RH                  Generate results for RHD and RHCE. WARNING! EXPERIMENTAL! Based on SNV and small indel
+```
