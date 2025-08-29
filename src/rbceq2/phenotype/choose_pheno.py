@@ -266,6 +266,7 @@ def add_ref_phenos(bg: BloodGroup, df: pd.DataFrame) -> BloodGroup:
     except AssertionError:
         ic(df_ref.shape, df_ref)
     bg.misc = {}
+   
     bg.misc["ref_PhenoType.alphanumeric"] = make_values_dict(
         [df_ref.iloc[0]["Phenotype_alt"]],
         PhenoType.alphanumeric,
