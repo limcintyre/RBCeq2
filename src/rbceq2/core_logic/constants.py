@@ -66,7 +66,7 @@ class BgName(Enum):
     SID = auto()
     CTL2 = auto()
     FUT1 = auto()
-    KLF1 = auto()
+    KLF = auto()
     LW = auto()
     MAM = auto()
     OK = auto()
@@ -127,8 +127,11 @@ class BgName(Enum):
 
     @classmethod
     def from_string(cls, value: str):
+        value = value.upper()
+        if 'KLF' in value:
+            value = 'KLF'
         try:
-            return cls[value.upper()]
+            return cls[value]
         except KeyError:
             raise ValueError(f"'{value}' is not a valid {cls.__name__}")
 
