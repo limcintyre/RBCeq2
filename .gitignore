@@ -67,6 +67,9 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+#Ubuntu
+.~lock.*
+
 # --- IDEs / Editors ---
 # VS Code
 .vscode/*
