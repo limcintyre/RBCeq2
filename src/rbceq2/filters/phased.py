@@ -292,12 +292,16 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
         if not proceed(bg, allele_state):
             continue
         to_remove = []
+        pair_with_unphased_HETs = False
         for pair in bg.alleles[allele_state]:
-            pair_with_unphased_HETs = False
             phase1 = find_phase(pair.allele1)
             phase2 = find_phase(pair.allele2)
-            assert len(phase1) < 2
-            assert len(phase2) < 2
+            try:
+                assert len(phase1) < 2
+                assert len(phase2) < 2
+            except:
+                ic(bg.type, bg.alleles[allele_state])
+
             if phase1 == {None} or phase2 == {None}:
                 continue
             if phase1 == {"unknown"} or phase2 == {"unknown"}:

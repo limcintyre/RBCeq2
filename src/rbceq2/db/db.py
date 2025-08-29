@@ -170,8 +170,10 @@ class Db:
         res = {}
 
         for line in self.line_generator(refs):
-            key = line.geno.split("*")[0]
-            res[key] = Allele(
+            bg_key = line.geno.split("*")[0]
+            if 'KLF' in bg_key:
+                bg_key = 'KLF'
+            res[bg_key] = Allele(
                 genotype=line.geno,
                 phenotype=line.pheno,
                 genotype_alt=line.geno_alt,
@@ -302,6 +304,7 @@ def prepare_db() -> pd.DataFrame:
 
     logger.debug(f"Final DataFrame shape after processing: {df.shape}")
     logger.info("Database preparation completed.")
+    df.loc[df['type'] == 'KLF1', 'type'] = 'KLF'
     return df
 
 
