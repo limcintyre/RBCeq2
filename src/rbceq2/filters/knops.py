@@ -703,7 +703,6 @@ def remove_unphased_co(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     if not phased or bg.type != "KN":
         return bg
-        
     co_alleles = bg.alleles[AlleleState.CO]
     if co_alleles is None:
         return bg
