@@ -278,7 +278,8 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
     """
     # If an allele is HOM and it's 'in' every other properly phased allele
     # AND the there's at least 1 of those on each side, it can't exist
-    def find_phase(allele):
+    def find_phase(allele: Allele) -> set[str | None]:
+        '''find phase'''
         return set(
                 [
                     bg.variant_pool_phase.get(variant)
@@ -286,14 +287,25 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                     if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", '1/0']
                 ]
             )
+    def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
+        """check if alleles phase sets are the same, if not can't be phased"""
+        phase_sets = [phase_dict.get(variant, 'None') for variant in allele.defining_variants]
+        return len([phase_set for phase_set in phase_sets if phase_set.isdigit()]) == 1
+
+
     if not phased:
         return bg
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
         to_remove = []
+        pair_with_unphased_HETs = False
         for pair in bg.alleles[allele_state]:
-            pair_with_unphased_HETs = False
+            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
+                continue #TODO - next refactor this type of functionality 
+            # should move into a new PhasedAllele class
+            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
+                continue
             phase1 = find_phase(pair.allele1)
             phase2 = find_phase(pair.allele2)
             assert len(phase1) < 2
