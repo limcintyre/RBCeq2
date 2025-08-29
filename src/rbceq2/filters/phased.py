@@ -300,7 +300,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                 assert len(phase1) < 2
                 assert len(phase2) < 2
             except:
-                ic(bg.type, bg.alleles[allele_state])
+                ic(bg.type, pair, phase1, phase2)
 
             if phase1 == {None} or phase2 == {None}:
                 continue
