@@ -185,7 +185,7 @@ class Allele:
             else self.genotype_alt.split("*")[0]
         )
         if 'KLF' in bg.upper():
-            bg = 'KLF'
+            bg = 'KLF' #most are KLF1, but need to all be the same
         return bg
 
 
