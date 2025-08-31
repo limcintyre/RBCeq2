@@ -290,7 +290,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
     def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
         """check if alleles phase sets are the same, if not can't be phased"""
         phase_sets = [phase_dict.get(variant, 'None') for variant in allele.defining_variants]
-        return len([phase_set for phase_set in phase_sets if phase_set.isdigit()]) == 1
+        return len(set([phase_set for phase_set in phase_sets if phase_set.isdigit()])) == 1
 
 
     if not phased:

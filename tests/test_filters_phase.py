@@ -124,6 +124,7 @@ class TestFilterOnInRelationshipIfHET(TestPhasedFilters):
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove, pair_to_keep]
         self.mock_bg.variant_pool = {"hom1": Zygosity.HOM, "het1": Zygosity.HET, "het2": Zygosity.HET, "het3": Zygosity.HET}
         self.mock_bg.variant_pool_phase = {"hom1": "1/1", "het1": "1|0", "het2": "1|0", "het3": "0|1"}
+        self.mock_bg.variant_pool_phase_set = {"hom1": "1", "het1": "", "het2": "1", "het3": "1"}
         filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased({1: self.mock_bg}, phased=True)
         self.assertIn(pair_to_remove, self.mock_bg.filtered_out["filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased"])
         self.assertNotIn(pair_to_remove, self.mock_bg.alleles[AlleleState.NORMAL])
