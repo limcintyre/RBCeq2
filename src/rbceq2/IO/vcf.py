@@ -184,7 +184,6 @@ class VCF:
         new_lanes = {}
 
         for chrom, loci in self.lane_variants.items():
-            # assert 'CHR' not in chrom.upper() #del after a few months of use TODO
             chrom = chrom.replace("chr", "")
             for pos in loci:
                 # TODO blindly adding is problematic,  what if there's just no read
@@ -196,12 +195,14 @@ class VCF:
                         .values[0]
                         .split(":")[0]
                     )
-                    assert GT.count("/") == 1 or GT.count("|") == 1
-                    assert (
-                        "2" not in GT
-                    )  # these 2 asserts are designed to find examples so I can sort
-                    # complex/multi var
-                    if GT.startswith(("0/1", "0|1", "1/0", "1|0")):
+                    try:
+                        assert GT.count("/") == 1 or GT.count("|") == 1
+                        assert ("2" not in GT)
+                    except:
+                        print('multi allele loci are not supported, please use bcftools norm -m -both ...')
+                        raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s')
+                    if GT.startswith(("0/1", "0|1", "1/0", "1|0")) and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1:
+                        #HET and not multi allelic = ref
                         self.df.loc[self.df.loci == lane_loci, "variant"] = (
                             self.df.loc[self.df.loci == lane_loci, "variant"].values[0]
                             + f",{lane_loci}_ref"
