@@ -198,7 +198,7 @@ class VCF:
                     try:
                         assert GT.count("/") == 1 or GT.count("|") == 1
                         assert ("2" not in GT)
-                    except:
+                    except AssertionError:
                         print('multi allele loci are not supported, please use bcftools norm -m -both ...')
                         raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s')
                     if GT.startswith(("0/1", "0|1", "1/0", "1|0")) and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1:
