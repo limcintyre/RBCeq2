@@ -848,7 +848,10 @@ class NoHomMultiVariantStrategy:
         ref_allele = reference_alleles[
             bg.type
         ]  # TODO - this is putting refs back in that have already been discarded as impossible
+
         ref_options = self.non_ref_options + [ref_allele]
+        # if bg.type == 'ABCC4':
+        #     ic(self.non_ref_options, ref_options, bg.variant_pool_phase, bg.variant_pool_phase_set)
         return combine_all(ref_options, bg.variant_pool_numeric)
 
 
@@ -884,13 +887,15 @@ def process_genetic_data(
     Raises:
         ValueError: When constraints in the multiple-variant scenario are violated.
     """
-
+    if bg.type == 'ABCC4':
+        ic(1111,bg.alleles)
     strategy: GeneticProcessingProtocol = _pick_strategy(
         bg
     )  # Returns a Protocol implementer
     normal_pairs = strategy.process(bg, reference_alleles)
     bg.alleles[AlleleState.NORMAL] = normal_pairs
-    
+    if bg.type == 'ABCC4':
+        ic(2222,bg.alleles)
     return bg
 
 
