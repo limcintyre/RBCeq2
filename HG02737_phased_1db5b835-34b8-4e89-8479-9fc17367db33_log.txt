@@ -1,0 +1,1609 @@
+2025-09-09 06:12:12.040 | INFO     | ==================== SESSION START ====================
+2025-09-09 06:12:12.040 | INFO     | NOT FOR CLINICAL USE
+2025-09-09 06:12:12.040 | INFO     | RBCeq2 Version: 2.3.3
+2025-09-09 06:12:12.040 | INFO     | RBCeq2 database Version: 2.3.1
+2025-09-09 06:12:12.040 | INFO     | Session UUID: 1db5b835-34b8-4e89-8479-9fc17367db33
+2025-09-09 06:12:12.040 | INFO     | Command-line arguments provided:
+2025-09-09 06:12:12.040 | INFO     |   vcf              : /media/liam/linux_data/1kg/clair3/phased_merge_output_vcfs/norm/HG02737.vcf.gz
+2025-09-09 06:12:12.040 | INFO     |   out              : /home/liam/code/RBCeq2/HG02737_phased
+2025-09-09 06:12:12.040 | INFO     |   depth            : 10
+2025-09-09 06:12:12.040 | INFO     |   quality          : 10
+2025-09-09 06:12:12.040 | INFO     |   processes        : 15
+2025-09-09 06:12:12.040 | INFO     |   reference_genome : GRCh38
+2025-09-09 06:12:12.040 | INFO     |   phased           : True
+2025-09-09 06:12:12.040 | INFO     |   microarray       : False
+2025-09-09 06:12:12.040 | INFO     |   debug            : True
+2025-09-09 06:12:12.040 | INFO     |   validate         : False
+2025-09-09 06:12:12.040 | INFO     |   PDFs             : False
+2025-09-09 06:12:12.040 | INFO     |   HPAs             : False
+2025-09-09 06:12:12.040 | INFO     | ==================== LOGGING STARTED ====================
+2025-09-09 06:12:12.040 | DEBUG    | Logger configured for debug mode.
+2025-09-09 06:12:12.040 | INFO     | Application started.
+2025-09-09 06:12:12.040 | INFO     | Preparing database DataFrame...
+2025-09-09 06:12:12.040 | INFO     | Attempting to load database content...
+2025-09-09 06:12:12.041 | DEBUG    | Attempting to load db from resource path: /home/liam/miniconda3/envs/sniffles2/lib/python3.12/site-packages/rbceq2/resources/db.tsv
+2025-09-09 06:12:12.042 | INFO     | Database content loaded successfully.
+2025-09-09 06:12:12.042 | INFO     | Preparing database from loaded content...
+2025-09-09 06:12:12.050 | DEBUG    | Initial DataFrame shape: (2011, 19)
+2025-09-09 06:12:12.054 | DEBUG    | Final DataFrame shape after processing: (2011, 20)
+2025-09-09 06:12:12.054 | INFO     | Database preparation completed.
+2025-09-09 06:12:12.054 | INFO     | Database DataFrame prepared.
+2025-09-09 06:12:12.055 | INFO     | Running database data consistency checks...
+2025-09-09 06:12:12.055 | DEBUG    | Checking GRCh37/38 defining variant counts...
+2025-09-09 06:12:12.081 | DEBUG    | GRCh37/38 defining variant count check passed.
+2025-09-09 06:12:12.081 | DEBUG    | Checking antigen consistency for Phenotype_change / Phenotype_alt_change...
+2025-09-09 06:12:12.105 | DEBUG    | Phenotype_change / Phenotype_alt_change antigen consistency check passed.
+2025-09-09 06:12:12.105 | DEBUG    | Checking antigen consistency for Phenotype / Phenotype_alt...
+2025-09-09 06:12:12.107 | DEBUG    | Phenotype / Phenotype_alt antigen consistency check passed.
+2025-09-09 06:12:12.107 | INFO     | All database data consistency checks passed successfully.
+2025-09-09 06:12:12.107 | INFO     | Consistency checks passed. Initializing Db object...
+2025-09-09 06:12:12.108 | INFO     | Antithetical relationships generated: 104 entries.
+2025-09-09 06:12:12.111 | INFO     | Lane positions generated: 16 entries.
+2025-09-09 06:12:12.112 | INFO     | Reference alleles generated: 87 entries.
+2025-09-09 06:12:12.112 | INFO     | Db object initialized.
+2025-09-09 06:12:12.177 | INFO     | 1 single sample VCF passed
+2025-09-09 06:12:12.362 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: KN, variant/s: 1:207609571_A_T:4.0
+2025-09-09 06:12:12.363 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: VEL, variant/s: 1:3774964_A_G:9.0
+2025-09-09 06:12:12.363 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: ABO, variant/s: 9:133257521_T_TC:4.0,9:133257521_ref:4.0
+2025-09-09 06:12:12.417 | DEBUG    | Sample: HG02737.vcf BG Name: CROM
+
+#Results:
+Genotypes count: 1
+Genotypes: CROM*01/CROM*01
+Phenotypes (numeric): CROM:1
+Phenotypes (alphanumeric): Cr(a+)
+
+#Data:
+Vars: 
+1:207331122_ref : Homozygous
+Vars_phase: 
+1:207331122_ref : 1/1
+Vars_phase_set: 
+1:207331122_ref : .
+Raw: 
+Allele 
+ genotype: CROM*01 
+ defining_variants: 
+		1:207331122_ref 
+ weight_geno: 1000 
+ phenotype: CROM:1 or Cr(a+) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.417 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.417 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.417 | DEBUG    | Sample: HG02737.vcf BG Name: FY
+
+#Results:
+Genotypes count: 1
+Genotypes: FY*01/FY*01
+Phenotypes (numeric): FY:1,-2
+Phenotypes (alphanumeric): Fy(a+b-)
+
+#Data:
+Vars: 
+1:159205564_ref : Homozygous
+Vars_phase: 
+1:159205564_ref : 1/1
+Vars_phase_set: 
+1:159205564_ref : .
+Raw: 
+Allele 
+ genotype: FY*01 
+ defining_variants: 
+		1:159205564_ref 
+ weight_geno: 1000 
+ phenotype: FY:1,-2 or Fy(a+),Fy(b-) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.417 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.417 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.417 | DEBUG    | Sample: HG02737.vcf BG Name: KN
+
+#Results:
+Genotypes count: 3
+Genotypes: KN*01.-05/KN*01.10+KN*01.12+KN*01W
+KN*01/KN*01.10+KN*01.12+KN*01W
+KN*01/KN*01.-05
+Phenotypes (numeric): KN:1,-2,3,4,5,-6,-7,8,9,-10,11,-12,13
+KN:1,-2,3,4,5,-6,-7,8,9,10,11,12,13
+Phenotypes (alphanumeric): Kn(a+b-),McC(a+b-),Sl1+,Yk(a+),Vil-,Sl3+,KCAM+,KDAS+,DACY+,YCAD+,KNMB+
+Kn(a+b-),McC(a+b-),Sl1+,Yk(a+),Vil-,Sl3+,KCAM+,KDAS-,DACY+,YCAD-,KNMB+
+
+#Data:
+Vars: 
+1:207587428_C_T : Heterozygous
+1:207609586_A_G : Heterozygous
+1:207521012_T_C : Heterozygous
+1:207580276_A_G : Heterozygous
+Vars_phase: 
+1:207587428_C_T : 1|0
+1:207609586_A_G : 0|1
+1:207521012_T_C : 0|1
+1:207580276_A_G : 0|1
+Vars_phase_set: 
+1:207587428_C_T : 207447607
+1:207609586_A_G : 207447607
+1:207521012_T_C : 207447607
+1:207580276_A_G : 207447607
+Raw: 
+Allele 
+ genotype: KN*01 
+ defining_variants: 
+		1:207609424_ref
+		1:207609571_A_T 
+ weight_geno: 1000 
+ phenotype: KN:1,-2 or Kn(a+),Kn(b-) 
+ reference: True 
+
+Allele 
+ genotype: KN*01.-05 
+ defining_variants: 
+		1:207587428_C_T 
+ weight_geno: 1000 
+ phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-) 
+ reference: False 
+
+Allele 
+ genotype: KN*01.10 
+ defining_variants: 
+		1:207609586_A_G 
+ weight_geno: 1000 
+ phenotype: KN:1,-2,-9,10 or Kn(a+),Kn(b-),KCAM-,KDAS+ 
+ reference: False 
+
+Allele 
+ genotype: KN*01W 
+ defining_variants: 
+		1:207521012_T_C 
+ weight_geno: 1000 
+ phenotype: KN:1w,-2 or Kn(a+w),Kn(b-) 
+ reference: False 
+
+Allele 
+ genotype: KN*01.12 
+ defining_variants: 
+		1:207580276_A_G 
+ weight_geno: 1000 
+ phenotype: KN:1,-2,-11,12 or Kn(a+),Kn(b-),DACY-,YCAD+ 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.417 | DEBUG    | 
+insufficient_min_base_quality: 1:207609571_A_T:4.0
+
+2025-09-09 06:12:12.417 | DEBUG    | 
+filter_pairs_by_phase: Pair(Genotype: KN*01.10/KN*01W Phenotype: numeric KN:1,-2,-9,10/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-),KCAM-,KDAS+/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.10/KN*01.12 Phenotype: numeric KN:1,-2,-9,10/KN:1,-2,-11,12 alphanumeric: Kn(a+),Kn(b-),KCAM-,KDAS+/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.12/KN*01W Phenotype: numeric KN:1,-2,-11,12/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-),DACY-,YCAD+/Kn(a+w),Kn(b-)) #
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+co_existing: Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.10+KN*01.12+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.12 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.10+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12+KN*01W/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.12+KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.-05 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.-05 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.10 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.10 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12/KN*01.12+KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12/KN*01.12 Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01.12 Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12+KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.-05/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.10/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01.12/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01W/KN*01W Phenotype: numeric numeric/numeric alphanumeric: alpha/alpha) #
+Pair(Genotype: KN*01/KN*01W Phenotype: numeric KN:1,-2/numeric alphanumeric: Kn(a+),Kn(b-)/alpha) #
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+remove_unphased_co: Pair(Genotype: KN*01.-05+KN*01.10+KN*01.12/KN*01W Phenotype: numeric KN:1,10,-11,12,-2,-5,-9/KN:1w,-2 alphanumeric: DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+,Yk(a-)/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.-05+KN*01.10+KN*01W/KN*01.12 Phenotype: numeric KN:1,10,-2,-5,-9/KN:1,-2,-11,12 alphanumeric: KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.-05+KN*01.12+KN*01W/KN*01.10 Phenotype: numeric KN:1,-11,12,-2,-5/KN:1,-2,-9,10 alphanumeric: DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)/Kn(a+),Kn(b-),KCAM-,KDAS+) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12+KN*01W Phenotype: numeric KN:1,10,-2,-5,-9/KN:1,-11,12,-2 alphanumeric: KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)/DACY-,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01.12 Phenotype: numeric KN:1,10,-2,-5,-9/KN:1,-2,-11,12 alphanumeric: KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.-05+KN*01.10/KN*01W Phenotype: numeric KN:1,10,-2,-5,-9/KN:1w,-2 alphanumeric: KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10+KN*01W Phenotype: numeric KN:1,-11,12,-2,-5/KN:1,10,-2,-9 alphanumeric: DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)/KCAM-,KDAS+,Kn(a+),Kn(b-)) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01.10 Phenotype: numeric KN:1,-11,12,-2,-5/KN:1,-2,-9,10 alphanumeric: DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)/Kn(a+),Kn(b-),KCAM-,KDAS+) #
+Pair(Genotype: KN*01.-05+KN*01.12/KN*01W Phenotype: numeric KN:1,-11,12,-2,-5/KN:1w,-2 alphanumeric: DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2,-5/KN:1,10,-11,12,-2,-9 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.10 Phenotype: numeric KN:1,-2,-5/KN:1,-2,-9,10 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),KCAM-,KDAS+) #
+Pair(Genotype: KN*01.-05+KN*01W/KN*01.12 Phenotype: numeric KN:1,-2,-5/KN:1,-2,-11,12 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01.12+KN*01W Phenotype: numeric KN:1,-2/KN:1,10,-11,12,-2,-5,-9 alphanumeric: Kn(a+),Kn(b-)/DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+,Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2/KN:1,10,-11,12,-2,-5,-9 alphanumeric: Kn(a+),Kn(b-)/DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+,Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10+KN*01W Phenotype: numeric KN:1,-2/KN:1,10,-2,-5,-9 alphanumeric: Kn(a+),Kn(b-)/KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.12+KN*01W Phenotype: numeric KN:1,-2/KN:1,-11,12,-2,-5 alphanumeric: Kn(a+),Kn(b-)/DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.10 Phenotype: numeric KN:1,-2/KN:1,10,-2,-5,-9 alphanumeric: Kn(a+),Kn(b-)/KCAM-,KDAS+,Kn(a+),Kn(b-),Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01.12 Phenotype: numeric KN:1,-2/KN:1,-11,12,-2,-5 alphanumeric: Kn(a+),Kn(b-)/DACY-,Kn(a+),Kn(b-),YCAD+,Yk(a-)) #
+Pair(Genotype: KN*01/KN*01.-05+KN*01W Phenotype: numeric KN:1,-2/KN:1,-2,-5 alphanumeric: Kn(a+),Kn(b-)/Kn(a+),Kn(b-),Yk(a-)) #
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+filter_impossible_alleles_phased: Pair(Genotype: KN*01.-05/KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2,-5/KN:1,10,-11,12,-2,-9 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01.10+KN*01.12/KN*01W Phenotype: numeric KN:1,10,-11,12,-2,-9/KN:1w,-2 alphanumeric: DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.-05/KN*01.10+KN*01W Phenotype: numeric KN:1,-2,-5/KN:1,10,-2,-9 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/KCAM-,KDAS+,Kn(a+),Kn(b-)) #
+Pair(Genotype: KN*01.10+KN*01W/KN*01.12 Phenotype: numeric KN:1,10,-2,-9/KN:1,-2,-11,12 alphanumeric: KCAM-,KDAS+,Kn(a+),Kn(b-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.-05/KN*01.12+KN*01W Phenotype: numeric KN:1,-2,-5/KN:1,-11,12,-2 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/DACY-,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01.10/KN*01.12+KN*01W Phenotype: numeric KN:1,-2,-9,10/KN:1,-11,12,-2 alphanumeric: Kn(a+),Kn(b-),KCAM-,KDAS+/DACY-,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01.-05/KN*01.10 Phenotype: numeric KN:1,-2,-5/KN:1,-2,-9,10 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),KCAM-,KDAS+) #
+Pair(Genotype: KN*01.-05/KN*01.12 Phenotype: numeric KN:1,-2,-5/KN:1,-2,-11,12 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.-05/KN*01W Phenotype: numeric KN:1,-2,-5/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-),Yk(a-)/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.10/KN*01.12 Phenotype: numeric KN:1,-2,-9,10/KN:1,-2,-11,12 alphanumeric: Kn(a+),Kn(b-),KCAM-,KDAS+/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01.10/KN*01W Phenotype: numeric KN:1,-2,-9,10/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-),KCAM-,KDAS+/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01.12/KN*01W Phenotype: numeric KN:1,-2,-11,12/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-),DACY-,YCAD+/Kn(a+w),Kn(b-)) #
+Pair(Genotype: KN*01/KN*01.10+KN*01.12 Phenotype: numeric KN:1,-2/KN:1,10,-11,12,-2,-9 alphanumeric: Kn(a+),Kn(b-)/DACY-,KCAM-,KDAS+,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01/KN*01.10+KN*01W Phenotype: numeric KN:1,-2/KN:1,10,-2,-9 alphanumeric: Kn(a+),Kn(b-)/KCAM-,KDAS+,Kn(a+),Kn(b-)) #
+Pair(Genotype: KN*01/KN*01.12+KN*01W Phenotype: numeric KN:1,-2/KN:1,-11,12,-2 alphanumeric: Kn(a+),Kn(b-)/DACY-,Kn(a+),Kn(b-),YCAD+) #
+Pair(Genotype: KN*01/KN*01.10 Phenotype: numeric KN:1,-2/KN:1,-2,-9,10 alphanumeric: Kn(a+),Kn(b-)/Kn(a+),Kn(b-),KCAM-,KDAS+) #
+Pair(Genotype: KN*01/KN*01.12 Phenotype: numeric KN:1,-2/KN:1,-2,-11,12 alphanumeric: Kn(a+),Kn(b-)/Kn(a+),Kn(b-),DACY-,YCAD+) #
+Pair(Genotype: KN*01/KN*01W Phenotype: numeric KN:1,-2/KN:1w,-2 alphanumeric: Kn(a+),Kn(b-)/Kn(a+w),Kn(b-)) #
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: SC
+
+#Results:
+Genotypes count: 1
+Genotypes: SC*01/SC*01
+Phenotypes (numeric): SC:1,-2
+Phenotypes (alphanumeric): Sc1+,Sc2-
+
+#Data:
+Vars: 
+1:42830851_ref : Homozygous
+Vars_phase: 
+1:42830851_ref : 1/1
+Vars_phase_set: 
+1:42830851_ref : .
+Raw: 
+Allele 
+ genotype: SC*01 
+ defining_variants: 
+		1:42830851_ref 
+ weight_geno: 1000 
+ phenotype: SC:1,-2 or Sc1+,Sc2- 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: VEL
+
+#Results:
+Genotypes count: 1
+Genotypes: VEL*01/VEL*01
+Phenotypes (numeric): VEL:1
+Phenotypes (alphanumeric): Vel+
+
+#Data:
+Vars: 
+
+Vars_phase: 
+
+Vars_phase_set: 
+
+Raw: 
+Allele 
+ genotype: VEL*01.01 
+ defining_variants: 
+		1:3774964_A_G 
+ weight_geno: 1000 
+ phenotype: VEL:1s or Vel+strong 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+insufficient_min_base_quality: 1:3774964_A_G:9.0
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: IN
+
+#Results:
+Genotypes count: 1
+Genotypes: IN*02/IN*02
+Phenotypes (numeric): IN:-1,2
+Phenotypes (alphanumeric): In(a-b+)
+
+#Data:
+Vars: 
+11:35176644_ref : Homozygous
+Vars_phase: 
+11:35176644_ref : 1/1
+Vars_phase_set: 
+11:35176644_ref : .
+Raw: 
+Allele 
+ genotype: IN*02 
+ defining_variants: 
+		11:35176644_ref 
+ weight_geno: 1000 
+ phenotype: IN:-1,2 or In(a-),In(b+) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: DO
+
+#Results:
+Genotypes count: 1
+Genotypes: DO*01/DO*02
+Phenotypes (numeric): DO:1,2
+Phenotypes (alphanumeric): Do(a+b+)
+
+#Data:
+Vars: 
+12:14840505_C_T : Heterozygous
+12:14840505_ref : Heterozygous
+Vars_phase: 
+12:14840505_C_T : 0|1
+12:14840505_ref : 1|0
+Vars_phase_set: 
+12:14840505_C_T : 14777906
+12:14840505_ref : 14777906
+Raw: 
+Allele 
+ genotype: DO*01 
+ defining_variants: 
+		12:14840505_C_T 
+ weight_geno: 1000 
+ phenotype: DO:1,-2 or Do(a+),Do(b-) 
+ reference: False 
+
+Allele 
+ genotype: DO*02 
+ defining_variants: 
+		12:14840505_ref 
+ weight_geno: 1000 
+ phenotype: DO:-1,2 or Do(a-),Do(b+) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: ABCC4
+
+#Results:
+Genotypes count: 3
+Genotypes: ABCC4*01.02W/ABCC4*01.03W
+ABCC4*01/ABCC4*01.02W
+ABCC4*01/ABCC4*01.03W
+Phenotypes (numeric): PEL:1
+PEL:1w
+Phenotypes (alphanumeric): PEL+
+PEL+w
+
+#Data:
+Vars: 
+13:95206781_C_A : Heterozygous
+13:95163161_C_T : Heterozygous
+Vars_phase: 
+13:95206781_C_A : 1|0
+13:95163161_C_T : 0|1
+Vars_phase_set: 
+13:95206781_C_A : 94972116
+13:95163161_C_T : 94972116
+Raw: 
+Allele 
+ genotype: ABCC4*01.02W 
+ defining_variants: 
+		13:95206781_C_A 
+ weight_geno: 1000 
+ phenotype: PEL:1w or PEL+w 
+ reference: False 
+
+Allele 
+ genotype: ABCC4*01.03W 
+ defining_variants: 
+		13:95163161_C_T 
+ weight_geno: 1000 
+ phenotype: PEL:1w or PEL+w 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: ER
+
+#Results:
+Genotypes count: 1
+Genotypes: ER*01/ER*01
+Phenotypes (numeric): ER:1,-2
+Phenotypes (alphanumeric): Er(a+b-)
+
+#Data:
+Vars: 
+16:88716069_ref : Homozygous
+Vars_phase: 
+16:88716069_ref : 1/1
+Vars_phase_set: 
+16:88716069_ref : .
+Raw: 
+Allele 
+ genotype: ER*01 
+ defining_variants: 
+		16:88716069_ref 
+ weight_geno: 1000 
+ phenotype: ER:1,-2 or Er(a+),Er(b-) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: DI
+
+#Results:
+Genotypes count: 1
+Genotypes: DI*02/DI*02
+Phenotypes (numeric): DI:-1,2
+Phenotypes (alphanumeric): Di(a-b+)
+
+#Data:
+Vars: 
+17:44251253_ref : Homozygous
+Vars_phase: 
+17:44251253_ref : 1/1
+Vars_phase_set: 
+17:44251253_ref : .
+Raw: 
+Allele 
+ genotype: DI*02 
+ defining_variants: 
+		17:44251253_ref 
+ weight_geno: 1000 
+ phenotype: DI:-1,2 or Di(a-),Di(b+) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: SID
+
+#Results:
+Genotypes count: 1
+Genotypes: SID*01/SID*01N.01
+Phenotypes (numeric): SID:1
+Phenotypes (alphanumeric): Sd(a+)
+
+#Data:
+Vars: 
+17:49168801_T_C : Heterozygous
+Vars_phase: 
+17:49168801_T_C : 0|1
+Vars_phase_set: 
+17:49168801_T_C : 49084290
+Raw: 
+Allele 
+ genotype: SID*01N.01 
+ defining_variants: 
+		17:49168801_T_C 
+ weight_geno: 1 
+ phenotype: SID:-1 or Sd(a-) 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.418 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.418 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.418 | DEBUG    | Sample: HG02737.vcf BG Name: JK
+
+#Results:
+Genotypes count: 1
+Genotypes: JK*01/JK*01
+Phenotypes (numeric): JK:1,-2
+Phenotypes (alphanumeric): Jk(a+b-)
+
+#Data:
+Vars: 
+18:45739554_ref : Homozygous
+Vars_phase: 
+18:45739554_ref : 1/1
+Vars_phase_set: 
+18:45739554_ref : .
+Raw: 
+Allele 
+ genotype: JK*01 
+ defining_variants: 
+		18:45739554_ref 
+ weight_geno: 1000 
+ phenotype: JK:1,-2 or Jk(a+),Jk(b-) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: CTL2
+
+#Results:
+Genotypes count: 1
+Genotypes: CTL2*01/CTL2*01.04
+Phenotypes (numeric): CTL2:1,2,3,4
+Phenotypes (alphanumeric): Cs(a+b+),VER+,RIF+
+
+#Data:
+Vars: 
+19:10631494_ref : Heterozygous
+Vars_phase: 
+19:10631494_ref : 1|0
+Vars_phase_set: 
+19:10631494_ref : 10575932
+Raw: 
+Allele 
+ genotype: CTL2*01.04 
+ defining_variants: 
+		19:10631494_ref 
+ weight_geno: 1000 
+ phenotype: CTL2:-3,4 or Cs(a-),Cs(b+) 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: FUT2
+
+#Results:
+Genotypes count: 3
+Genotypes: FUT2*01N.02/FUT2*01N.15
+FUT2*01/FUT2*01N.02
+FUT1*01/FUT1*01
+Phenotypes (numeric): 
+Phenotypes (alphanumeric): Se+
+Se-
+
+#Data:
+Vars: 
+19:48703417_G_A : Heterozygous
+19:48703291_C_T : Heterozygous
+19:48703728_G_A : Heterozygous
+Vars_phase: 
+19:48703417_G_A : 1|0
+19:48703291_C_T : 0|1
+19:48703728_G_A : 1|0
+Vars_phase_set: 
+19:48703417_G_A : 48646021
+19:48703291_C_T : 48646021
+19:48703728_G_A : 48646021
+Raw: 
+Allele 
+ genotype: FUT2*01N.02 
+ defining_variants: 
+		19:48703417_G_A 
+ weight_geno: 1 
+ phenotype: . or Se- 
+ reference: False 
+
+Allele 
+ genotype: FUT2*01N.15 
+ defining_variants: 
+		19:48703291_C_T 
+ weight_geno: 8 
+ phenotype: . or Se- 
+ reference: False 
+
+Allele 
+ genotype: FUT2*01N.16 
+ defining_variants: 
+		19:48703728_G_A 
+ weight_geno: 8 
+ phenotype: . or Se- 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+filter_pairs_by_phase: Pair(Genotype: FUT2*01N.02/FUT2*01N.16 Phenotype: numeric ./. alphanumeric: Se-/Se-) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+cant_pair_with_ref_cuz_trumped: Pair(Genotype: FUT2*01/FUT2*01N.15 Phenotype: numeric ./. alphanumeric: Se+/Se-) #
+Pair(Genotype: FUT2*01/FUT2*01N.16 Phenotype: numeric ./. alphanumeric: Se+/Se-) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+filter_HET_pairs_by_weight: Pair(Genotype: FUT2*01N.15/FUT2*01N.16 Phenotype: numeric ./. alphanumeric: Se-/Se-) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: KLF
+
+#Results:
+Genotypes count: 1
+Genotypes: KLF1*01/KLF1*BGM12
+Phenotypes (numeric): 
+Phenotypes (alphanumeric): Common
+
+#Data:
+Vars: 
+19:12885926_A_G : Heterozygous
+Vars_phase: 
+19:12885926_A_G : 1|0
+Vars_phase_set: 
+19:12885926_A_G : 12834584
+Raw: 
+Allele 
+ genotype: KLF1*BGM12 
+ defining_variants: 
+		19:12885926_A_G 
+ weight_geno: 1000 
+ phenotype: . or Common 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: LU
+
+#Results:
+Genotypes count: 1
+Genotypes: LU*02/LU*02.19
+Phenotypes (numeric): LU:-1,2,18,19
+Phenotypes (alphanumeric): Lu(a-b+),Au(a+b+)
+
+#Data:
+Vars: 
+19:44812188_ref : Homozygous
+19:44819487_A_G : Heterozygous
+Vars_phase: 
+19:44812188_ref : 1/1
+19:44819487_A_G : 0|1
+Vars_phase_set: 
+19:44812188_ref : .
+19:44819487_A_G : 44759585
+Raw: 
+Allele 
+ genotype: LU*02 
+ defining_variants: 
+		19:44812188_ref 
+ weight_geno: 1000 
+ phenotype: LU:-1,2 or Lu(a-),Lu(b+) 
+ reference: True 
+
+Allele 
+ genotype: LU*02.19 
+ defining_variants: 
+		19:44819487_A_G
+		19:44812188_ref 
+ weight_geno: 1000 
+ phenotype: LU:-1,2,-18,19 or Lu(a-),Lu(b+),Au(a-),Au(b+) 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: LW
+
+#Results:
+Genotypes count: 1
+Genotypes: LW*05/LW*05
+Phenotypes (numeric): LW:5,-7
+Phenotypes (alphanumeric): LWa+,LWb-
+
+#Data:
+Vars: 
+19:10287311_ref : Homozygous
+Vars_phase: 
+19:10287311_ref : 1/1
+Vars_phase_set: 
+19:10287311_ref : .
+Raw: 
+Allele 
+ genotype: LW*05 
+ defining_variants: 
+		19:10287311_ref 
+ weight_geno: 1000 
+ phenotype: LW:5,-7 or LWa+,LWb- 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: A4GALT
+
+#Results:
+Genotypes count: 1
+Genotypes: A4GALT*01/A4GALT*02
+Phenotypes (numeric): 
+Phenotypes (alphanumeric): P1+,Pk+
+
+#Data:
+Vars: 
+22:42717787_ref : Heterozygous
+22:42717787_C_A : Heterozygous
+Vars_phase: 
+22:42717787_ref : 0|1
+22:42717787_C_A : 1|0
+Vars_phase_set: 
+22:42717787_ref : 42642231
+22:42717787_C_A : 42642231
+Raw: 
+Allele 
+ genotype: A4GALT*01 
+ defining_variants: 
+		22:42717787_ref 
+ weight_geno: 1000 
+ phenotype: . or P1+,Pk+ 
+ reference: True 
+
+Allele 
+ genotype: A4GALT*02 
+ defining_variants: 
+		22:42717787_C_A 
+ weight_geno: 1000 
+ phenotype: . or P1-,Pk+ 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: GLOB
+
+#Results:
+Genotypes count: 1
+Genotypes: GLOB*01/GLOB*01
+Phenotypes (numeric): GLOB:1
+Phenotypes (alphanumeric): P+
+
+#Data:
+Vars: 
+3:161086379_ref : Homozygous
+Vars_phase: 
+3:161086379_ref : 1/1
+Vars_phase_set: 
+3:161086379_ref : .
+Raw: 
+Allele 
+ genotype: GLOB*01 
+ defining_variants: 
+		3:161086379_ref 
+ weight_geno: 1000 
+ phenotype: GLOB:1 or P+ 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: AUG
+
+#Results:
+Genotypes count: 1
+Genotypes: AUG*01/AUG*01
+Phenotypes (numeric): AUG:1,2,-3,4
+Phenotypes (alphanumeric): AUG1+,At(a+),ATML-,ATAM+
+
+#Data:
+Vars: 
+6:44232918_ref : Homozygous
+Vars_phase: 
+6:44232918_ref : 1/1
+Vars_phase_set: 
+6:44232918_ref : .
+Raw: 
+Allele 
+ genotype: AUG*01 
+ defining_variants: 
+		6:44232918_ref 
+ weight_geno: 1000 
+ phenotype: AUG:1,2,-3,4 or AUG1+,At(a+),ATML-,ATAM+ 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: CO
+
+#Results:
+Genotypes count: 1
+Genotypes: CO*01.01/CO*01.01
+Phenotypes (numeric): CO:1,-2
+Phenotypes (alphanumeric): Co(a+b-)
+
+#Data:
+Vars: 
+7:30912043_ref : Homozygous
+Vars_phase: 
+7:30912043_ref : 1/1
+Vars_phase_set: 
+7:30912043_ref : .
+Raw: 
+Allele 
+ genotype: CO*01.01 
+ defining_variants: 
+		7:30912043_ref 
+ weight_geno: 1000 
+ phenotype: CO:1,-2 or Co(a+),Co(b-) 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: KEL
+
+#Results:
+Genotypes count: 1
+Genotypes: KEL*02/KEL*02
+Phenotypes (numeric): KEL:-1,2
+Phenotypes (alphanumeric): K-,k+
+
+#Data:
+Vars: 
+7:142957921_ref : Homozygous
+Vars_phase: 
+7:142957921_ref : 1/1
+Vars_phase_set: 
+7:142957921_ref : .
+Raw: 
+Allele 
+ genotype: KEL*02 
+ defining_variants: 
+		7:142957921_ref 
+ weight_geno: 1000 
+ phenotype: KEL:-1,2 or K-,k+ 
+ reference: True 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: YT
+
+#Results:
+Genotypes count: 1
+Genotypes: YT*01/YT*02
+Phenotypes (numeric): YT:1,2
+Phenotypes (alphanumeric): Yt(a+b+)
+
+#Data:
+Vars: 
+7:100893176_ref : Heterozygous
+7:100893176_G_T : Heterozygous
+Vars_phase: 
+7:100893176_ref : 0|1
+7:100893176_G_T : 1|0
+Vars_phase_set: 
+7:100893176_ref : 100840895
+7:100893176_G_T : 100840895
+Raw: 
+Allele 
+ genotype: YT*01 
+ defining_variants: 
+		7:100893176_ref 
+ weight_geno: 1000 
+ phenotype: YT:1,-2 or Yt(a+),Yt(b-) 
+ reference: True 
+
+Allele 
+ genotype: YT*02 
+ defining_variants: 
+		7:100893176_G_T 
+ weight_geno: 1000 
+ phenotype: YT:-1,2 or Yt(a-),Yt(b+) 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: ABO
+
+#Results:
+Genotypes count: 1
+Genotypes: ABO*A1.01/ABO*A1.01
+Phenotypes (numeric): 
+Phenotypes (alphanumeric): A1
+
+#Data:
+Vars: 
+
+Vars_phase: 
+
+Vars_phase_set: 
+
+Raw: 
+Allele 
+ genotype: ABO*A1.01 
+ defining_variants: 
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or A1 
+ reference: True 
+
+Allele 
+ genotype: ABO*AW.30.01 
+ defining_variants: 
+		9:133256085_A_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or Ax/Aweak 
+ reference: False 
+
+Allele 
+ genotype: ABO*AW.30.02 
+ defining_variants: 
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or Ax/Aweak 
+ reference: False 
+
+Allele 
+ genotype: ABO*AW.31.01 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133255902_C_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or Ax/Aweak 
+ reference: False 
+
+Allele 
+ genotype: ABO*AW.31.02-05 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133255902_C_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or Ax/Aweak 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.01 
+ defining_variants: 
+		9:133257521_ref 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.02 
+ defining_variants: 
+		9:133259834_C_T
+		9:133259833_G_A
+		9:133255960_G_A
+		9:133258116_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133261367_C_A
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.05 
+ defining_variants: 
+		9:133257486_T_C
+		9:133257521_ref 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.06 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.13 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.35 
+ defining_variants: 
+		9:133259834_C_T
+		9:133259833_G_A
+		9:133255960_G_A
+		9:133258116_G_A
+		9:133257486_T_C
+		9:133256050_C_T
+		9:133261367_C_A
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.36 
+ defining_variants: 
+		9:133259834_C_T
+		9:133259833_G_A
+		9:133258116_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133261367_C_A
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.39 
+ defining_variants: 
+		9:133255960_G_A
+		9:133258116_G_A
+		9:133257486_T_C
+		9:133256050_C_T
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.40 
+ defining_variants: 
+		9:133259834_C_T
+		9:133259833_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133261367_C_A
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.44 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133257486_T_C
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.45 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133257521_ref 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.46 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.68 
+ defining_variants: 
+		9:133259834_C_T
+		9:133259833_G_A
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133261367_C_A
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.71 
+ defining_variants: 
+		9:133257521_ref
+		9:133255902_C_T 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.01.83 
+ defining_variants: 
+		9:133259834_C_T
+		9:133257521_ref
+		9:133257486_T_C
+		9:133261367_C_A 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.09.01 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133255902_C_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+Allele 
+ genotype: ABO*O.09.02 
+ defining_variants: 
+		9:133255960_G_A
+		9:133256085_A_T
+		9:133256050_C_T
+		9:133257486_T_C
+		9:133255902_C_T
+		9:133257521_T_TC 
+ weight_geno: 1000 
+ phenotype: . or O 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+insufficient_min_base_quality: 9:133257521_T_TC:4.0
+9:133257521_ref:4.0
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: GYPA
+
+#Results:
+Genotypes count: 1
+Genotypes: GYPA*02/GYPA*02
+Phenotypes (numeric): MNS:-1,2
+Phenotypes (alphanumeric): M-,N+
+
+#Data:
+Vars: 
+4:144120554_ref : Homozygous
+4:144120555_ref : Homozygous
+4:144120567_ref : Homozygous
+Vars_phase: 
+4:144120554_ref : 1/1
+4:144120555_ref : 1/1
+4:144120567_ref : 1/1
+Vars_phase_set: 
+4:144120554_ref : .
+4:144120555_ref : .
+4:144120567_ref : .
+Raw: 
+Allele 
+ genotype: GYPA*02 
+ defining_variants: 
+		4:144120554_ref
+		4:144120555_ref
+		4:144120567_ref 
+ weight_geno: 1000 
+ phenotype: MNS:-1,2 or M-,N+ 
+ reference: False 
+
+Allele 
+ genotype: GYPA*08 
+ defining_variants: 
+		4:144120554_ref
+		4:144120555_ref 
+ weight_geno: 1000 
+ phenotype: MNS:1,-2,8 or M+,N-,Mc+ 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+excluded_due_to_rank: Pair(Genotype: GYPA*02/GYPA*08 Phenotype: numeric MNS:-1,2/MNS:1,-2,8 alphanumeric: M-,N+/M+,N-,Mc+) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+excluded_due_to_rank_ref: Pair(Genotype: GYPA*02/GYPA*08 Phenotype: numeric MNS:-1,2/MNS:1,-2,8 alphanumeric: M-,N+/M+,N-,Mc+) #
+Pair(Genotype: GYPA*01/GYPA*02 Phenotype: numeric MNS:1,-2/MNS:-1,2 alphanumeric: M+,N-/M-,N+) #
+Pair(Genotype: GYPA*01/GYPA*08 Phenotype: numeric MNS:1,-2/MNS:1,-2,8 alphanumeric: M+,N-/M+,N-,Mc+) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+filter_impossible_alleles: Pair(Genotype: GYPA*08/GYPA*08 Phenotype: numeric MNS:1,-2,8/MNS:1,-2,8 alphanumeric: M+,N-,Mc+/M+,N-,Mc+) #
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | Sample: HG02737.vcf BG Name: GYPB
+
+#Results:
+Genotypes count: 1
+Genotypes: GYPB*04/GYPB*04.06
+Phenotypes (numeric): MNS:-3,4,5
+Phenotypes (alphanumeric): S-,s+,U+alteredU/GPB
+
+#Data:
+Vars: 
+4:143999443_ref : Homozygous
+4:143997559_C_G : Heterozygous
+Vars_phase: 
+4:143999443_ref : 1/1
+4:143997559_C_G : 0|1
+Vars_phase_set: 
+4:143999443_ref : .
+4:143997559_C_G : 143821828
+Raw: 
+Allele 
+ genotype: GYPB*04 
+ defining_variants: 
+		4:143999443_ref 
+ weight_geno: 1000 
+ phenotype: MNS:-3,4 or S-,s+ 
+ reference: True 
+
+Allele 
+ genotype: GYPB*04.06 
+ defining_variants: 
+		4:143999443_ref
+		4:143997559_C_G 
+ weight_geno: 1000 
+ phenotype: MNS:-3,4,5 or S-,s+,U+alteredU/GPB 
+ reference: False 
+
+
+#Filters applied:
+
+2025-09-09 06:12:12.419 | DEBUG    | No filters were applied
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+______
+
+2025-09-09 06:12:12.419 | DEBUG    | 
+ ############## End log for sample: HG02737.vcf ##############
+
+2025-09-09 06:12:12.431 | INFO     | 1 VCFs processed in 0.39 seconds

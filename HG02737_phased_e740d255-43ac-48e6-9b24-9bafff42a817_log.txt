@@ -1,0 +1,47 @@
+2025-09-09 06:40:33.942 | INFO     | ==================== SESSION START ====================
+2025-09-09 06:40:33.942 | INFO     | NOT FOR CLINICAL USE
+2025-09-09 06:40:33.942 | INFO     | RBCeq2 Version: 2.3.4
+2025-09-09 06:40:33.942 | INFO     | RBCeq2 database Version: 2.3.2
+2025-09-09 06:40:33.942 | INFO     | Session UUID: e740d255-43ac-48e6-9b24-9bafff42a817
+2025-09-09 06:40:33.942 | INFO     | Command-line arguments provided:
+2025-09-09 06:40:33.942 | INFO     |   vcf              : /media/liam/linux_data/1kg/clair3/phased_merge_output_vcfs/norm/HG02737.vcf.gz
+2025-09-09 06:40:33.942 | INFO     |   out              : /home/liam/code/RBCeq2/HG02737_phased
+2025-09-09 06:40:33.942 | INFO     |   depth            : 10
+2025-09-09 06:40:33.942 | INFO     |   quality          : 10
+2025-09-09 06:40:33.942 | INFO     |   processes        : 15
+2025-09-09 06:40:33.942 | INFO     |   reference_genome : GRCh38
+2025-09-09 06:40:33.942 | INFO     |   phased           : True
+2025-09-09 06:40:33.942 | INFO     |   microarray       : False
+2025-09-09 06:40:33.942 | INFO     |   debug            : True
+2025-09-09 06:40:33.942 | INFO     |   validate         : False
+2025-09-09 06:40:33.942 | INFO     |   PDFs             : False
+2025-09-09 06:40:33.942 | INFO     |   HPAs             : False
+2025-09-09 06:40:33.942 | INFO     | ==================== LOGGING STARTED ====================
+2025-09-09 06:40:33.942 | DEBUG    | Logger configured for debug mode.
+2025-09-09 06:40:33.942 | INFO     | Application started.
+2025-09-09 06:40:33.942 | INFO     | Preparing database DataFrame...
+2025-09-09 06:40:33.942 | INFO     | Attempting to load database content...
+2025-09-09 06:40:33.943 | DEBUG    | Attempting to load db from resource path: /home/liam/miniconda3/envs/sniffles2/lib/python3.12/site-packages/rbceq2/resources/db.tsv
+2025-09-09 06:40:33.944 | INFO     | Database content loaded successfully.
+2025-09-09 06:40:33.944 | INFO     | Preparing database from loaded content...
+2025-09-09 06:40:33.952 | DEBUG    | Initial DataFrame shape: (2011, 19)
+2025-09-09 06:40:33.956 | DEBUG    | Final DataFrame shape after processing: (2011, 20)
+2025-09-09 06:40:33.956 | INFO     | Database preparation completed.
+2025-09-09 06:40:33.957 | INFO     | Database DataFrame prepared.
+2025-09-09 06:40:33.957 | INFO     | Running database data consistency checks...
+2025-09-09 06:40:33.957 | DEBUG    | Checking GRCh37/38 defining variant counts...
+2025-09-09 06:40:33.985 | DEBUG    | GRCh37/38 defining variant count check passed.
+2025-09-09 06:40:33.985 | DEBUG    | Checking antigen consistency for Phenotype_change / Phenotype_alt_change...
+2025-09-09 06:40:34.008 | DEBUG    | Phenotype_change / Phenotype_alt_change antigen consistency check passed.
+2025-09-09 06:40:34.009 | DEBUG    | Checking antigen consistency for Phenotype / Phenotype_alt...
+2025-09-09 06:40:34.010 | DEBUG    | Phenotype / Phenotype_alt antigen consistency check passed.
+2025-09-09 06:40:34.010 | INFO     | All database data consistency checks passed successfully.
+2025-09-09 06:40:34.010 | INFO     | Consistency checks passed. Initializing Db object...
+2025-09-09 06:40:34.012 | INFO     | Antithetical relationships generated: 104 entries.
+2025-09-09 06:40:34.015 | INFO     | Lane positions generated: 16 entries.
+2025-09-09 06:40:34.016 | INFO     | Reference alleles generated: 87 entries.
+2025-09-09 06:40:34.016 | INFO     | Db object initialized.
+2025-09-09 06:40:34.016 | INFO     | 1 single sample VCF passed
+2025-09-09 06:40:34.152 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: KN, variant/s: 1:207609571_A_T:4.0
+2025-09-09 06:40:34.152 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: VEL, variant/s: 1:3774964_A_G:9.0
+2025-09-09 06:40:34.152 | WARNING  | Base Quality. Sample: HG02737.vcf, BG: ABO, variant/s: 9:133257521_T_TC:4.0,9:133257521_ref:4.0

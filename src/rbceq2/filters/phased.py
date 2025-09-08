@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+from functools import partial
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
@@ -622,3 +622,88 @@ def iterate_over_list(
             if allele in allele2:
                 alleles_to_remove.append(allele)
     return alleles_to_remove
+
+
+
+@apply_to_dict_values
+def rm_ref_if_2x_HET_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """
+    ref is often added by NoHomMultiVariantStrategy when all HETs variants
+    need to remove if properly phased
+
+    Example:
+    2025-09-08 10:22:21.891 | DEBUG    | Sample: HG02737.vcf BG Name: ABCC4
+
+    #Results:
+    Genotypes count: 3
+    Genotypes: 
+    ABCC4*01.02W/ABCC4*01.03W
+    ABCC4*01/ABCC4*01.02W #remove
+    ABCC4*01/ABCC4*01.03W #remove
+    Phenotypes (numeric): PEL:1
+    PEL:1w
+    Phenotypes (alphanumeric): PEL+
+    PEL+w
+
+    #Data:
+    Vars: 
+    13:95206781_C_A : Heterozygous
+    13:95163161_C_T : Heterozygous
+    Vars_phase: 
+    13:95206781_C_A : 1|0
+    13:95163161_C_T : 0|1
+    Vars_phase_set: 
+    13:95206781_C_A : 94972116
+    13:95163161_C_T : 94972116
+    Raw: 
+    Allele 
+    genotype: ABCC4*01.02W 
+    defining_variants: 
+            13:95206781_C_A 
+    weight_geno: 1000 
+    phenotype: PEL:1w or PEL+w 
+    reference: False 
+
+    Allele 
+    genotype: ABCC4*01.03W 
+    defining_variants: 
+            13:95163161_C_T 
+    weight_geno: 1000 
+    phenotype: PEL:1w or PEL+w 
+    reference: False 
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+    phased_ref_free_pair_exists = False
+    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
+    same_phase = partial(check_phase, bg.variant_pool_phase)
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if bg.type == 'ABCC4':
+            ic(pair)
+        if pair.allele1.reference or pair.allele2.reference:
+            to_remove.append(pair)
+            continue
+        if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and \
+        (same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")):
+            phase1 = set([
+        phase
+        for variant, phase in bg.variant_pool_phase.items()
+        if variant in pair.allele1.defining_variants
+            ])
+            phase2 = set([
+        phase
+        for variant, phase in bg.variant_pool_phase.items()
+        if variant in pair.allele2.defining_variants
+            ])
+            assert phase1 != phase2
+            phased_ref_free_pair_exists = True
+    if to_remove and phased_ref_free_pair_exists:
+        if bg.type == 'ABCC4':
+            ic(3333333,to_remove)
+        bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
+
+    return bg
