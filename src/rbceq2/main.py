@@ -329,6 +329,7 @@ def find_hits(
         partial(filt_phase.impossible_alleles_phased, phased=args.phased),
         partial(filt_phase.filter_if_all_HET_vars_on_same_side_and_phased, phased=args.phased),
         partial(filt_phase.filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased, phased=args.phased),
+        partial(filt_phase.rm_ref_if_2x_HET_phased, phased=args.phased),
         filt_co.ensure_co_existing_HET_SNP_used,
         filt_co.filter_co_existing_pairs,
         filt_co.filter_co_existing_in_other_allele,
