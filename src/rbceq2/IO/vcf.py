@@ -183,6 +183,7 @@ class VCF:
         """
 
         new_lanes = {}
+        #ic(self.lane_variants)
 
         for chrom, loci in self.lane_variants.items():
             chrom = chrom.replace("chr", "")
