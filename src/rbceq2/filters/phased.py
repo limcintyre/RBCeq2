@@ -682,8 +682,8 @@ def rm_ref_if_2x_HET_phased(
     same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
     same_phase = partial(check_phase, bg.variant_pool_phase)
     for pair in bg.alleles[AlleleState.NORMAL]:
-        if bg.type == 'ABCC4':
-            ic(pair)
+        # if bg.type == 'ABCC4':
+        #     ic(pair)
         if pair.allele1.reference or pair.allele2.reference:
             to_remove.append(pair)
             continue
@@ -702,8 +702,8 @@ def rm_ref_if_2x_HET_phased(
             assert phase1 != phase2
             phased_ref_free_pair_exists = True
     if to_remove and phased_ref_free_pair_exists:
-        if bg.type == 'ABCC4':
-            ic(3333333,to_remove)
+        # if bg.type == 'ABCC4':
+        #     ic(3333333,to_remove)
         bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
 
     return bg
