@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from icecream import ic
 import pandas as pd
 import re
 
@@ -89,7 +88,6 @@ class VCF:
                     temp_phase_data.setdefault(chrom, {}).setdefault(ps_id, []).append(
                         pos
                     )
-                   
 
         # Convert the lists of positions to (min, max) tuples
         final_phase_sets = {}
@@ -167,9 +165,9 @@ class VCF:
         of a given transcript is just wildtype in a genomic reference. ie
         GRCh37/8
 
-        Added variant details (LANE constant) in v2.3.4 after seeing instances 
-        where 133257521 had a SNP, not ins, 
-        so lane was created erroneously 
+        Added variant details (LANE constant) in v2.3.4 after seeing instances
+        where 133257521 had a SNP, not ins,
+        so lane was created erroneously
 
         Example:
 
@@ -206,17 +204,21 @@ class VCF:
                     # except AssertionError:
                     #     print('multi allele loci are not supported, please use bcftools norm -m -both ...')
                     #     raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s')
-                    if GT.startswith(("0/1", "0|1", "1/0", "1|0")) and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1:
-                        #HET and not multi allelic = ref
-                        ref = (self.df.loc[self.df.loci == lane_loci, "REF"]
-                               .values[0])
-                        alt = (self.df.loc[self.df.loci == lane_loci, "ALT"]
-                               .values[0])
-                        if f'{ref}_{alt}' == LANE[f'chr{chrom}'][pos]:
+                    if (
+                        GT.startswith(("0/1", "0|1", "1/0", "1|0"))
+                        and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1
+                    ):
+                        # HET and not multi allelic = ref
+                        ref = self.df.loc[self.df.loci == lane_loci, "REF"].values[0]
+                        alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
+                        lane = LANE[f"chr{chrom}"][pos]
+                        if f"{ref}_{alt}" == lane or lane == 'no_ALT':
                             self.df.loc[self.df.loci == lane_loci, "variant"] = (
-                            self.df.loc[self.df.loci == lane_loci, "variant"].values[0]
-                            + f",{lane_loci}_ref"
-                        )
+                                self.df.loc[
+                                    self.df.loci == lane_loci, "variant"
+                                ].values[0]
+                                + f",{lane_loci}_ref"
+                            )
                 else:
                     new_lanes[lane_loci] = (
                         [chrom, pos]
@@ -243,7 +245,6 @@ class VCF:
         for variant, metrics, format in zip(
             list(self.df.variant), list(self.df["SAMPLE"]), list(self.df["FORMAT"])
         ):
-            
             if isinstance(metrics, float):
                 continue
             assert format.startswith("GT")  # needed for add_lane_variants
@@ -253,15 +254,15 @@ class VCF:
             mapped_metrics["GT"] == mapped_metrics["GT"].replace("|", "/")
             if mapped_metrics["GT"] == "0/0":
                 continue
-            
+
             if "," in variant:
                 for variant in variant.split(","):
                     vcf_variants[variant] = mapped_metrics
             else:
                 vcf_variants[variant] = mapped_metrics
-            if not all_ints_zero_or_one(mapped_metrics["GT"]):
-                ic(11111111111,mapped_metrics["GT"], vcf_variants)
-                #raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s!')
+            # if not all_ints_zero_or_one(mapped_metrics["GT"]):
+            #     #ic(11111111111,mapped_metrics["GT"], vcf_variants)
+            #     #raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s!')
 
         return vcf_variants
 
@@ -275,8 +276,8 @@ def all_ints_zero_or_one(text: str) -> bool:
     Returns:
         bool: True if all integers are 0 or 1, False otherwise.
     """
-    ints = re.findall(r'\d+', text)
-    return all(num in ('0', '1') for num in ints)
+    ints = re.findall(r"\d+", text)
+    return all(num in ("0", "1") for num in ints)
 
 
 def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
@@ -353,10 +354,10 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
     neighbours_df = pl.from_dicts(results)
     # 4. Convert the list of dictionaries to a final DataFrame
     unique_loci_set = {
-    locus
-    for row in neighbours_df.select(neighbor_cols).rows()
-    for locus in row
-    if locus is not None  # Filter out the nulls
+        locus
+        for row in neighbours_df.select(neighbor_cols).rows()
+        for locus in row
+        if locus is not None  # Filter out the nulls
     }
     return unique_loci_set
 
