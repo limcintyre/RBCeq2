@@ -17,8 +17,6 @@ from rbceq2.core_logic.utils import (
 )
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
-from icecream import ic
-
 
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
@@ -265,7 +263,7 @@ def add_phasing(
             variant: variant_metrics[variant].get("PS") for variant in bg.variant_pool
         }
         phase_pool_ref_fixed = {}
-        
+
         for variant, phase in phase_pool.items():
             if variant.endswith("_ref"):
                 new_phase = assign_ref_phase(variant)
@@ -293,8 +291,8 @@ def ABO_phasing(
 ) -> BloodGroup:
     # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
     # do it at DB level #TODO look for vars that have only ever been observed in cis with
-    # ABO*O, or never been observed with it and take phasing info from there. Best 
-    # to actually phase indels though 
+    # ABO*O, or never been observed with it and take phasing info from there. Best
+    # to actually phase indels though
     """9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
     calls but aren't always assigned a phase group by phasing algos
 
@@ -338,15 +336,12 @@ def ABO_phasing(
         return bg
     # 261delG
     c261delGs = [
-            "9:133257521_ref",
-            "9:133257521_T_TC",
-            "9:136132908_ref",
-            "9:136132908_T_TC",
-        ]
-    if any(
-        bg.variant_pool.get(c261delG) == Zygosity.HOM
-        for c261delG in c261delGs
-    ):
+        "9:133257521_ref",
+        "9:133257521_T_TC",
+        "9:136132908_ref",
+        "9:136132908_T_TC",
+    ]
+    if any(bg.variant_pool.get(c261delG) == Zygosity.HOM for c261delG in c261delGs):
         return bg
 
     aboO = set([])
@@ -365,24 +360,24 @@ def ABO_phasing(
             aboO_phases.add(phase)
     # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
     # do it at DB level #TODO look for vars that have only ever been observed in cis with
-    # ABO*O, or never been observed with it and take phasing info from there. Best 
-    # to actually phase indels though 
+    # ABO*O, or never been observed with it and take phasing info from there. Best
+    # to actually phase indels though
     # for variant in other.difference(aboO):
     #     if not variant.startswith(("9:133257521", "9:136132908")):
     #         phase = bg.variant_pool_phase[variant]
     #         aboO_phases2.add(phase)
-    #ic(aboO_phases,aboO_phases2,aboO, other, aboO.difference(other), other.difference(aboO))    
+    # ic(aboO_phases,aboO_phases2,aboO, other, aboO.difference(other), other.difference(aboO))
     if len(aboO_phases) == 0:
-        return bg #can't rescue ABO 
+        return bg  # can't rescue ABO
     if len(aboO_phases) > 1:
-        #ic(aboO_phases,aboO, other, aboO.difference(other), other.difference(aboO))    
-        return bg #can't rescue ABO 
+        # ic(aboO_phases,aboO, other, aboO.difference(other), other.difference(aboO))
+        return bg  # can't rescue ABO
     abo_phase = aboO_phases.pop()
     not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"
     new_phases = {}
     for variant, phase in bg.variant_pool_phase.items():
         if variant in c261delGs:
-            if variant.endswith('_ref'):
+            if variant.endswith("_ref"):
                 new_phases[variant] = abo_phase
             else:
                 new_phases[variant] = not_abo_phase
@@ -762,8 +757,10 @@ class MultipleVariantDispatcher:
         first_chunk = ranked_chunks[0]
         weight_first_chunk = first_chunk[0].weight_geno
         trumpiest_homs = homs[0]
-        weight_trumpiest_homs = trumpiest_homs[0].weight_geno if trumpiest_homs else 1000
-        
+        weight_trumpiest_homs = (
+            trumpiest_homs[0].weight_geno if trumpiest_homs else 1000
+        )
+
         # Sub-strategy selection
         if len(trumpiest_homs) == 1:
             return SingleHomMultiVariantStrategy(
@@ -817,6 +814,7 @@ class MultipleHomMultiVariantStrategy:
 @dataclass
 class SomeHomMultiVariantStrategy:
     ranked_chunks: list[list[Allele]]
+
     def process(
         self, bg: BloodGroup, reference_alleles: dict[str, Allele]
     ) -> list[Pair]:
@@ -887,13 +885,13 @@ def process_genetic_data(
     Raises:
         ValueError: When constraints in the multiple-variant scenario are violated.
     """
-  
+
     strategy: GeneticProcessingProtocol = _pick_strategy(
         bg
     )  # Returns a Protocol implementer
     normal_pairs = strategy.process(bg, reference_alleles)
     bg.alleles[AlleleState.NORMAL] = normal_pairs
-    
+
     return bg
 
 
