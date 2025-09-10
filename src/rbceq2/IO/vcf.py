@@ -12,7 +12,7 @@ os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
 
-from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL
+from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
 
 
 @dataclass(slots=True, frozen=False)
@@ -167,6 +167,10 @@ class VCF:
         of a given transcript is just wildtype in a genomic reference. ie
         GRCh37/8
 
+        Added variant details (LANE constant) in v2.3.4 after seeing instances 
+        where 133257521 had a SNP, not ins, 
+        so lane was created erroneously 
+
         Example:
 
         1 - new lanes - HOM loci:
@@ -183,7 +187,6 @@ class VCF:
         """
 
         new_lanes = {}
-        #ic(self.lane_variants)
 
         for chrom, loci in self.lane_variants.items():
             chrom = chrom.replace("chr", "")
@@ -199,13 +202,18 @@ class VCF:
                     )
                     # try:
                     #     assert GT.count("/") == 1 or GT.count("|") == 1
-                    #     assert ("2" not in GT)
+                    #     assert ("2" not in GT) TODO, not sure if this is too defensive...
                     # except AssertionError:
                     #     print('multi allele loci are not supported, please use bcftools norm -m -both ...')
                     #     raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s')
                     if GT.startswith(("0/1", "0|1", "1/0", "1|0")) and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1:
                         #HET and not multi allelic = ref
-                        self.df.loc[self.df.loci == lane_loci, "variant"] = (
+                        ref = (self.df.loc[self.df.loci == lane_loci, "REF"]
+                               .values[0])
+                        alt = (self.df.loc[self.df.loci == lane_loci, "ALT"]
+                               .values[0])
+                        if f'{ref}_{alt}' == LANE[f'chr{chrom}'][pos]:
+                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
                             self.df.loc[self.df.loci == lane_loci, "variant"].values[0]
                             + f",{lane_loci}_ref"
                         )

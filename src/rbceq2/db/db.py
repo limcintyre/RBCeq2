@@ -119,7 +119,7 @@ class Db:
             dict[str, set[str]]: A dictionary mapping chromosomes to sets of lane
             variants.
         """
-        antithetical = self.df.query("Antithetical == 'Yes'")
+
         lane: dict[str, Any] = {}
         for chrom, df in self.df.query("Lane == True").groupby("Chrom"):
             options = {
@@ -134,8 +134,6 @@ class Db:
                 if variant.endswith("_ref")
             }
         logger.info(f"Lane positions generated: {len(lane)} entries.")
-        
-        ic(1111,lane, self.antitheticals, antithetical)
         return lane
 
     def line_generator(self, df: pd.DataFrame) -> Iterable[Line]:
