@@ -502,5 +502,10 @@ LANE = { #definition of lane has expanded to include any position that is implic
         "74493432": "C_A",
     },
     "chr9": {"133257521": "T_TC", #38 ABO
-             "136132908": "T_TC"}, #37
+             "136132908": "T_TC", #37
+             '136133506': 'no_ALT', #37 (only) 
+             '136135237': 'no_ALT', #37 (only)
+             '136136770': 'no_ALT', #37 (only)
+             '136135238': 'no_ALT'}, #37 (only)
+
 }
