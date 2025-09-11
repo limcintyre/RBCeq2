@@ -1,8 +1,8 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.3.1"
-DB_VERSION = "2.3.1"
+VERSION = "2.3.4"
+DB_VERSION = "2.3.3"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -17,13 +17,11 @@ HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 LOW_WEIGHT = 1_000
 
 
-
-
 class AlleleState:
     CO = "co_existing"
     NORMAL = "pairs"
     RAW = "raw"
-    #POS = "possible" #everything now a filter
+    # POS = "possible" #everything now a filter
     FILT = "filtered"
 
 
@@ -66,7 +64,7 @@ class BgName(Enum):
     SID = auto()
     CTL2 = auto()
     FUT1 = auto()
-    KLF1 = auto()
+    KLF = auto()
     LW = auto()
     MAM = auto()
     OK = auto()
@@ -124,11 +122,13 @@ class BgName(Enum):
     HPA15 = auto()
     CD99 = auto()
 
-
     @classmethod
     def from_string(cls, value: str):
+        value = value.upper()
+        if "KLF" in value:
+            value = "KLF"
         try:
-            return cls[value.upper()]
+            return cls[value]
         except KeyError:
             raise ValueError(f"'{value}' is not a valid {cls.__name__}")
 
@@ -348,7 +348,7 @@ ANTITHETICAL = {
             "S": ("s",),
             "s": ("S",),
         },
-         BgName.RHCE: {
+        BgName.RHCE: {
             "C": ("c",),
             "c": ("C",),
             "E": ("e",),
@@ -382,4 +382,130 @@ ANTITHETICAL = {
             "In(b)": ("In(a)",),
         },
     },
+}
+
+LANE = { #definition of lane has expanded to include any position that is implicity ref
+    "chr1": {
+        "1000": "no_ALT",  # unit test 159175354
+        "159205564": "G_A", #38 FY
+        "159175354": "G_A", #37
+        "207331122": "G_C", #38 CROM
+        "207504467": "G_C", #37
+        "207609424": "G_A", #38 KN
+        "207782769": "G_A", #37
+        "207609571": "A_T", #38 KN
+        "207782916": "A_T", #37
+        "25317062": "T_C", #38 RHD
+        "25643553": "T_C", #37
+        "25390874": "C_G", #38 RHCE
+        "25717365": "C_G", #37 
+        "25408711": "G_A", #38 RHCE
+        "25735202": "G_A", #37
+        "25420739": "G_C", #38 RHCE
+        "25747230": "G_C", #37
+        "42830851": "G_A", #38 SC
+        "43296522": "G_A", #37
+    },
+    "chr11": {"35176644": "G_C", #38 IN
+               "35198191": "G_C" },#37
+    "chr12": {"14840505": "C_T", #38 DO
+              "14993439": "C_T"}, #37
+    "chr16": {"88716069": "C_T", #38 ER
+              "88782477": "C_T"}, #37
+    "chr17": {
+        "44251253": "G_A", #38 DI
+        "42328621": "G_A", #37
+        "42453065": "A_C", #HPAs have same coords
+        "42453072": "G_T",
+        "42453084": "C_T",
+        "42453291": "C_G",
+        "42453713": "C_A",
+        "42455875": "G_A",
+        "42457790": "C_T",
+        "42462694": "T_G",
+        "45351803": "C_T",
+        "45360730": "T_C",
+        "45360817": "G_A",
+        "45360903": "C_T",
+        "45361934": "A_C",
+        "45361944": "C_T",
+        "45361968": "A_G",
+        "45363673": "C_T",
+        "45369541": "C_G",
+        "45369617": "A_G",
+        "45369758": "G_A",
+        "45369788": "G_A",
+        "45376801": "G_T",
+        "45376892": "TAAG_T",
+        "45377872": "C_T",
+        "45377890": "G_A",
+        "45377906": "G_A",
+        "45377914": "C_T",
+        "45631953": "G_A",
+        "4836381": "C_T",
+    },
+    "chr18": {
+        "45739554": "G_A", #38 JK
+        "43319519": "G_A", #37
+    },
+    "chr19": {
+        "44812188": "G_A", #38 LU
+        "45315445": "G_A", #37 
+        "5844526": "no_ALT", #38 FUT3
+        "5844537": "no_ALT", #37
+        "10287311": "A_G", #38 LW
+        "10397987": "A_G", #37
+        "5844638": "no_ALT", #38 FUT3
+        "5844649": "no_ALT", #37
+        "10631494": "no_ALT", #38 CTL2
+        "10742170": "no_ALT", #37
+    },
+    "chr22": {
+        "19711485": "G_A",
+        "42717787": "C_A", #38 A4GALT
+        "43113793": "C_A", #37
+    },
+    "chr3": {
+        "161086379": "C_T", #38 GLOB
+        "160804167": "C_T", #37
+        "128780950": "C_T",
+    },
+    "chr4": {
+        "144120555": "T_C", #38 GYPA
+        "145041708": "T_C", #37
+        "144120567": "A_G", #38 GYPA
+        "145041720": "A_G", #37
+        "143997559": "C_G", #38 GYPB
+        "144918712": "C_G", #37
+        "143999443": "G_A", #38 GYPB
+        "144920596": "G_A", #37
+        "144120554": "C_A", #38 GYPA
+        "145041707": "C_A", #37
+    },
+    "chr5": {
+        "52366090": "G_T",
+        "52358757": "G_A",
+        "52369001": "C_T",
+        "52382870": "C_T",
+    },
+    "chr6": {
+        "44232918": "G_A", #38 AUG
+        "44200655": "G_A", #37
+        "10586805": "no_ALT", #38 GCNT2
+        "10587038": "no_ALT", #37
+    },
+    "chr7": {"142957921": "G_A", #38 KEL
+             "142655008": "G_A", #37
+             "100893176": "G_T", #38 YT
+             "100490797": "G_T"}, #37
+    "chr8": {
+        "74493432": "C_A",
+    },
+    "chr9": {"133257521": "T_TC", #38 ABO
+             "136132908": "T_TC", #37
+             '136133506': 'no_ALT', #37 (only) 
+             '136135237': 'no_ALT', #37 (only)
+             '136136770': 'no_ALT', #37 (only)
+             '136135238': 'no_ALT'}, #37 (only)
+
 }

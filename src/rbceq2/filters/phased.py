@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+from functools import partial
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
@@ -11,11 +11,11 @@ from rbceq2.filters.shared_filter_functionality import (
     flatten_alleles,
     all_hom,
     identify_unphased,
-    proceed
+    proceed,
 )
 
 from rbceq2.core_logic.alleles import Allele
-from icecream import ic
+
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -34,7 +34,7 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     Returns:
         BloodGroup: The updated BloodGroup with improperly phased alleles removed.
-    
+
     #Example:
     Genotypes count: 1
     Genotypes: JK*01W.06/JK*02
@@ -42,17 +42,17 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
     Phenotypes (alphanumeric): Jk(a+wb+)
 
     #Data:
-    Vars: 
+    Vars:
     18:45739554_ref : Heterozygous
     18:45730450_G_A : Heterozygous
     18:45736573_A_G : Homozygous
     18:45739554_G_A : Heterozygous
-    Vars_phase: 
+    Vars_phase:
     18:45739554_ref : 1|0
     18:45730450_G_A : 1|0
     18:45736573_A_G : 1/1
     18:45739554_G_A : 0|1
-    Vars_phase_set: 
+    Vars_phase_set:
     18:45739554_ref : 20911244
     18:45730450_G_A : 20911244
     18:45736573_A_G : .
@@ -60,36 +60,35 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
     #Filters applied:
-    remove_unphased: 
-     Vars_phase: 
+    remove_unphased:
+     Vars_phase:
     18:45739554_ref : 1|0
     18:45730450_G_A : 1|0
     18:45736573_A_G : 1/1
     18:45739554_G_A : 0|1
-    Allele 
-    genotype: JK*02W.03 
-    defining_variants: 
+    Allele
+    genotype: JK*02W.03
+    defining_variants:
             18:45736573_A_G 1/1
             18:45730450_G_A 1|0
             18:45739554_G_A 0|1
-    weight_geno: 1000 
-    phenotype: JK:-1,2w or Jk(a-),Jk(b+w) 
-    reference: False 
+    weight_geno: 1000
+    phenotype: JK:-1,2w or Jk(a-),Jk(b+w)
+    reference: False
 
-    Allele 
-    genotype: JK*02W.04 
-    defining_variants: 
+    Allele
+    genotype: JK*02W.04
+    defining_variants:
             18:45730450_G_A 1|0
             18:45739554_G_A 0|1
-    weight_geno: 1000 
-    phenotype: JK:-1,2w or Jk(a-),Jk(b+w) 
-    reference: False 
+    weight_geno: 1000
+    phenotype: JK:-1,2w or Jk(a-),Jk(b+w)
+    reference: False
     """
-
 
     if not phased:
         return bg
- 
+
     to_remove = identify_unphased(bg, bg.alleles[AlleleState.FILT])
     if to_remove:
         bg.remove_alleles(to_remove, "remove_unphased", AlleleState.FILT)
@@ -99,7 +98,6 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
 def _get_allele_phase_info(allele, phase_dict):
     """ """
     return [phase_dict[variant] for variant in allele.defining_variants]
-
 
 
 @apply_to_dict_values
@@ -195,7 +193,7 @@ def filter_if_all_HET_vars_on_same_side_and_phased(
                     if bg.variant_pool.get(variant2) != Zygosity.HET:
                         continue
                     phase2 = bg.variant_pool_phase[variant2]
-                    if phase == phase2 and '|' in phase:
+                    if phase == phase2 and "|" in phase:
                         to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(
@@ -276,28 +274,47 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
     phenotype: LU:-1,2,-18,19 or Lu(a-),Lu(b+),Au(a-),Au(b+)
     reference: False
     """
+
     # If an allele is HOM and it's 'in' every other properly phased allele
     # AND the there's at least 1 of those on each side, it can't exist
-    def find_phase(allele):
+    def find_phase(allele: Allele) -> set[str | None]:
+        """find phase"""
         return set(
-                [
-                    bg.variant_pool_phase.get(variant)
-                    for variant in allele.defining_variants
-                    if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", '1/0']
-                ]
-            )
+            [
+                bg.variant_pool_phase.get(variant)
+                for variant in allele.defining_variants
+                if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", "1/0"]
+            ]
+        )
+
+    def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
+        """check if alleles phase sets are the same, if not can't be phased"""
+        phase_sets = [
+            phase_dict.get(variant, "None") for variant in allele.defining_variants
+        ]
+        return (
+            len(set([phase_set for phase_set in phase_sets if phase_set.isdigit()]))
+            == 1
+        )
+
     if not phased:
         return bg
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
         to_remove = []
+        pair_with_unphased_HETs = False
         for pair in bg.alleles[allele_state]:
-            pair_with_unphased_HETs = False
+            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
+                continue  # TODO - next refactor this type of functionality
+            # should move into a new PhasedAllele class
+            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
+                continue
             phase1 = find_phase(pair.allele1)
             phase2 = find_phase(pair.allele2)
             assert len(phase1) < 2
             assert len(phase2) < 2
+
             if phase1 == {None} or phase2 == {None}:
                 continue
             if phase1 == {"unknown"} or phase2 == {"unknown"}:
@@ -535,7 +552,7 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             continue
         if len(bg.alleles[allele_state]) in [1, 0]:
             return bg
-        #process alleles
+        # process alleles
         alleles = list(flatten_alleles(bg.alleles[allele_state]))
         alleles_with_variants_in_same_phase_set = [
             allele
@@ -547,7 +564,7 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             for allele in alleles_with_variants_in_same_phase_set
             if check_phase(bg.variant_pool_phase, allele, "1/1")
         ]
-        #split by phase
+        # split by phase
         l1, l2 = [], []
         for allele in sorted(
             alleles_with_variants_in_same_phase,
@@ -568,7 +585,7 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
                 l2.append(allele)
             else:
                 assert phase in "unknown" or "/" in phase
-        #figure out what to remove
+        # figure out what to remove
         alleles_to_remove = iterate_over_list(l1)
         alleles_to_remove += iterate_over_list(l2)
         to_remove = []
@@ -598,14 +615,99 @@ def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) 
     return len(set(phase_sets)) == 1
 
 
-def iterate_over_list(
-    allele_list: list[Allele]
-) -> list[Allele]:
-    '''
-    Identifies if any alleles in the list are in any other allele in the list'''
+def iterate_over_list(allele_list: list[Allele]) -> list[Allele]:
+    """
+    Identifies if any alleles in the list are in any other allele in the list"""
     alleles_to_remove: list[Allele] = []
     for allele in allele_list:
         for allele2 in allele_list:
             if allele in allele2:
                 alleles_to_remove.append(allele)
     return alleles_to_remove
+
+
+@apply_to_dict_values
+def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    ref is often added by NoHomMultiVariantStrategy when all HETs variants
+    need to remove if properly phased
+
+    Example:
+    2025-09-08 10:22:21.891 | DEBUG    | Sample: HG02737.vcf BG Name: ABCC4
+
+    #Results:
+    Genotypes count: 3
+    Genotypes:
+    ABCC4*01.02W/ABCC4*01.03W
+    ABCC4*01/ABCC4*01.02W #remove
+    ABCC4*01/ABCC4*01.03W #remove
+    Phenotypes (numeric): PEL:1
+    PEL:1w
+    Phenotypes (alphanumeric): PEL+
+    PEL+w
+
+    #Data:
+    Vars:
+    13:95206781_C_A : Heterozygous
+    13:95163161_C_T : Heterozygous
+    Vars_phase:
+    13:95206781_C_A : 1|0
+    13:95163161_C_T : 0|1
+    Vars_phase_set:
+    13:95206781_C_A : 94972116
+    13:95163161_C_T : 94972116
+    Raw:
+    Allele
+    genotype: ABCC4*01.02W
+    defining_variants:
+            13:95206781_C_A
+    weight_geno: 1000
+    phenotype: PEL:1w or PEL+w
+    reference: False
+
+    Allele
+    genotype: ABCC4*01.03W
+    defining_variants:
+            13:95163161_C_T
+    weight_geno: 1000
+    phenotype: PEL:1w or PEL+w
+    reference: False
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+    phased_ref_free_pair_exists = False
+    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
+    same_phase = partial(check_phase, bg.variant_pool_phase)
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        # if bg.type == 'ABCC4':
+        #     ic(pair)
+        if pair.allele1.reference or pair.allele2.reference:
+            to_remove.append(pair)
+            continue
+        if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
+            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+        ):
+            phase1 = set(
+                [
+                    phase
+                    for variant, phase in bg.variant_pool_phase.items()
+                    if variant in pair.allele1.defining_variants
+                ]
+            )
+            phase2 = set(
+                [
+                    phase
+                    for variant, phase in bg.variant_pool_phase.items()
+                    if variant in pair.allele2.defining_variants
+                ]
+            )
+            assert phase1 != phase2
+            phased_ref_free_pair_exists = True
+    if to_remove and phased_ref_free_pair_exists:
+        # if bg.type == 'ABCC4':
+        #     ic(3333333,to_remove)
+        bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
+
+    return bg

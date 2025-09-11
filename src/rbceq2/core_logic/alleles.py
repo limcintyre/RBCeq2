@@ -179,11 +179,14 @@ class Allele:
         Example:
             KN*01 -> KN
         """
-        return (
+        bg =  (
             self.genotype.split("*")[0]
             if self.genotype != "."
             else self.genotype_alt.split("*")[0]
         )
+        if 'KLF' in bg.upper():
+            bg = 'KLF' #most are KLF1, but need to all be the same
+        return bg
 
 
 @dataclass(slots=True, frozen=False)
