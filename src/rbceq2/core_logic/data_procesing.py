@@ -587,7 +587,7 @@ def remove_alleles_with_low_read_depth(
     """
 
     filtered_out, passed_filtering = filter_vcf_metrics(
-        bg.alleles[AlleleState.RAW], variant_metrics, "DP", min_read_depth, microarray
+        bg.alleles[AlleleState.FILT], variant_metrics, "DP", min_read_depth, microarray
     )
     if filtered_out:
         vars_affected = ",".join(filtered_out.keys())
@@ -863,7 +863,10 @@ class SomeHomMultiVariantStrategy:
     ) -> list[Pair]:
         homs = get_fully_homozygous_alleles(self.ranked_chunks, bg.variant_pool_numeric)
         if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
-            raise ValueError("No homs in the first two rank tiers.")
+            flat = [item for sublist in self.ranked_chunks for item in sublist]
+            return combine_all(
+            flat, bg.variant_pool_numeric
+        ) #pass to filters (low_weight_hom)
 
         first_chunk = self.ranked_chunks[0]
         if len(first_chunk) == 1 and len(self.ranked_chunks) == 1:
