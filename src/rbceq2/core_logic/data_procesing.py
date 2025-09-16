@@ -17,6 +17,8 @@ from rbceq2.core_logic.utils import (
 )
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
+import pandas as pd
+from icecream import ic
 
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
@@ -358,19 +360,10 @@ def ABO_phasing(
         if not variant.startswith(("9:133257521", "9:136132908")):
             phase = bg.variant_pool_phase[variant]
             aboO_phases.add(phase)
-    # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
-    # do it at DB level #TODO look for vars that have only ever been observed in cis with
-    # ABO*O, or never been observed with it and take phasing info from there. Best
-    # to actually phase indels though
-    # for variant in other.difference(aboO):
-    #     if not variant.startswith(("9:133257521", "9:136132908")):
-    #         phase = bg.variant_pool_phase[variant]
-    #         aboO_phases2.add(phase)
-    # ic(aboO_phases,aboO_phases2,aboO, other, aboO.difference(other), other.difference(aboO))
+   
     if len(aboO_phases) == 0:
         return bg  # can't rescue ABO
     if len(aboO_phases) > 1:
-        # ic(aboO_phases,aboO, other, aboO.difference(other), other.difference(aboO))
         return bg  # can't rescue ABO
     abo_phase = aboO_phases.pop()
     not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"
@@ -602,6 +595,56 @@ def remove_alleles_with_low_read_depth(
         logger.warning(message)
     bg.filtered_out["insufficient_read_depth"] = filtered_out
     bg.alleles[AlleleState.FILT] = passed_filtering
+    return bg
+
+
+@apply_to_dict_values
+def only_keep_alleles_if_FILTER_PASS(
+    bg: BloodGroup, df: pd.DataFrame, no_filter: bool
+) -> BloodGroup:
+    """
+    Remove alleles from a BloodGroup object that have defining variants with read depth
+    below a specified minimum threshold.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing alleles to filter.
+        variant_metrics (dict[str, dict[str, int]]): A dictionary containing variant
+        metrics with read depth information.
+        min_read_depth (int): The minimum read depth threshold.
+
+    Returns:
+        BloodGroup: The BloodGroup object with alleles filtered based on read depth.
+    """
+    if not no_filter:
+        bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
+        return bg
+    passed_filtering = []
+    for allele in bg.alleles[AlleleState.RAW]:
+        keeper = True
+        for variant in allele.defining_variants:
+            if "_ref" in variant:
+                continue
+            try:
+                filter_value = df.query("variant.str.contains(@variant)")[
+                    "FILTER"
+                ].iloc[0]
+            except IndexError:
+                message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
+                logger.error(message)
+                raise
+            if filter_value != "PASS":
+                keeper = False
+                break
+        if keeper:
+            passed_filtering.append(allele)
+
+    bg.filtered_out["FILTER_not_PASS"] = [
+        allele
+        for allele in bg.alleles[AlleleState.RAW]
+        if allele not in passed_filtering
+    ]
+    bg.alleles[AlleleState.FILT] = passed_filtering
+    
     return bg
 
 
@@ -845,11 +888,9 @@ class NoHomMultiVariantStrategy:
     ) -> list[Pair]:
         ref_allele = reference_alleles[
             bg.type
-        ]  # TODO - this is putting refs back in that have already been discarded as impossible
-
+        ]
         ref_options = self.non_ref_options + [ref_allele]
-        # if bg.type == 'ABCC4':
-        #     ic(self.non_ref_options, ref_options, bg.variant_pool_phase, bg.variant_pool_phase_set)
+
         return combine_all(ref_options, bg.variant_pool_numeric)
 
 
