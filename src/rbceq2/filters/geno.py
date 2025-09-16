@@ -118,13 +118,15 @@ def filter_pairs_on_antithetical_zygosity(
         return None
 
     to_remove = []
-
     if bg.type in antitheticals:
         anti1, anti2 = find_anti_variant_pair(antitheticals[bg.type])
         var_pool_no_chrom = {k.split(":")[1]: v for k, v in bg.variant_pool.items()}
         if var_pool_no_chrom.get(anti1) == Zygosity.HOM:
             return bg
         if var_pool_no_chrom.get(anti2) == Zygosity.HOM:
+            return bg
+        if anti1 not in var_pool_no_chrom or anti2 not in var_pool_no_chrom:
+            #if Lane var doesn't get PASS FILTER
             return bg
         if (
             var_pool_no_chrom.get(anti1) is None
@@ -376,7 +378,8 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
         BloodGroup: The updated BloodGroup after filtering out allele pairs where a
             reference allele is improperly paired.
     """
-
+    if bg.type != 'ABO':
+        return bg
     to_remove = []
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.contains_reference and not pair.all_reference:
@@ -389,7 +392,7 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
                 check_available_variants, 0, tmp_pool2, operator.gt
             )
             if all(check_vars_other_strand(allele)):
-                # ie, can they exist given other strand
+                # ie, can they exist given other chrom
                 continue
             to_remove.append(pair)
 

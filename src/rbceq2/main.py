@@ -19,7 +19,7 @@ import rbceq2.filters.geno as filt
 import rbceq2.filters.phased as filt_phase
 import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
-from rbceq2.core_logic.constants import PhenoType,DB_VERSION, VERSION
+from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
 from rbceq2.core_logic.utils import compose, get_allele_relationships
 from rbceq2.db.db import Db, prepare_db, DbDataConsistencyChecker
 from rbceq2.IO.PDF_reports import generate_all_reports
@@ -60,7 +60,6 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     )
     version_str = f"%(prog)s {VERSION} (DB: {DB_VERSION})"
 
-
     parser.add_argument(
         "-v",
         "--version",
@@ -81,14 +80,20 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         "--out", type=lambda p: Path(p).absolute(), help="Prefix for output files"
     )
     parser.add_argument(
-        "--depth", type=int, help="Minimum number of reads for a variant", default=10
+        "--no_filter",
+        action="store_false",
+        help="Use all variants, not just those where FILTER = PASS in the VCF",
+        default=True,
     )
-    parser.add_argument(
-        "--quality",
-        type=int,
-        help="Minimum average genotype quality for a variant",
-        default=10,
-    )
+    # parser.add_argument(
+    #     "--depth", type=int, help="Minimum number of reads for a variant", default=10
+    # )
+    # parser.add_argument(
+    #     "--quality",
+    #     type=int,
+    #     help="Minimum average genotype quality for a variant",
+    #     default=10,
+    # )
     parser.add_argument(
         "--processes",
         type=int,
@@ -111,12 +116,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Use phase information",
         default=False,
     )
-    parser.add_argument(
-        "--microarray",
-        action="store_true",
-        help="Input is from a microarray.",
-        default=False,
-    )
+    # parser.add_argument(
+    #     "--microarray",
+    #     action="store_true",
+    #     help="Input is from a microarray.",
+    #     default=False,
+    # )
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -141,12 +146,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
-    # parser.add_argument(
-    #     "--RH",
-    #     action="store_true",
-    #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
-    #     default=False,
-    # )
+    parser.add_argument(
+        "--RH",
+        action="store_true",
+        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
+        default=False,
+    )
 
     return parser.parse_args(args)
 
@@ -156,9 +161,9 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
-    # if not args.RH:
-    #     exclude += ["RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "ATP11C", "CD99"]  # , "RHD", "RHCE"]
+    if not args.RH:
+        exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
@@ -265,17 +270,20 @@ def find_hits(
 
     pipe: list[Callable] = [
         partial(
-            dp.remove_alleles_with_low_read_depth,
-            variant_metrics=vcf.variants,
-            min_read_depth=args.depth,
-            microarray=args.microarray,
+            dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        partial(
-            dp.remove_alleles_with_low_base_quality,
-            variant_metrics=vcf.variants,
-            min_base_quality=args.quality,
-            microarray=args.microarray,
-        ),
+        # partial(
+        #     dp.remove_alleles_with_low_read_depth,
+        #     variant_metrics=vcf.variants,
+        #     min_read_depth=args.depth,
+        #     microarray=args.microarray,
+        # ),
+        # partial(
+        #     dp.remove_alleles_with_low_base_quality,
+        #     variant_metrics=vcf.variants,
+        #     min_base_quality=args.quality,
+        #     microarray=args.microarray,
+        # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(
             dp.add_phasing,
@@ -327,15 +335,21 @@ def find_hits(
         filt.filter_pairs_by_context,
         filt.impossible_alleles,
         partial(filt_phase.impossible_alleles_phased, phased=args.phased),
-        partial(filt_phase.filter_if_all_HET_vars_on_same_side_and_phased, phased=args.phased),
-        partial(filt_phase.filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased, phased=args.phased),
+        partial(
+            filt_phase.filter_if_all_HET_vars_on_same_side_and_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
+            phased=args.phased,
+        ),
         partial(filt_phase.rm_ref_if_2x_HET_phased, phased=args.phased),
         filt_co.ensure_co_existing_HET_SNP_used,
         filt_co.filter_co_existing_pairs,
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        #partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
+        # partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
         dp.add_CD_to_XG,
     ]
@@ -344,7 +358,7 @@ def find_hits(
 
     res = dp.add_refs(db, res, excluded)
 
-    #merge FUT 1 and 2
+    # merge FUT 1 and 2
     fut2s = res["FUT2"].genotypes.copy()
     fut1s = res["FUT1"].genotypes.copy()
     for allele_pair in fut2s:
