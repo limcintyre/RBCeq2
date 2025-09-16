@@ -272,18 +272,18 @@ def find_hits(
         partial(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        # partial(
-        #     dp.remove_alleles_with_low_read_depth,
-        #     variant_metrics=vcf.variants,
-        #     min_read_depth=args.depth,
-        #     microarray=args.microarray,
-        # ),
-        # partial(
-        #     dp.remove_alleles_with_low_base_quality,
-        #     variant_metrics=vcf.variants,
-        #     min_base_quality=args.quality,
-        #     microarray=args.microarray,
-        # ),
+        partial(
+            dp.remove_alleles_with_low_read_depth,
+            variant_metrics=vcf.variants,
+            min_read_depth=1,
+            microarray=False,
+        ),
+        partial(
+            dp.remove_alleles_with_low_base_quality,
+            variant_metrics=vcf.variants,
+            min_base_quality=1,
+            microarray=False,
+        ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(
             dp.add_phasing,
@@ -344,6 +344,7 @@ def find_hits(
             phased=args.phased,
         ),
         partial(filt_phase.rm_ref_if_2x_HET_phased, phased=args.phased),
+        partial(filt_phase.low_weight_hom, phased=args.phased),
         filt_co.ensure_co_existing_HET_SNP_used,
         filt_co.filter_co_existing_pairs,
         filt_co.filter_co_existing_in_other_allele,

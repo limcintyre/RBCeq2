@@ -788,9 +788,9 @@ def internal_anithetical_consistency_HOM(
                 if len(ant.antithetical_antigen) > 1:
                     no_expressed = count_expressed_ants(ant, base_names_dict)
                     if null and no_expressed != 0:
-                        logger.warning("ensure 0 expressed for null !!!")
+                        logger.warning(f"{bg.sample} {bg.type} ensure 0 expressed for null !!!")
                     if not null and no_expressed != 2:
-                        logger.warning("ensure 2 expressed !!!")
+                        logger.warning(f"{bg.sample} {bg.type} ensure 2 expressed !!!")
                 for antithetical_ant in ant.antithetical_antigen:
                     if antithetical_ant.base_name not in base_names:
                         bg_type = BgName.from_string(bg.type)
@@ -921,7 +921,8 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     try:
         allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
     except IndexError:
-        allele_name = bg.alleles[AlleleState.POS][0].phenotype.split(":")[0]
+        ic(bg.type, bg.alleles[AlleleState.NORMAL],bg.alleles[AlleleState.NORMAL][0].allele1)
+        allele_name = bg.alleles[AlleleState.FILT][0].phenotype.split(":")[0]
         logger.warning(f"Why doesnt this have RAW???? {bg.alleles}")
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         ants = [ant.name for ant in merged_pheno]
