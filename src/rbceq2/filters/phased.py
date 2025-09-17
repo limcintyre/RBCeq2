@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import partial
+from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
@@ -684,9 +685,10 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
         if pair.allele1.reference or pair.allele2.reference:
             to_remove.append(pair)
             continue
-        if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        ):
+        if possible_to_use_phase(same_phase_set, same_phase, pair):
+        # if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
+        #     same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+        # ):
             phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
             phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
             
@@ -719,6 +721,12 @@ def allele_phase(variant_pool ,allele):
                     if variant in allele.defining_variants
                 ]
             )
+
+def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
+    return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
+            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+        )
+
     
 @apply_to_dict_values
 def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -799,9 +807,10 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     # store as list of tuples: (weight, pair)
     pairs: list[tuple[float, Pair]] = []
     for pair in bg.alleles[AlleleState.NORMAL]:
-        if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        ):
+        if possible_to_use_phase(same_phase_set, same_phase, pair):
+        # if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
+        #     same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+        # ):
             phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
             phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
             assert phase1 != phase2
@@ -810,8 +819,11 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
         return bg
     if len(pairs) == 1:
         return bg
+    weights = set([pair_tup[0] for pair_tup in pairs])
+    if len(weights) == 1:
+        return bg
     # select the lowest-weighted pair
-    ic(bg.type, pairs)
+    ic(bg.type, pairs, weights)
     best_weight, best_pair = min(pairs, key=lambda x: x[0])
     ic(best_weight, best_pair)
 
