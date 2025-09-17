@@ -780,7 +780,6 @@ def internal_anithetical_consistency_HOM(
     
     new_phenos = []
     for pair, antigens in bg.phenotypes[ant_type].items():
-        null = pair.allele1.null and pair.allele2.null
         new_antigens = []
         if pair.allele1.phenotype == ".":
             continue
@@ -797,11 +796,6 @@ def internal_anithetical_consistency_HOM(
                         assert no_expressed == 1
                     else:
                         assert no_expressed == 2
-                    # if null and no_expressed != 0:
-                    #     logger.warning(f"{bg.sample} {bg.type} ensure 0 expressed for null !!!")
-                    #     ic(pair, pair.allele1, pair.allele2, ant)
-                    # if not null and no_expressed != 2:
-                    #     logger.warning(f"{bg.sample} {bg.type} ensure 2 expressed !!!")
                 for antithetical_ant in ant.antithetical_antigen:
                     if antithetical_ant.base_name not in base_names:
                         bg_type = BgName.from_string(bg.type)
