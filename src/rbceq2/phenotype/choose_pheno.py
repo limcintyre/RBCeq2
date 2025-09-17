@@ -677,10 +677,12 @@ def internal_anithetical_consistency_HET(
             "DI*02.16",
             "DI*02.11",
             "DI*02.12",
+            "DI*02.17",
+            "DI*02.18",
             "DI*02.22",
             "DI*02.09KEL*02M.05",
         ]
-        # Di11/12 and 15/16 antithetical and same in ref so, yes, sudo null
+        # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
         # DI*02.22/DI*02.09 (ant 9/22) seem to have a third antigen as well,
         #  ~300 examples in UKB - not a sudo null, but here till I find a better place
@@ -698,8 +700,10 @@ def internal_anithetical_consistency_HET(
                         assert final_no_expressed == 2
                     except AssertionError:
                         ic(
-                        "Expressed antigens != 2!",
+                        "Expressed antigens != 2! plz report to devs",
                         bg.sample,
+                        pair.allele1,
+                        pair.allele2,
                         str(pair),
                         ant,
                         final_no_expressed,
@@ -776,7 +780,7 @@ def internal_anithetical_consistency_HOM(
     
     new_phenos = []
     for pair, antigens in bg.phenotypes[ant_type].items():
-        null = pair.allele1.null or pair.allele2.null
+        null = pair.allele1.null and pair.allele2.null
         new_antigens = []
         if pair.allele1.phenotype == ".":
             continue
@@ -787,10 +791,17 @@ def internal_anithetical_consistency_HOM(
             if ant.antithetical_antigen and ant.homozygous:
                 if len(ant.antithetical_antigen) > 1:
                     no_expressed = count_expressed_ants(ant, base_names_dict)
-                    if null and no_expressed != 0:
-                        logger.warning(f"{bg.sample} {bg.type} ensure 0 expressed for null !!!")
-                    if not null and no_expressed != 2:
-                        logger.warning(f"{bg.sample} {bg.type} ensure 2 expressed !!!")
+                    if pair.allele1.null and pair.allele2.null:
+                        assert no_expressed == 0
+                    elif pair.allele1.null or pair.allele2.null:
+                        assert no_expressed == 1
+                    else:
+                        assert no_expressed == 2
+                    # if null and no_expressed != 0:
+                    #     logger.warning(f"{bg.sample} {bg.type} ensure 0 expressed for null !!!")
+                    #     ic(pair, pair.allele1, pair.allele2, ant)
+                    # if not null and no_expressed != 2:
+                    #     logger.warning(f"{bg.sample} {bg.type} ensure 2 expressed !!!")
                 for antithetical_ant in ant.antithetical_antigen:
                     if antithetical_ant.base_name not in base_names:
                         bg_type = BgName.from_string(bg.type)
