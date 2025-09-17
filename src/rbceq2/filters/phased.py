@@ -686,26 +686,8 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             to_remove.append(pair)
             continue
         if possible_to_use_phase(same_phase_set, same_phase, pair):
-        # if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-        #     same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        # ):
             phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
             phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
-            
-            # set(
-            #     [
-            #         phase
-            #         for variant, phase in bg.variant_pool_phase.items()
-            #         if variant in pair.allele1.defining_variants
-            #     ]
-            # )
-            # phase2 = set(
-            #     [
-            #         phase
-            #         for variant, phase in bg.variant_pool_phase.items()
-            #         if variant in pair.allele2.defining_variants
-            #     ]
-            # )
             assert phase1 != phase2
             phased_ref_free_pair_exists = True
     if to_remove and phased_ref_free_pair_exists:
@@ -808,9 +790,6 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     pairs: list[tuple[float, Pair]] = []
     for pair in bg.alleles[AlleleState.NORMAL]:
         if possible_to_use_phase(same_phase_set, same_phase, pair):
-        # if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-        #     same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        # ):
             phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
             phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
             assert phase1 != phase2
@@ -823,13 +802,12 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     if len(weights) == 1:
         return bg
     # select the lowest-weighted pair
-    ic(bg.type, pairs, weights)
     best_weight, best_pair = min(pairs, key=lambda x: x[0])
-    ic(best_weight, best_pair)
+    #ic(bg.sample, bg.type, pairs, weights, best_weight, best_pair)
 
     to_remove = [pair for pair in bg.alleles[AlleleState.NORMAL] if pair != best_pair]
     if to_remove:
-        ic(to_remove)
+        #ic(bg.sample, bg.type,to_remove)
         bg.remove_pairs(to_remove, "low_weight_hom")
 
     return bg
