@@ -695,7 +695,7 @@ def internal_anithetical_consistency_HET(
             ):  # TODO move to dif func
                 final_no_expressed = count_expressed_ants(ant, base_names_new)
                 to_neg = 'to_neg' in str(pair) and 'RHCE' in str(pair)
-                if not to_neg: 
+                if not to_neg:
                     try:
                         assert final_no_expressed == 2
                     except AssertionError:
