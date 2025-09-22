@@ -257,7 +257,7 @@ def _is_null_genotype(genotype: str) -> bool:
         True if the genotype is identified as null, False otherwise.
     """
     geno_upper = genotype.upper()
-    return "N." in geno_upper or geno_upper.endswith('N')
+    return "N." in geno_upper or geno_upper.endswith('N') or geno_upper == "KEL*02M.05"
 
 def prepare_db() -> pd.DataFrame:
     """Read and prepare the database from a TSV file, applying necessary transformations.

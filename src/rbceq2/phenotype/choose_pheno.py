@@ -680,7 +680,12 @@ def internal_anithetical_consistency_HET(
             "DI*02.17",
             "DI*02.18",
             "DI*02.22",
-            "DI*02.09KEL*02M.05",
+            "DI*02.09",
+            "KEL*02M.05",
+            'GYPB*21', # these GYPBs can be S or s
+            'GYPB*23',
+            'GYPB*24',
+
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
@@ -702,6 +707,7 @@ def internal_anithetical_consistency_HET(
                         ic(
                         "Expressed antigens != 2! plz report to devs",
                         bg.sample,
+                        bg.alleles,
                         pair.allele1,
                         pair.allele2,
                         str(pair),
