@@ -863,14 +863,25 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     to_remove = []
     
     for pair in bg.alleles[AlleleState.NORMAL]:
-        for variant in pair.allele1.defining_variants:
-            if variant not in bg.variant_pool:
-                to_remove.append(pair)
-        for variant in pair.allele2.defining_variants:
-            if variant not in bg.variant_pool:
-                to_remove.append(pair)
+        # if 'GYP' in bg.type:
+        #     ic(pair.allele1, bg.variant_pool)
+        for allele in pair.alleles:
+            # if 'GYP' in bg.type:
+            #     ic(allele)
+            if not allele.reference:
+                continue
+            if all(variant.endswith('.') for variant in allele.defining_variants):
+                continue
+            for variant in allele.defining_variants:
+                if variant not in bg.variant_pool:
+                    ic(variant)
+                    to_remove.append(pair)
+                    break
+        
+        #if 'GYP' in bg.type:
         
     if to_remove:
+        ic(to_remove,bg.alleles[AlleleState.NORMAL], bg.variant_pool)
         bg.remove_pairs(to_remove, "no_defining_variant")
 
     return bg
