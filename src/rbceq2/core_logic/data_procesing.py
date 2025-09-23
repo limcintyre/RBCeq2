@@ -615,7 +615,7 @@ def only_keep_alleles_if_FILTER_PASS(
     Returns:
         BloodGroup: The BloodGroup object with alleles filtered based on read depth.
     """
-    if not no_filter:
+    if no_filter:
         bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
         return bg
     passed_filtering = []

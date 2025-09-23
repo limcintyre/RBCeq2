@@ -81,9 +81,9 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--no_filter",
-        action="store_false",
+        action="store_true",
         help="Use all variants, not just those where FILTER = PASS in the VCF",
-        default=True,
+        default=False,
     )
     # parser.add_argument(
     #     "--depth", type=int, help="Minimum number of reads for a variant", default=10
@@ -305,6 +305,10 @@ def find_hits(
             filt_phase.filter_pairs_by_phase,
             phased=args.phased,
             reference_alleles=db.reference_alleles,
+        ),
+        partial(
+            filt_phase.no_defining_variant,
+            phased=args.phased,
         ),
         co.homs,
         co.max_rank,

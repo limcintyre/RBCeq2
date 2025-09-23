@@ -435,6 +435,7 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             ):
                 antigens_with_ref_if_needed[ant_pos] = allele_antigens
             elif len(allele_antigens) == 2:
+                #ic(allele_antigens)
                 assert all(not allele.homozygous for allele in allele_antigens), (
                     "Expected both alleles to be heterozygous"
                 )
@@ -685,7 +686,8 @@ def internal_anithetical_consistency_HET(
             'GYPB*21', # these GYPBs can be S or s
             'GYPB*23',
             'GYPB*24',
-
+            'RHCE*01.34',
+            'RHCE*01.35'
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
@@ -707,7 +709,7 @@ def internal_anithetical_consistency_HET(
                         ic(
                         "Expressed antigens != 2! plz report to devs",
                         bg.sample,
-                        bg.alleles,
+                        new_antigens,
                         pair.allele1,
                         pair.allele2,
                         str(pair),
