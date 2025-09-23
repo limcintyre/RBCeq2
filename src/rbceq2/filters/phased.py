@@ -783,7 +783,6 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     if not phased:
         return bg
-    to_remove = []
     same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
     same_phase = partial(check_phase, bg.variant_pool_phase)
     # store as list of tuples: (weight, pair)
@@ -803,11 +802,76 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
         return bg
     # select the lowest-weighted pair
     best_weight, best_pair = min(pairs, key=lambda x: x[0])
-    #ic(bg.sample, bg.type, pairs, weights, best_weight, best_pair)
 
     to_remove = [pair for pair in bg.alleles[AlleleState.NORMAL] if pair != best_pair]
     if to_remove:
-        #ic(bg.sample, bg.type,to_remove)
         bg.remove_pairs(to_remove, "low_weight_hom")
 
     return bg
+
+
+@apply_to_dict_values
+def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    need to rm ref as 1:25390874_ref not possible 
+    as 1:25390874_C_G: Homozygous
+
+    bg.variant_pool_phase: {'1:25390874_C_G': '1/1',
+                            '1:25408711_G_A': '0|1',
+                            '1:25408711_ref': '1|0',
+                            '1:25408815_T_C': '0|1',
+                            '1:25408817_T_C': '0|1',
+                            '1:25408840_G_T': '0|1',
+                            '1:25408868_G_A': '0|1',
+                            '1:25420739_G_C': '1|0',
+                            '1:25420739_ref': '0|1'}
+    bg.variant_pool: {'1:25390874_C_G': 'Homozygous',
+                      '1:25408711_G_A': 'Heterozygous',
+                      '1:25408711_ref': 'Heterozygous',
+                      '1:25408815_T_C': 'Heterozygous',
+                      '1:25408817_T_C': 'Heterozygous',
+                      '1:25408840_G_T': 'Heterozygous',
+                      '1:25408868_G_A': 'Heterozygous',
+                      '1:25420739_G_C': 'Heterozygous',
+                      '1:25420739_ref': 'Heterozygous'}
+    ic| allele: Allele 
+                genotype: RHCE*04 
+                defining_variants: 
+                        1:25390874_C_G
+                        1:25408815_T_C
+                        1:25408868_G_A
+                        1:25408711_G_A
+                        1:25420739_ref
+                        1:25408840_G_T
+                        1:25408817_T_C 
+                weight_geno: 1000 
+                phenotype: RH:2,3,-4,-5,22 or C+,E+,c-,e-,CE+ 
+                reference: False 
+    ic| allele: Allele 
+                genotype: RHCE*01 
+                defining_variants: 
+                        1:25420739_G_C
+                        1:25408711_ref
+                        1:25390874_ref 
+                weight_geno: 1000 
+                phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+ 
+                reference: True 
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+    
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        for variant in pair.allele1.defining_variants:
+            if variant not in bg.variant_pool:
+                to_remove.append(pair)
+        for variant in pair.allele2.defining_variants:
+            if variant not in bg.variant_pool:
+                to_remove.append(pair)
+        
+    if to_remove:
+        bg.remove_pairs(to_remove, "no_defining_variant")
+
+    return bg
+
