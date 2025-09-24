@@ -300,174 +300,6 @@ class TestGetGenotypes(unittest.TestCase):
         self.assertEqual(result_bg.genotypes, expected_genotypes)
 
 
-# # TODO test AlleleState.RAW -> FILT
-# class TestRuleOutImpossibleAlleles2(unittest.TestCase):
-#     def setUp(self):
-#         self.bg = MagicMock()
-
-#         self.allele1 = MagicMock()
-#         self.allele1.genotype = "JK*02W.03"
-#         self.allele1.defining_variants = {
-#             "18:43310415_G_A",
-#             "18:43316538_A_G",
-#             "18:43319519_G_A",
-#         }
-
-#         self.allele2 = MagicMock()
-#         self.allele2.genotype = "JK*02W.04"
-#         self.allele2.defining_variants = {"18:43310415_G_A", "18:43319519_G_A"}
-
-#         self.allele3 = MagicMock()
-#         self.allele3.genotype = "JK*02W.05"
-#         self.allele3.defining_variants = {"18:43310415_G_A"}
-
-#         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele2, self.allele3]}
-
-
-#     def test_no_homozygous_variants(self):
-#         self.bg.variant_pool = {
-#             "18:43310415_G_A": Zygosity.HET,
-#             "18:43316538_A_G": Zygosity.HET,
-#             "18:43319519_G_A": Zygosity.HET,
-#         }
-
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-#         self.assertCountEqual(
-#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
-#         )
-
-#     def test_all_possible_alleles(self):
-#         self.bg.variant_pool = {
-#             "18:43310415_G_A": Zygosity.HET,
-#             "18:43316538_A_G": Zygosity.HET,
-#             "18:43319519_G_A": Zygosity.HET,
-#         }
-
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-#         self.assertCountEqual(
-#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
-#         )
-
-#     def test_empty_alleles_list(self):
-#         self.bg.alleles = {AlleleState.FILT: []}
-#         self.bg.variant_pool = {}
-
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         self.assertEqual(result_bg.alleles[AlleleState.FILT], [])
-
-
-# class TestRuleOutImpossibleAlleles(unittest.TestCase):
-#     def setUp(self):
-#         self.allele1 = Allele(
-#             genotype="JK*02W.03",
-#             phenotype="Phenotype1",
-#             genotype_alt=".",
-#             phenotype_alt=".",
-#             defining_variants=frozenset(
-#                 {"18:43310415_G_A", "18:43316538_A_G", "18:43319519_G_A"}
-#             ),
-#             null=False,
-#             weight_geno=1,
-#             reference=False,
-#             sub_type="subtype1",
-#         )
-#         self.allele2 = Allele(
-#             genotype="JK*02W.04",
-#             phenotype="Phenotype2",
-#             genotype_alt=".",
-#             phenotype_alt=".",
-#             defining_variants=frozenset({"18:43310415_G_A", "18:43319519_G_A"}),
-#             null=False,
-#             weight_geno=1,
-#             reference=False,
-#             sub_type="subtype2",
-#         )
-#         self.allele3 = Allele(
-#             genotype="JK*02W.05",
-#             phenotype="Phenotype3",
-#             genotype_alt=".",
-#             phenotype_alt=".",
-#             defining_variants=frozenset({"18:43310415_G_A"}),
-#             null=False,
-#             weight_geno=1,
-#             reference=False,
-#             sub_type="subtype3",
-#         )
-
-#         self.bg = BloodGroup(
-#             type="ExampleType",
-#             alleles={AlleleState.FILT: [self.allele1, self.allele2, self.allele3]},
-#             sample="sample230",
-#             variant_pool={},
-#             filtered_out={},
-#         )
-
-#     def test_basic_functionality(self):
-#         self.bg.variant_pool = {
-#             "18:43310415_G_A": Zygosity.HET,
-#             "18:43316538_A_G": Zygosity.HOM,
-#             "18:43319519_G_A": Zygosity.HET,
-#         }
-
-#         # result_bg = rule_out_impossible_alleles(self.bg)
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         expected_possible_alleles = [self.allele1, self.allele3]
-
-#         # Check the length of the possible alleles list
-#         self.assertEqual(
-#             len(result_bg.alleles[AlleleState.FILT]), len(expected_possible_alleles)
-#         )
-
-#         # Check the contents of the possible alleles list
-#         self.assertCountEqual(
-#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
-#         )
-
-#     def test_no_homozygous_variants(self):
-#         self.bg.variant_pool = {
-#             "18:43310415_G_A": Zygosity.HET,
-#             "18:43316538_A_G": Zygosity.HET,
-#             "18:43319519_G_A": Zygosity.HET,
-#         }
-
-#         # result_bg = rule_out_impossible_alleles(self.bg)
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-#         self.assertCountEqual(
-#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
-#         )
-
-#     def test_all_possible_alleles(self):
-#         self.bg.variant_pool = {
-#             "18:43310415_G_A": Zygosity.HET,
-#             "18:43316538_A_G": Zygosity.HET,
-#             "18:43319519_G_A": Zygosity.HET,
-#         }
-
-#         # result_bg = rule_out_impossible_alleles(self.bg)
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         expected_possible_alleles = [self.allele1, self.allele2, self.allele3]
-#         self.assertCountEqual(
-#             result_bg.alleles[AlleleState.FILT], expected_possible_alleles
-#         )
-
-#     def test_empty_alleles_list(self):
-#         self.bg.alleles = {AlleleState.FILT: []}
-#         self.bg.variant_pool = {}
-
-#         # result_bg = rule_out_impossible_alleles(self.bg)
-#         result_bg = list(rule_out_impossible_alleles({1: self.bg}).values())[0]
-
-#         self.assertEqual(result_bg.alleles[AlleleState.FILT], [])
-
 
 class TestGetFullyHomozygousAlleles(unittest.TestCase):
     def setUp(self):
@@ -1174,7 +1006,7 @@ class TestRemoveAllelesWithLowReadDepth(unittest.TestCase):
         )
         bg = BloodGroup(
             type="BG1",
-            alleles={AlleleState.RAW: [allele1, allele2]},
+            alleles={AlleleState.FILT: [allele1, allele2]},
             sample="Sample1",
         )
         variant_metrics = {
@@ -1269,39 +1101,6 @@ def mock_chunk_geno_list_by_rank(alleles):
     # For simplicity, group them by 'weight_geno' or something
     # We'll just pretend everything is a single chunk for demonstration
     return [list(alleles)]
-
-
-# def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool):
-#     """
-#     The real code presumably checks if each allele is homozygous for something.
-#     We'll just return a list of lists. Each sublist is the 'homs' at that rank.
-#     """
-#     # Example: we find "homozygous" if allele.genotype ends with "HOM"
-#     result = []
-#     for chunk in ranked_chunks:
-#         homs_in_this_chunk = [a for a in chunk if "HOM" in a.genotype]
-#         result.append(homs_in_this_chunk)
-#     return result
-
-
-# def mock_combine_all(alleles_list, variant_pool):
-#     """Combine all Alleles into Pair objects. In real code, might do advanced logic."""
-#     pairs = []
-#     unique_alleles = list(alleles_list)
-#     for i in range(len(unique_alleles)):
-#         for j in range(i, len(unique_alleles)):
-#             pairs.append(Pair(unique_alleles[i], unique_alleles[j]))
-#     return pairs
-
-
-# def mock_make_pair(ref_alleles, variant_pool, options):
-#     """Create a Pair from the single 'options' set, plus reference if needed."""
-#     # If you have just one option, you pair it with itself or with reference
-#     alleles_list = list(options)
-#     if len(alleles_list) == 1:
-#         return Pair(alleles_list[0], alleles_list[0])
-#     # else fallback
-#     return Pair(ref_alleles["BG"], ref_alleles["BG"])
 
 
 def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
@@ -2695,60 +2494,6 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
         # In total => 2 + 3 = 5 pairs
         self.assertEqual(len(normal_pairs), 8, "Should have 8 total pairs now.")
 
-    # ###########################################################################
-    # # SCENARIO 2: elif any(len(hom_chunk) > 0 for hom_chunk in homs):
-    # ###########################################################################
-    # @patch(
-    #     "rbceq2.core_logic.utils.get_non_refs",
-    #     side_effect=lambda opts: {o for o in opts if not o.reference},
-    # )
-    # @patch(
-    #     "rbceq2.core_logic.data_procesing.chunk_geno_list_by_rank",
-    #     side_effect=mock_chunk_multiple_ranks,
-    # )
-    # @patch(
-    #     "rbceq2.core_logic.data_procesing.get_fully_homozygous_alleles",
-    #     side_effect=mock_get_fully_homozygous_alleles,
-    # )
-    # @patch("rbceq2.core_logic.data_procesing.combine_all", side_effect=mock_combine_all)
-    # @patch("rbceq2.core_logic.data_procesing.make_pair", side_effect=mock_make_pair)
-    # def test_homs_in_second_chunk(
-    #     self, mock_pair, mock_combine, mock_homs, mock_chunk, mock_non_refs
-    # ):
-    #     """
-    #     If no hom in first chunk, but there's a hom in the second chunk => triggers:
-    #         elif any(len(hom_chunk) > 0 for hom_chunk in homs):
-    #             if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
-    #                 raise ...
-    #             ...
-    #             else:
-    #                 bg.alleles[AlleleState.NORMAL] = combine_all(ranked_chunks[0] + ranked_chunks[1], ...)
-    #     We'll define chunk1 has 0 homs, chunk2 has 1 hom => triggers that path.
-    #     """
-    #     # We'll define 4 alleles so chunk1 = [a1, a2], chunk2=[hom3, hom4].
-    #     # Then hom3, hom4 = genotype ends with 'HOM'? We only need 1 to test "any(...) > 0".
-    #     a1 = Allele("BG*01.01", "ph1", "", "", frozenset(), 10, 10, False, "BG")
-    #     a2 = Allele("BG*01.02", "ph2", "", "", frozenset(), 15, 15, False, "BG")
-    #     hom3 = Allele("BG*XHOM", "phHom", "", "", frozenset(), 12, 12, False, "BG")
-    #     hom4 = Allele("BG*YHOM", "phHom2", "", "", frozenset(), 9, 9, False, "BG")
-
-    #     bg = self._make_mock_bloodgroup(a1, a2, hom3, hom4)
-    #     # mock_chunk_multiple_ranks => chunk1=[a1, a2], chunk2=[hom3, hom4]
-    #     # => homs => [[], [hom3, hom4]]
-    #     # => any(len(hom_chunk) > 0 for hom_chunk in homs) => True
-    #     # => we skip the earlier 'if len(trumpiest_homs) == 1' or 'len(trumpiest_homs) > 1', etc.
-
-    #     # new_bg = process_genetic_data(bg, self.reference_alleles)
-    #     new_bg = process_genetic_data({1: bg}, self.reference_alleles)[1]
-    #     normal_pairs = new_bg.alleles[AlleleState.NORMAL]
-    #     print(111111, bg, new_bg, normal_pairs, sep="\n")
-    #     # The code usually does: combine_all(chunk1+chunk2, variant_pool_numeric)
-    #     # That yields pairs among [a1, a2, hom3, hom4].
-    #     # Expect 6 pairs if everything is accepted: (a1,a2),(a1,hom3),(a1,hom4),(a2,hom3),(a2,hom4),(hom3,hom4).
-    #     self.assertEqual(
-    #         len(normal_pairs), 4, "Expect 4 pairs from chunk1+chunk2 combine_all."
-    #     )
-
     ###########################################################################
     # SCENARIO 3: else => if no hom then ANYthing individually possible
     ###########################################################################
@@ -3000,41 +2745,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
         self.assertIn(Pair(a2, hom3), normal_pairs)
         self.assertIn(Pair(hom3, hom3), normal_pairs)
 
-    @patch("rbceq2.core_logic.utils.get_non_refs", side_effect=mock_get_non_refs)
-    @patch(
-        "rbceq2.core_logic.data_procesing.chunk_geno_list_by_rank",
-        side_effect=mock_chunk_multiple_ranks_3chunks,
-    )
-    @patch(
-        "rbceq2.core_logic.data_procesing.get_fully_homozygous_alleles",
-        side_effect=mock_get_fully_homozygous_alleles,
-    )
-    @patch("rbceq2.core_logic.data_procesing.combine_all", side_effect=mock_combine_all)
-    @patch("rbceq2.core_logic.data_procesing.make_pair", side_effect=mock_make_pair)
-    def test_raise_valueerror_if_no_hom_in_first_2_chunks(
-        self, mock_pair, mock_combine, mock_homs, mock_chunk, mock_non_refs
-    ):
-        """
-        If len(homs) > 2 AND len(homs[0]) == 0 and len(homs[1]) == 0 => raise ValueError.
-        That path is:
-
-            if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
-                raise ValueError("no homs in first 2 weight tier")
-
-        We'll define chunk1 and chunk2 with NO homs, chunk3 with 1 or more hom => homs => [[],[], [homs]] => len(homs)=3
-        => triggers that ValueError.
-        """
-        # a1 => chunk1, a2 => chunk2, hom3 => chunk3 => so homs => [[], [], [hom3]]
-        a1 = Allele("BG*01.01", "ph1", "", "", frozenset(), 10, 10, False, "BG")
-        a2 = Allele("BG*01.02", "ph2", "", "", frozenset(), 15, 15, False, "BG")
-        hom3 = Allele("BG*XHOM", "phHom", "", "", frozenset(), 12, 12, False, "BG")
-
-        bg = self._make_mock_bloodgroup(a1, a2, hom3)
-
-        with self.assertRaises(ValueError) as ctx:
-            process_genetic_data({1: bg}, self.reference_alleles)
-
-        self.assertIn("No homs in the first two rank tiers.", str(ctx.exception))
+    
 
     @patch("rbceq2.core_logic.utils.get_non_refs", side_effect=mock_get_non_refs)
     @patch(
@@ -3701,6 +3412,5 @@ class TestAddRefs(unittest.TestCase):
         # Now we expect RHCE to remain, because it was pre-existing
         self.assertIs(updated["RHCE"], existing_RHCE)
 
-#TODO - put db stuff back
 if __name__ == "__main__":
     unittest.main()

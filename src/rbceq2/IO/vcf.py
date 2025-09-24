@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 import re
-
+from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
@@ -260,10 +260,7 @@ class VCF:
                     vcf_variants[variant] = mapped_metrics
             else:
                 vcf_variants[variant] = mapped_metrics
-            # if not all_ints_zero_or_one(mapped_metrics["GT"]):
-            #     #ic(11111111111,mapped_metrics["GT"], vcf_variants)
-            #     #raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s!')
-
+            
         return vcf_variants
 
 
@@ -474,6 +471,7 @@ def read_vcf(file_path: str) -> pl.DataFrame:
     Returns:
         pl.DataFrame: DataFrame containing the VCF data.
     """
+   
     header = None
     # Use gzip.open if file is gzipped, else standard open.
     open_func = gzip.open if str(file_path).endswith(".gz") else open
@@ -493,16 +491,26 @@ def read_vcf(file_path: str) -> pl.DataFrame:
 
         header_line = "\t".join(header) + "\n"
         data = f.read()
-
+        
     csv_content = header_line + data
-    df = pl.read_csv(
+    try:
+        df = pl.read_csv(
         io.StringIO(csv_content),
         separator="\t",
         schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
     )
+    except pl.exceptions.ComputeError:
+        logger.warning(f'VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!')
+        df = pl.read_csv(
+        io.StringIO(csv_content),
+        separator="\t",
+        schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+        truncate_ragged_lines=True
+    )
     if df.is_empty():
         raise VcfNoDataError(filename=file_path)
     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
+    
     return df
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import partial
+from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
@@ -13,7 +14,7 @@ from rbceq2.filters.shared_filter_functionality import (
     identify_unphased,
     proceed,
 )
-
+from icecream import ic
 from rbceq2.core_logic.alleles import Allele
 
 
@@ -681,33 +682,201 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
     same_phase = partial(check_phase, bg.variant_pool_phase)
     for pair in bg.alleles[AlleleState.NORMAL]:
-        # if bg.type == 'ABCC4':
-        #     ic(pair)
         if pair.allele1.reference or pair.allele2.reference:
             to_remove.append(pair)
             continue
-        if (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        ):
-            phase1 = set(
-                [
-                    phase
-                    for variant, phase in bg.variant_pool_phase.items()
-                    if variant in pair.allele1.defining_variants
-                ]
-            )
-            phase2 = set(
-                [
-                    phase
-                    for variant, phase in bg.variant_pool_phase.items()
-                    if variant in pair.allele2.defining_variants
-                ]
-            )
+        if possible_to_use_phase(same_phase_set, same_phase, pair):
+            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
             assert phase1 != phase2
             phased_ref_free_pair_exists = True
     if to_remove and phased_ref_free_pair_exists:
-        # if bg.type == 'ABCC4':
-        #     ic(3333333,to_remove)
         bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
 
     return bg
+
+def allele_phase(variant_pool ,allele):
+    return set(
+                [
+                    phase
+                    for variant, phase in variant_pool.items()
+                    if variant in allele.defining_variants
+                ]
+            )
+
+def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
+    return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
+            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+        )
+
+    
+@apply_to_dict_values
+def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    Case where there's a hom but it isn't in the top 2 ranked chunk,
+    so SomeHomMultiVariantStrategy has to let it pass to here. in this
+    example the 2 highest weights are in in opposite phase. 
+    no example where they're in phase, yet 
+
+    2025-09-17 08:08:58.947 | DEBUG | Sample: HG03437.vcf BG Name: FUT2
+
+    #Results:
+    Genotypes count: 4
+    Genotypes: 
+    FUT2*01N.02/FUT2*01N.04 #only this is possible as in opposite phase 
+                            #and are the 2 biggest weights
+    FUT2*01N.02/FUT2*01N.14
+    FUT2*01N.02/FUT2*01N.16
+
+    Phenotypes (numeric): 
+    Phenotypes (alphanumeric): Se-
+
+    #Data:
+    Vars: 
+    19:48703417_G_A : Heterozygous
+    19:48703560_C_T : Heterozygous
+    19:48703939_C_T : Heterozygous
+    19:48703728_G_A : Homozygous
+    Vars_phase: 
+    19:48703417_G_A : 0|1
+    19:48703560_C_T : 1|0
+    19:48703939_C_T : 1|0
+    19:48703728_G_A : 1/1
+    Vars_phase_set: 
+    19:48703417_G_A : 48646783
+    19:48703560_C_T : 48646783
+    19:48703939_C_T : 48646783
+    19:48703728_G_A : .
+    Raw: 
+    Allele 
+    genotype: FUT2*01N.02 
+    defining_variants: 
+            19:48703417_G_A 
+    weight_geno: 1 
+    phenotype: . or Se- 
+    reference: False 
+
+    Allele 
+    genotype: FUT2*01N.04 
+    defining_variants: 
+            19:48703560_C_T 
+    weight_geno: 2 
+    phenotype: . or Se- 
+    reference: False 
+
+    Allele 
+    genotype: FUT2*01N.14 
+    defining_variants: 
+            19:48703939_C_T 
+    weight_geno: 8 
+    phenotype: . or Se- 
+    reference: False 
+
+    Allele 
+    genotype: FUT2*01N.16 
+    defining_variants: 
+            19:48703728_G_A 
+    weight_geno: 8 
+    phenotype: . or Se- 
+    reference: False 
+    """
+
+    if not phased:
+        return bg
+    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
+    same_phase = partial(check_phase, bg.variant_pool_phase)
+    # store as list of tuples: (weight, pair)
+    pairs: list[tuple[float, Pair]] = []
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if possible_to_use_phase(same_phase_set, same_phase, pair):
+            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
+            assert phase1 != phase2
+            pairs.append((pair.allele1.weight_geno + pair.allele2.weight_geno, pair))
+    if not pairs:
+        return bg
+    if len(pairs) == 1:
+        return bg
+    weights = set([pair_tup[0] for pair_tup in pairs])
+    if len(weights) == 1:
+        return bg
+    # select the lowest-weighted pair
+    best_weight, best_pair = min(pairs, key=lambda x: x[0])
+
+    to_remove = [pair for pair in bg.alleles[AlleleState.NORMAL] if pair != best_pair]
+    if to_remove:
+        bg.remove_pairs(to_remove, "low_weight_hom")
+
+    return bg
+
+
+@apply_to_dict_values
+def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    need to rm ref as 1:25390874_ref not possible 
+    as 1:25390874_C_G: Homozygous
+
+    bg.variant_pool_phase: {'1:25390874_C_G': '1/1',
+                            '1:25408711_G_A': '0|1',
+                            '1:25408711_ref': '1|0',
+                            '1:25408815_T_C': '0|1',
+                            '1:25408817_T_C': '0|1',
+                            '1:25408840_G_T': '0|1',
+                            '1:25408868_G_A': '0|1',
+                            '1:25420739_G_C': '1|0',
+                            '1:25420739_ref': '0|1'}
+    bg.variant_pool: {'1:25390874_C_G': 'Homozygous',
+                      '1:25408711_G_A': 'Heterozygous',
+                      '1:25408711_ref': 'Heterozygous',
+                      '1:25408815_T_C': 'Heterozygous',
+                      '1:25408817_T_C': 'Heterozygous',
+                      '1:25408840_G_T': 'Heterozygous',
+                      '1:25408868_G_A': 'Heterozygous',
+                      '1:25420739_G_C': 'Heterozygous',
+                      '1:25420739_ref': 'Heterozygous'}
+    ic| allele: Allele 
+                genotype: RHCE*04 
+                defining_variants: 
+                        1:25390874_C_G
+                        1:25408815_T_C
+                        1:25408868_G_A
+                        1:25408711_G_A
+                        1:25420739_ref
+                        1:25408840_G_T
+                        1:25408817_T_C 
+                weight_geno: 1000 
+                phenotype: RH:2,3,-4,-5,22 or C+,E+,c-,e-,CE+ 
+                reference: False 
+    ic| allele: Allele 
+                genotype: RHCE*01 
+                defining_variants: 
+                        1:25420739_G_C
+                        1:25408711_ref
+                        1:25390874_ref 
+                weight_geno: 1000 
+                phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+ 
+                reference: True 
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+    
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        for allele in pair.alleles:
+            if not allele.reference:
+                continue
+            if all(variant.endswith('.') for variant in allele.defining_variants):
+                continue
+            for variant in allele.defining_variants:
+                if variant not in bg.variant_pool:
+                    ic(variant)
+                    to_remove.append(pair)
+                    break
+        
+    if to_remove:
+        ic(to_remove,bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+        bg.remove_pairs(to_remove, "no_defining_variant")
+
+    return bg
+

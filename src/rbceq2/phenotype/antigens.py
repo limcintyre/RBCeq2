@@ -649,35 +649,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
             
         return 2 # Normal / Strong
     
-    # def _set_weight(self):
-    #     """Set the weight for the AlphaNumericAntigenVel based on its given name.
-
-    #     Weak variants have less expression than partial:
-    #     They show markedly reduced antigen density on the red-cell surface, whereas partial
-    #     variants usually carry a near-normal number of molecules but lack one or more epitopes
-
-    #     Returns:
-    #         int: The weight assigned to the Vel antigen.
-    #     """
-    #     #TODO 'to neg' should be separate from '-'???
-    #     name_upper = self.given_name.upper()
-    #     negs = "-" not in name_upper and 'NEG' not in name_upper
-    #     not_neg_or_weak = "WEAK" not in name_upper and negs
-    #     if "ROBUST" in name_upper:
-    #         return 1
-    #     elif "PARTIAL" not in name_upper and not_neg_or_weak:
-    #         return 2
-    #     elif "PARTIAL" in name_upper and not_neg_or_weak:
-    #         return 3
-    #     elif "WEAK" in name_upper and "PARTIAL" not in name_upper:
-    #         return 4
-    #     elif "PARTIAL" in name_upper and "WEAK" in name_upper and negs:
-    #         return 5
-    #     elif "-" in name_upper or 'NEG' in name_upper:
-    #         return 6
-    #     else:
-    #         ic(name_upper)
-    #         raise ValueError("RHCE weight")
+   
 
     @property
     def name(self) -> str:
@@ -751,30 +723,7 @@ class NumericAntigenRHCE(NumericAntigen):
         return 2 # Normal / Strong
     
 
-    # def _set_weight(self):
-    #     """Set the weight of the NumericAntigen based on its given name.
 
-    #     Returns:
-    #         int: The weight of the antigen. A lower number indicates a stronger antigen.
-    #              Returns 1 if the antigen is strong, 2 if it is weak, and 3 if it has a '-'
-    #              modifier.
-    #     """
-    #     negs = "-" not in self.given_name and 'n' not in self.given_name
-    #     not_neg_or_weak = "w" not in self.given_name and negs
-    #     if 'r' in self.given_name:
-    #         return 1
-    #     elif 'p' not in self.given_name and not_neg_or_weak:
-    #         return 2 #normal
-    #     elif 'p' in self.given_name and not_neg_or_weak:
-    #         return 3 #partial
-    #     elif "w" in self.given_name and 'p' not in self.given_name:
-    #         return 4 #weak
-    #     elif "p" in self.given_name and "w" in self.given_name and negs:
-    #         return 5 #weak partial
-    #     elif "-" in self.given_name or 'n' in self.given_name:
-    #         return 6 #not expressed
-    #     else: #in_trans???
-    #         raise ValueError("RHCE weight")
         
     def _get_base_name(self) -> str:
         """Extract the base name from the given name by removing certain characters.

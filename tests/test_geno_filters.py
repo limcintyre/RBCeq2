@@ -12,9 +12,8 @@ from rbceq2.filters.geno import (
     filter_pairs_on_antithetical_zygosity,
     flatten_alleles,
     split_pair_by_ref,
-    antithetical_modifying_SNP_is_HOM
+    antithetical_modifying_SNP_is_HOM,
 )
-
 
 
 class TestFlattenAlleles(unittest.TestCase):
@@ -164,11 +163,6 @@ class TestSplitPairByRef(unittest.TestCase):
             split_pair_by_ref(pair)
 
 
-
-
-
-
-
 class TestFilterPairsOnAntitheticalZygosity(unittest.TestCase):
     def setUp(self):
         allele2 = Allele(
@@ -211,7 +205,11 @@ class TestFilterPairsOnAntitheticalZygosity(unittest.TestCase):
             type="FY",
             alleles={AlleleState.NORMAL: [self.pair1, self.pair2]},
             sample="013Kenya",
-            variant_pool={"1:159175354_G_A": Zygosity.HET},
+            variant_pool={
+                "1:159175354_G_A": Zygosity.HET,
+                "1:159175354_ref": Zygosity.HET,
+                "1:159174683_T_C": Zygosity.HET,
+            },
             filtered_out=defaultdict(list),
         )
 
@@ -311,14 +309,11 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             filtered_out=defaultdict(list),
         )
         filtered_bg = list(
-            antithetical_modifying_SNP_is_HOM(
-                {1: bg}, self.antitheticals
-            ).values()
+            antithetical_modifying_SNP_is_HOM({1: bg}, self.antitheticals).values()
         )[0]
         self.assertTrue(self.pair2 not in filtered_bg.alleles[AlleleState.NORMAL])
         self.assertTrue(
-            self.pair2
-            in filtered_bg.filtered_out["antithetical_modifying_SNP_is_HOM"]
+            self.pair2 in filtered_bg.filtered_out["antithetical_modifying_SNP_is_HOM"]
         )
 
     def test_no_pairs_removed_due_to_heterozygous_snp(self):
@@ -334,16 +329,12 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             filtered_out=defaultdict(list),
         )
         filtered_bg = list(
-            antithetical_modifying_SNP_is_HOM(
-                {1: bg}, self.antitheticals
-            ).values()
+            antithetical_modifying_SNP_is_HOM({1: bg}, self.antitheticals).values()
         )[0]
         self.assertTrue(self.pair1 in filtered_bg.alleles[AlleleState.NORMAL])
         self.assertTrue(
             self.pair1
-            not in filtered_bg.filtered_out[
-                "antithetical_modifying_SNP_is_HOM"
-            ]
+            not in filtered_bg.filtered_out["antithetical_modifying_SNP_is_HOM"]
         )
 
     def test_empty_normal_list(self):
@@ -355,12 +346,9 @@ class TestFilterPairsOnAntitheticalModifyingSNP(unittest.TestCase):
             filtered_out=defaultdict(list),
         )
         filtered_bg = list(
-            antithetical_modifying_SNP_is_HOM(
-                {1: bg}, self.antitheticals
-            ).values()
+            antithetical_modifying_SNP_is_HOM({1: bg}, self.antitheticals).values()
         )[0]
         self.assertEqual(filtered_bg.alleles[AlleleState.NORMAL], [])
-
 
 
 class TestCantPairWithRefCuzSNPsMustBeOnOtherSide(unittest.TestCase):
@@ -678,8 +666,6 @@ class TestABOCantPairWithRefCuzTrumped2(unittest.TestCase):
         )
 
 
-
-
 class TestFilterHETPairsByWeight(unittest.TestCase):
     def setUp(self):
         self.allele1 = Allele(
@@ -821,8 +807,6 @@ class TestFilterPairsByContext(unittest.TestCase):
             filtered_out=defaultdict(list),
         )
         filter_pairs_by_context({1: self.bg})
-
-
 
 
 if __name__ == "__main__":
