@@ -17,7 +17,7 @@ from rbceq2.filters.shared_filter_functionality import (
     all_hom,
     check_var,
 )
-from icecream import ic
+
 
 def split_pair_by_ref(pair: Pair) -> tuple[Allele, Allele]:
     """Split a pair of alleles into reference and non-reference.
@@ -126,7 +126,7 @@ def filter_pairs_on_antithetical_zygosity(
         if var_pool_no_chrom.get(anti2) == Zygosity.HOM:
             return bg
         if anti1 not in var_pool_no_chrom or anti2 not in var_pool_no_chrom:
-            #if Lane var doesn't get PASS FILTER
+            # if Lane var doesn't get PASS FILTER
             return bg
         if (
             var_pool_no_chrom.get(anti1) is None
@@ -378,7 +378,7 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
         BloodGroup: The updated BloodGroup after filtering out allele pairs where a
             reference allele is improperly paired.
     """
-    if bg.type != 'ABO':
+    if bg.type != "ABO":
         return bg
     to_remove = []
     for pair in bg.alleles[AlleleState.NORMAL]:

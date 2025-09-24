@@ -14,9 +14,8 @@ from rbceq2.filters.shared_filter_functionality import (
     identify_unphased,
     proceed,
 )
-from icecream import ic
 from rbceq2.core_logic.alleles import Allele
-from loguru import logger
+
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -695,90 +694,92 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     return bg
 
-def allele_phase(variant_pool ,allele):
+
+def allele_phase(variant_pool, allele):
     return set(
-                [
-                    phase
-                    for variant, phase in variant_pool.items()
-                    if variant in allele.defining_variants
-                ]
-            )
+        [
+            phase
+            for variant, phase in variant_pool.items()
+            if variant in allele.defining_variants
+        ]
+    )
+
 
 def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
     return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-            same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
-        )
+        same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+    )
 
-    
+
 @apply_to_dict_values
 def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     """
     Case where there's a hom but it isn't in the top 2 ranked chunk,
     so SomeHomMultiVariantStrategy has to let it pass to here. in this
-    example the 2 highest weights are in in opposite phase. 
-    no example where they're in phase, yet 
+    example the 2 highest weights are in in opposite phase.
+    no example where they're in phase, yet
 
     2025-09-17 08:08:58.947 | DEBUG | Sample: HG03437.vcf BG Name: FUT2
 
     #Results:
     Genotypes count: 4
-    Genotypes: 
-    FUT2*01N.02/FUT2*01N.04 #only this is possible as in opposite phase 
+    Genotypes:
+    FUT2*01N.02/FUT2*01N.04 #only this is possible as in opposite phase
                             #and are the 2 biggest weights
     FUT2*01N.02/FUT2*01N.14
     FUT2*01N.02/FUT2*01N.16
 
-    Phenotypes (numeric): 
+    Phenotypes (numeric):
     Phenotypes (alphanumeric): Se-
 
     #Data:
-    Vars: 
+    Vars:
     19:48703417_G_A : Heterozygous
     19:48703560_C_T : Heterozygous
     19:48703939_C_T : Heterozygous
     19:48703728_G_A : Homozygous
-    Vars_phase: 
+    Vars_phase:
     19:48703417_G_A : 0|1
     19:48703560_C_T : 1|0
     19:48703939_C_T : 1|0
     19:48703728_G_A : 1/1
-    Vars_phase_set: 
+    Vars_phase_set:
     19:48703417_G_A : 48646783
     19:48703560_C_T : 48646783
     19:48703939_C_T : 48646783
     19:48703728_G_A : .
-    Raw: 
-    Allele 
-    genotype: FUT2*01N.02 
-    defining_variants: 
-            19:48703417_G_A 
-    weight_geno: 1 
-    phenotype: . or Se- 
-    reference: False 
+    Raw:
+    Allele
+    genotype: FUT2*01N.02
+    defining_variants:
+            19:48703417_G_A
+    weight_geno: 1
+    phenotype: . or Se-
+    reference: False
 
-    Allele 
-    genotype: FUT2*01N.04 
-    defining_variants: 
-            19:48703560_C_T 
-    weight_geno: 2 
-    phenotype: . or Se- 
-    reference: False 
+    Allele
+    genotype: FUT2*01N.04
+    defining_variants:
+            19:48703560_C_T
+    weight_geno: 2
+    phenotype: . or Se-
+    reference: False
 
-    Allele 
-    genotype: FUT2*01N.14 
-    defining_variants: 
-            19:48703939_C_T 
-    weight_geno: 8 
-    phenotype: . or Se- 
-    reference: False 
+    Allele
+    genotype: FUT2*01N.14
+    defining_variants:
+            19:48703939_C_T
+    weight_geno: 8
+    phenotype: . or Se-
+    reference: False
 
-    Allele 
-    genotype: FUT2*01N.16 
-    defining_variants: 
-            19:48703728_G_A 
-    weight_geno: 8 
-    phenotype: . or Se- 
-    reference: False 
+    Allele
+    genotype: FUT2*01N.16
+    defining_variants:
+            19:48703728_G_A
+    weight_geno: 8
+    phenotype: . or Se-
+    reference: False
     """
 
     if not phased:
@@ -813,7 +814,7 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 @apply_to_dict_values
 def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     """
-    need to rm ref as 1:25390874_ref not possible 
+    need to rm ref as 1:25390874_ref not possible
     as 1:25390874_C_G: Homozygous
 
     bg.variant_pool_phase: {'1:25390874_C_G': '1/1',
@@ -834,51 +835,50 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                       '1:25408868_G_A': 'Heterozygous',
                       '1:25420739_G_C': 'Heterozygous',
                       '1:25420739_ref': 'Heterozygous'}
-    ic| allele: Allele 
-                genotype: RHCE*04 
-                defining_variants: 
+    ic| allele: Allele
+                genotype: RHCE*04
+                defining_variants:
                         1:25390874_C_G
                         1:25408815_T_C
                         1:25408868_G_A
                         1:25408711_G_A
                         1:25420739_ref
                         1:25408840_G_T
-                        1:25408817_T_C 
-                weight_geno: 1000 
-                phenotype: RH:2,3,-4,-5,22 or C+,E+,c-,e-,CE+ 
-                reference: False 
-    ic| allele: Allele 
-                genotype: RHCE*01 
-                defining_variants: 
+                        1:25408817_T_C
+                weight_geno: 1000
+                phenotype: RH:2,3,-4,-5,22 or C+,E+,c-,e-,CE+
+                reference: False
+    ic| allele: Allele
+                genotype: RHCE*01
+                defining_variants:
                         1:25420739_G_C
                         1:25408711_ref
-                        1:25390874_ref 
-                weight_geno: 1000 
-                phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+ 
-                reference: True 
+                        1:25390874_ref
+                weight_geno: 1000
+                phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+
+                reference: True
     """
 
     if not phased:
         return bg
     to_remove = []
-    
+
     for pair in bg.alleles[AlleleState.NORMAL]:
         for allele in pair.alleles:
             if not allele.reference:
                 continue
-            if all(variant.endswith('.') for variant in allele.defining_variants):
+            if all(variant.endswith(".") for variant in allele.defining_variants):
                 continue
             for variant in allele.defining_variants:
-                if (variant == '9:133257521_T_TC' or variant == '136132908_T_TC'):
+                if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
                     continue
                 if variant not in bg.variant_pool:
-                    #ic(variant)
+                    # ic(variant)
                     to_remove.append(pair)
                     break
     if to_remove:
-        #ic(1,bg.sample, bg.type,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+        # ic(1,bg.sample, bg.type,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
         bg.remove_pairs(to_remove, "no_defining_variant")
-        #ic(2,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+        # ic(2,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
 
     return bg
-

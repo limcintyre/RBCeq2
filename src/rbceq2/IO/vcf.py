@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 import re
-from icecream import ic
+
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
@@ -212,7 +212,7 @@ class VCF:
                         ref = self.df.loc[self.df.loci == lane_loci, "REF"].values[0]
                         alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
                         lane = LANE[f"chr{chrom}"][pos]
-                        if f"{ref}_{alt}" == lane or lane == 'no_ALT':
+                        if f"{ref}_{alt}" == lane or lane == "no_ALT":
                             self.df.loc[self.df.loci == lane_loci, "variant"] = (
                                 self.df.loc[
                                     self.df.loci == lane_loci, "variant"
@@ -260,7 +260,7 @@ class VCF:
                     vcf_variants[variant] = mapped_metrics
             else:
                 vcf_variants[variant] = mapped_metrics
-            
+
         return vcf_variants
 
 
@@ -471,7 +471,7 @@ def read_vcf(file_path: str) -> pl.DataFrame:
     Returns:
         pl.DataFrame: DataFrame containing the VCF data.
     """
-   
+
     header = None
     # Use gzip.open if file is gzipped, else standard open.
     open_func = gzip.open if str(file_path).endswith(".gz") else open
@@ -491,26 +491,28 @@ def read_vcf(file_path: str) -> pl.DataFrame:
 
         header_line = "\t".join(header) + "\n"
         data = f.read()
-        
+
     csv_content = header_line + data
     try:
         df = pl.read_csv(
-        io.StringIO(csv_content),
-        separator="\t",
-        schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-    )
+            io.StringIO(csv_content),
+            separator="\t",
+            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+        )
     except pl.exceptions.ComputeError:
-        logger.warning(f'VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!')
+        logger.warning(
+            f"VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!"
+        )
         df = pl.read_csv(
-        io.StringIO(csv_content),
-        separator="\t",
-        schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-        truncate_ragged_lines=True
-    )
+            io.StringIO(csv_content),
+            separator="\t",
+            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+            truncate_ragged_lines=True,
+        )
     if df.is_empty():
         raise VcfNoDataError(filename=file_path)
     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
-    
+
     return df
 
 

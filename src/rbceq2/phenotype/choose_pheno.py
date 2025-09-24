@@ -266,7 +266,7 @@ def add_ref_phenos(bg: BloodGroup, df: pd.DataFrame) -> BloodGroup:
     except AssertionError:
         ic(df_ref.shape, df_ref)
     bg.misc = {}
-   
+
     bg.misc["ref_PhenoType.alphanumeric"] = make_values_dict(
         [df_ref.iloc[0]["Phenotype_alt"]],
         PhenoType.alphanumeric,
@@ -331,6 +331,7 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         Returns:
             list[str]: A list of phenotype strings derived from the allele pair.
         """
+
         def filter_abo_types(alleles: list[Allele]) -> frozenset[str]:
             """
             Filters ABO types based on the presence of 'ABO*O.'.
@@ -361,13 +362,13 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 else:  # Neither contains 'ABO*O.'
                     return frozenset([a1, a2])
             else:
-                raise ValueError('ABO allele count wrong')
-    
+                raise ValueError("ABO allele count wrong")
+
         phenotype_attr = (
             "phenotype" if ant_type == PhenoType.numeric else "phenotype_alt"
         )
         alleles_to_use = (
-            filter_abo_types(current_pair.alleles) 
+            filter_abo_types(current_pair.alleles)
             if bg.type == "ABO"
             else current_pair.alleles
         )
@@ -388,7 +389,7 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             # TODO replace bg.type globally
 
     bg.misc[f"antigens_{ant_type.name}"] = pair_antigens
-    
+
     return bg
 
 
@@ -435,7 +436,7 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             ):
                 antigens_with_ref_if_needed[ant_pos] = allele_antigens
             elif len(allele_antigens) == 2:
-                #ic(allele_antigens)
+                # ic(allele_antigens)
                 assert all(not allele.homozygous for allele in allele_antigens), (
                     "Expected both alleles to be heterozygous"
                 )
@@ -531,7 +532,7 @@ def get_phenotypes2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 )
 
         bg.phenotypes[ant_type][pair] = merged_pheno2
-        
+
     return bg
 
 
@@ -683,11 +684,11 @@ def internal_anithetical_consistency_HET(
             "DI*02.22",
             "DI*02.09",
             "KEL*02M.05",
-            'GYPB*21', # these GYPBs can be S or s
-            'GYPB*23',
-            'GYPB*24',
-            'RHCE*01.34',
-            'RHCE*01.35'
+            "GYPB*21",  # these GYPBs can be S or s
+            "GYPB*23",
+            "GYPB*24",
+            "RHCE*01.34",
+            "RHCE*01.35",
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
@@ -701,26 +702,26 @@ def internal_anithetical_consistency_HET(
                 and pair.allele2.genotype not in sudo_nuls
             ):  # TODO move to dif func
                 final_no_expressed = count_expressed_ants(ant, base_names_new)
-                to_neg = 'to_neg' in str(pair) and 'RHCE' in str(pair)
+                to_neg = "to_neg" in str(pair) and "RHCE" in str(pair)
                 if not to_neg:
                     try:
                         assert final_no_expressed == 2
                     except AssertionError:
                         ic(
-                        "Expressed antigens != 2! plz report to devs",
-                        bg.sample,
-                        new_antigens,
-                        pair.allele1,
-                        pair.allele2,
-                        str(pair),
-                        ant,
-                        final_no_expressed,
-                        null
-                    )
+                            "Expressed antigens != 2! plz report to devs",
+                            bg.sample,
+                            new_antigens,
+                            pair.allele1,
+                            pair.allele2,
+                            str(pair),
+                            ant,
+                            final_no_expressed,
+                            null,
+                        )
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
- 
+
     return bg
 
 
@@ -785,7 +786,7 @@ def internal_anithetical_consistency_HOM(
         BloodGroup: The updated BloodGroup with merged antigen lists that respect antithetical
             consistency for homozygous alleles.
     """
-    
+
     new_phenos = []
     for pair, antigens in bg.phenotypes[ant_type].items():
         new_antigens = []
@@ -934,7 +935,11 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     try:
         allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
     except IndexError:
-        ic(bg.type, bg.alleles[AlleleState.NORMAL],bg.alleles[AlleleState.NORMAL][0].allele1)
+        ic(
+            bg.type,
+            bg.alleles[AlleleState.NORMAL],
+            bg.alleles[AlleleState.NORMAL][0].allele1,
+        )
         allele_name = bg.alleles[AlleleState.FILT][0].phenotype.split(":")[0]
         logger.warning(f"Why doesnt this have RAW???? {bg.alleles}")
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
@@ -1086,8 +1091,8 @@ def null_or_mod(pair: Pair, check: str) -> bool:
     Returns:
         bool: True if the pattern is present in both allele genotypes, otherwise False.
     """
-    
-    pattern = f"{check}." #TODO AUG*01N not covered!
+
+    pattern = f"{check}."  # TODO AUG*01N not covered!
     return (
         pattern in pair.allele1.genotype.upper()
         and pattern in pair.allele2.genotype.upper()
@@ -1125,6 +1130,7 @@ def modify_FY(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
 
     return bg
 
+
 @apply_to_dict_values
 def modify_FY2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     """
@@ -1146,11 +1152,12 @@ def modify_FY2(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         if (
             pair.allele1.genotype in FYX or pair.allele2.genotype in FYX
         ) and "b+w)" in pheno:
-            pheno += ',Fyx'
+            pheno += ",Fyx"
 
         bg.phenotypes[ant_type][pair] = pheno
 
     return bg
+
 
 @apply_to_dict_values
 def modify_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
@@ -1180,12 +1187,13 @@ def modify_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
 
     return bg
 
+
 @apply_to_dict_values
 def modify_CROM(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     """Modify CROM BloodGroup phenotypes based on allele null/modification patterns.
 
     For BloodGroup of type "CROM", this function updates the phenotype mapping in
-    bg.phenotypes for the provided phenotype type. 
+    bg.phenotypes for the provided phenotype type.
     if an allele pair matches the 'N.' pattern, the phenotype is changed from
     IFC- to Inab
 
@@ -1199,7 +1207,7 @@ def modify_CROM(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     """
     if bg.type != "CROM":
         return bg
-    
+
     for pair in bg.phenotypes[ant_type]:
         if null_or_mod(pair, "N"):
             bg.phenotypes[ant_type][pair] = "Inab"
@@ -1245,9 +1253,6 @@ def modify_MNS(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         bg.phenotypes[ant_type][pair] = pheno
 
     return bg
-
-
-
 
 
 @apply_to_dict_values
