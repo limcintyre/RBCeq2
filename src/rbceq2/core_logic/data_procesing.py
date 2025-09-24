@@ -18,7 +18,6 @@ from rbceq2.core_logic.utils import (
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
-from icecream import ic
 
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
@@ -360,7 +359,7 @@ def ABO_phasing(
         if not variant.startswith(("9:133257521", "9:136132908")):
             phase = bg.variant_pool_phase[variant]
             aboO_phases.add(phase)
-   
+
     if len(aboO_phases) == 0:
         return bg  # can't rescue ABO
     if len(aboO_phases) > 1:
@@ -644,7 +643,7 @@ def only_keep_alleles_if_FILTER_PASS(
         if allele not in passed_filtering
     ]
     bg.alleles[AlleleState.FILT] = passed_filtering
-    
+
     return bg
 
 
@@ -865,8 +864,8 @@ class SomeHomMultiVariantStrategy:
         if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
             flat = [item for sublist in self.ranked_chunks for item in sublist]
             return combine_all(
-            flat, bg.variant_pool_numeric
-        ) #pass to filters (low_weight_hom)
+                flat, bg.variant_pool_numeric
+            )  # pass to filters (low_weight_hom)
 
         first_chunk = self.ranked_chunks[0]
         if len(first_chunk) == 1 and len(self.ranked_chunks) == 1:
@@ -889,9 +888,7 @@ class NoHomMultiVariantStrategy:
     def process(
         self, bg: BloodGroup, reference_alleles: dict[str, Allele]
     ) -> list[Pair]:
-        ref_allele = reference_alleles[
-            bg.type
-        ]
+        ref_allele = reference_alleles[bg.type]
         ref_options = self.non_ref_options + [ref_allele]
 
         return combine_all(ref_options, bg.variant_pool_numeric)
