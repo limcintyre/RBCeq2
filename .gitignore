@@ -2,6 +2,7 @@
 # Virtual Environments
 venv/
 .venv/
+.venv-test/
 env/
 .env # Often used for environment variables/secrets - uncomment if needed
 
