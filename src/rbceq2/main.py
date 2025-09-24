@@ -146,24 +146,24 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
-    parser.add_argument(
-        "--RH",
-        action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
-        default=False,
-    )
+    # parser.add_argument(
+    #     "--RH",
+    #     action="store_true",
+    #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
+    #     default=False,
+    # )
 
     return parser.parse_args(args)
 
 
 def main():
     ic("Running RBCeq2...")
-
+    
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", "CD99"]  # , "RHD", "RHCE"]
-    if not args.RH:
-        exclude += ["RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
+    # if not args.RH:
+    #     exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
