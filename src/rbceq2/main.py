@@ -85,15 +85,6 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Use all variants, not just those where FILTER = PASS in the VCF",
         default=False,
     )
-    # parser.add_argument(
-    #     "--depth", type=int, help="Minimum number of reads for a variant", default=10
-    # )
-    # parser.add_argument(
-    #     "--quality",
-    #     type=int,
-    #     help="Minimum average genotype quality for a variant",
-    #     default=10,
-    # )
     parser.add_argument(
         "--processes",
         type=int,
@@ -146,21 +137,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
-<<<<<<< HEAD
-    parser.add_argument(
-        "--RH",
-        action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
-        default=False,
-    )
-=======
     # parser.add_argument(
     #     "--RH",
     #     action="store_true",
     #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
     #     default=False,
     # )
->>>>>>> 6ac658ab6e714b32a595d49e0cf7c69f43b9e3f1
 
     return parser.parse_args(args)
 
@@ -170,15 +152,9 @@ def main():
     
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-<<<<<<< HEAD
-    exclude = ["C4A", "C4B", "ATP11C", "CD99"]  # , "RHD", "RHCE"]
-    if not args.RH:
-        exclude += ["RHD", "RHCE"]
-=======
     exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
     # if not args.RH:
     #     exclude += ["RHD", "RHCE"]
->>>>>>> 6ac658ab6e714b32a595d49e0cf7c69f43b9e3f1
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
