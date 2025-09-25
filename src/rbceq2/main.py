@@ -255,7 +255,7 @@ def find_hits(
     excluded: list[str],
 ) -> pd.DataFrame | None:
     vcf = VCF(vcf, db.lane_variants, db.unique_variants)
-
+    vcf.df.to_csv(args.out / f'{vcf.sample}.tsv', sep='\t')
     res = dp.raw_results(db, vcf, excluded)
     res = dp.make_blood_groups(res, vcf.sample)
 
