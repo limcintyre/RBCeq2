@@ -38,7 +38,7 @@ from rbceq2.IO.vcf import (
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
 )
-from rbceq2.core_logic.large_variants import SnifflesVcfSvReader
+from rbceq2.core_logic.large_variants import SnifflesVcfSvReader,load_db_defs,load_db_defs2,SvMatcher,select_best_per_vcf
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
@@ -267,8 +267,32 @@ def find_hits(
     vcf = VCF(vcf, db.lane_variants, db.unique_variants)
     vcf.df.to_csv(args.out / f'{vcf.sample}.tsv', sep='\t')
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
-    ic(list(reader.events()))
-    res = dp.raw_results(db, vcf, excluded)
+    events=list(reader.events())
+    #ic(vcf.sample, len(events))
+
+    #db_defs = load_db_defs(Path('/home/liam/code/RBCeq2/src/rbceq2/resources/db.tsv'))
+    db_defs = load_db_defs2(db.df)
+    #assert db_defs == db_defs2
+    matcher = SvMatcher()
+    matches = matcher.match(db_defs, events)
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    big_vars = {}
+    if best:
+        for m in best:
+            print(
+                f"sample: {vcf.sample} == "
+                f"DB: {m.db.id} {m.db.raw} -> "
+                f"VCF: {m.vcf.svtype} {m.vcf.chrom}:{m.vcf.pos}-{m.vcf.end} "
+                f"len={abs(m.vcf.svlen or m.vcf.size)} "
+                f"(score={m.score:.3f}, Δpos={m.pos_delta}, Δlen={m.len_delta})"
+                "\n\n\n"
+            )
+            big_vars[m.db.raw] ='TODO' #TODO
+        
+    else:
+        ic('missed', vcf.sample)
+
+    res = dp.raw_results(db, vcf, excluded,big_vars)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [

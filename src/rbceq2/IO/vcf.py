@@ -385,8 +385,11 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
     large_vars = set(df.filter(
     (df["REF"].str.len_chars() > 50) | (df["ALT"].str.len_chars() > 50)
     )["LOCI"])
+    massive_vars = set(df.filter(
+    (df["ALT"].str.contains('<')) | (df["ALT"].str.contains('>'))
+    )["LOCI"])
     neighbours = find_phased_neighbors(df)
-    merged_set = neighbours | unique_variants | large_vars
+    merged_set = neighbours | unique_variants | large_vars | massive_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)

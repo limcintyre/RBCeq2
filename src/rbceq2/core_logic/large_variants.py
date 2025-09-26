@@ -13,7 +13,7 @@ import csv
 import pandas as pd
 import re
 from typing import Iterable
-
+import re
 from icecream import ic
 
 
@@ -374,13 +374,31 @@ def _sniff_delimiter(path: Path) -> str:
         return "\t"
 
 
+
+
+
 def _ci_lookup(names: list[str]) -> dict[str, str]:
-    """Case-insensitive header map: lower->original."""
+    """Case-insensitive header map: lower->original.
+
+    Args:
+        names (list[str]): Column names.
+
+    Returns:
+        dict[str, str]: Mapping from lowercase column names to originals.
+    """
     return {n.lower(): n for n in names}
 
 
+
 def _looks_like_sv_token(tok: str) -> bool:
-    """Heuristically check if a string looks like our SV token."""
+    """Heuristically check if a string looks like our SV token.
+
+    Args:
+        tok (str): Candidate string.
+
+    Returns:
+        bool: True if `tok` looks like an SV token.
+    """
     if not tok or "_" not in tok:
         return False
     s = tok.strip()
@@ -391,9 +409,108 @@ def _looks_like_sv_token(tok: str) -> bool:
     parts = s.split("_")
     if len(parts) >= 3:
         p0, p1, p2 = parts[0], parts[1], parts[2]
-        if p0.isdigit() and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20) and (set(p2) <= set("ACGTNacgtn")):
+        if (
+            p0.isdigit()
+            and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20)
+            and (set(p2) <= set("ACGTNacgtn"))
+        ):
             return True
     return False
+
+
+def load_db_defs2(
+    df: pd.DataFrame,
+    chrom_col: str | None = None,
+    svtoken_col: str | None = None,
+) -> list["SvDef"]:
+    """Auto-detect and load SV definitions from a pre-read DB DataFrame.
+
+    Args:
+        df (pd.DataFrame): Pre-loaded DB as a DataFrame.
+        chrom_col (str | None): Column name for chromosome (case-insensitive).
+        svtoken_col (str | None): Column with SV token(s); if None, scan all.
+
+    Returns:
+        list[SvDef]: Parsed structural variant definitions.
+    """
+    defs: list["SvDef"] = []
+    token_hits = 0
+    ci = _ci_lookup(df.columns.tolist())
+
+    # Resolve chrom col
+    if chrom_col:
+        chrom_key = ci.get(chrom_col.lower())
+    else:
+        chrom_key = ci.get("chrom") or ci.get("chr")
+
+    if chrom_key is None:
+        # Try GRCh38 scaffold columns (repo-specific fallback)
+        chrom_key = ci.get("grch38") or ci.get("grch37")
+        if chrom_key is None:
+            return defs
+
+    if svtoken_col:
+        token_key = ci.get(svtoken_col.lower())
+    else:
+        token_key = None  # trigger scan-all
+
+    # Determine allele id column (nice to have)
+    allele_key = (
+        ci.get("allele")
+        or ci.get("id")
+        or ci.get("genotype")
+        or ci.get("name")
+    )
+
+    # Iterate rows
+    for _, row in df.iterrows():
+        chrom = (str(row.get(chrom_key) or "")).strip()
+        chrom = chrom.removeprefix("chr").removeprefix("CHR")
+        if not chrom:
+            continue
+
+        candidates: list[str] = []
+        if token_key:
+            # Single specified token column
+            candidates = [str(row.get(token_key, ""))]
+        else:
+            # Scan all columns for likely tokens
+            for k, v in row.items():
+                if not v or not isinstance(v, str):
+                    continue
+                if _looks_like_sv_token(v):
+                    candidates.append(v)
+                elif any(
+                    _looks_like_sv_token(t.strip())
+                    for t in re.split(r"[;,]", v)
+                ):
+                    candidates.append(v)
+
+        if not candidates:
+            continue
+
+        allele_id = (
+            str(row.get(allele_key) or row.get("Genotype") or "-")
+            if allele_key
+            else (str(row.get("Genotype") or "-"))
+        )
+
+        for raw in candidates:
+            for tok in re.split(r"[;,]", raw):
+                tok = tok.strip()
+                if not tok or not _looks_like_sv_token(tok):
+                    continue
+                svd = parse_db_token(chrom, tok, db_id=str(allele_id))
+                if svd:
+                    defs.append(svd)
+                    token_hits += 1
+
+    return defs
+
+
+
+
+
 
 
 def load_db_defs(db_tsv: Path,
@@ -657,18 +774,17 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
             return True
     return False
 
-
 @dataclass(slots=True, frozen=True)
 class SnifflesVcfSvReader:
     """Portable, minimal structural variant reader for VCF.
 
     Attributes:
-        path (Path): Path to VCF/VCF.GZ file.
+        df (df): df of to VCF file.
         min_size (int): Minimum size threshold for emitting events.
     """
     df: pd.DataFrame
     min_size: int = 50
-
+    
     def events(self) -> Iterator[SvEvent]:
         """Iterate over structural variant events in a VCF.
 
@@ -677,7 +793,6 @@ class SnifflesVcfSvReader:
         """
         bnd_cache: dict[str, SvEvent] = {}
         for row in self.df.itertuples(index=True, name="Row"):
-            print(row.Index, row.REF, row.ALT, row)
             assert not row.CHROM.startswith('chr')
             info = _parse_info(row.INFO)
             pos = int(row.POS)
@@ -781,16 +896,16 @@ def select_best_per_vcf(matches: Iterable[MatchResult],
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered
 
-def find_sv_events(vcf_path: Path, min_size: int = 50) -> list[SvEvent]:
-    """Parse all SV events from a VCF.
+# def find_sv_events(vcf_path: Path, min_size: int = 50) -> list[SvEvent]:
+#     """Parse all SV events from a VCF.
 
-    Args:
-        vcf_path (Path): Path to VCF/VCF.GZ file.
-        min_size (int): Minimum size threshold in bp.
+#     Args:
+#         vcf_path (Path): Path to VCF/VCF.GZ file.
+#         min_size (int): Minimum size threshold in bp.
 
-    Returns:
-        list[SvEvent]: Parsed SV events.
-    """
-    reader = VcfSvReader(path=vcf_path, min_size=min_size)
-    return list(reader.events())
+#     Returns:
+#         list[SvEvent]: Parsed SV events.
+#     """
+#     reader = VcfSvReader(path=vcf_path, min_size=min_size)
+#     return list(reader.events())
 
