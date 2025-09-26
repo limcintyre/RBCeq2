@@ -38,6 +38,7 @@ from rbceq2.IO.vcf import (
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
 )
+from rbceq2.core_logic.large_variants import SnifflesVcfSvReader
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
@@ -112,7 +113,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     #     action="store_true",
     #     help="Input is from a microarray.",
     #     default=False,
-    # )
+    # ) TODO needed?
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -137,12 +138,20 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
+    parser.add_argument(
+        "--min_size",
+        type=int,
+        help=(
+            "Minimum size indel/SV to apply fuzzy matching to"
+        ),
+        default=50,
+    )
     # parser.add_argument(
     #     "--RH",
     #     action="store_true",
     #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
     #     default=False,
-    # )
+    # )min_size
 
     return parser.parse_args(args)
 
@@ -254,8 +263,11 @@ def find_hits(
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
 ) -> pd.DataFrame | None:
+    
     vcf = VCF(vcf, db.lane_variants, db.unique_variants)
     vcf.df.to_csv(args.out / f'{vcf.sample}.tsv', sep='\t')
+    reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
+    ic(list(reader.events()))
     res = dp.raw_results(db, vcf, excluded)
     res = dp.make_blood_groups(res, vcf.sample)
 

@@ -18,7 +18,7 @@ from rbceq2.core_logic.utils import (
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
-
+from icecream import ic
 
 def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
@@ -33,14 +33,14 @@ def raw_results(db: Db, vcf: VCF, exclude: list[str]) -> dict[str, list[Allele]]
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
     """
+ 
     res: dict[str, list[Allele]] = defaultdict(list)
-
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
         if all(var in vcf.variants for var in allele.defining_variants):
             res[allele.blood_group].append(allele)
-
+            
     return res
 
 

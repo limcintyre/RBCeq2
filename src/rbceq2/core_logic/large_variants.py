@@ -10,7 +10,7 @@ from typing import Iterator, Protocol, runtime_checkable
 
 from loguru import logger
 import csv
-
+import pandas as pd
 import re
 from typing import Iterable
 
@@ -244,9 +244,9 @@ class SvMatcher:
             for ev in ev_by_chrom.get(db.chrom, []):
                 if not self.compatible(db, ev):
                     continue
-                s, pd, ld = self.score(db, ev)
+                s, pdelta, ld = self.score(db, ev)
                 if s != float("inf"):
-                    results.append(MatchResult(db=db, vcf=ev, score=s, pos_delta=pd, len_delta=ld))
+                    results.append(MatchResult(db=db, vcf=ev, score=s, pos_delta=pdelta, len_delta=ld))
 
         # Keep best per (allele id, raw token, chrom)
         best: dict[tuple[str, str, str], MatchResult] = {}
@@ -659,15 +659,14 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
 
 
 @dataclass(slots=True, frozen=True)
-class VcfSvReader:
+class SnifflesVcfSvReader:
     """Portable, minimal structural variant reader for VCF.
 
     Attributes:
         path (Path): Path to VCF/VCF.GZ file.
         min_size (int): Minimum size threshold for emitting events.
     """
-
-    path: Path
+    df: pd.DataFrame
     min_size: int = 50
 
     def events(self) -> Iterator[SvEvent]:
@@ -677,86 +676,64 @@ class VcfSvReader:
             Iterator[SvEvent]: Yielded SV events.
         """
         bnd_cache: dict[str, SvEvent] = {}
+        for row in self.df.itertuples(index=True, name="Row"):
+            print(row.Index, row.REF, row.ALT, row)
+            assert not row.CHROM.startswith('chr')
+            info = _parse_info(row.INFO)
+            pos = int(row.POS)
+            end = int(info.get("END", row.POS))
+            alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
 
-        with _open_text_auto(self.path) as fh:
-            header_cols: list[str] | None = None
-            for line in fh:
-                if line.startswith("##"):
-                    continue
-                if line.startswith("#CHROM"):
-                    header_cols = line.rstrip("\n").split("\t")
-                    continue
-                if not line.strip():
-                    continue
+            svtype = info.get("SVTYPE")
+            svlen = int(info["SVLEN"]) if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit() else 0
 
-                if header_cols is None:
-                    raise RuntimeError("VCF header not found before records")
+            if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
+                first_alt = row.ALT.split(",")[0]
+                delta = len(first_alt) - len(row.REF)
+                inferred_type = "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
+                svtype = inferred_type
+                svlen = delta
+                end = pos + max(len(row.REF), 1)
 
-                cols = line.rstrip("\n").split("\t")
-                chrom, pos_s, id_s, ref, alt, qual, filt, info_s = cols[:8]
-                fmt = "."
-                sample = "."
-                if len(cols) >= 10:
-                    fmt = cols[8]
-                    sample = cols[9]
-                if chrom.startswith("chr"):
-                    chrom = chrom[3:]
+            if svtype is None and alt_is_symbolic:
+                token = row.ALT.strip("<>")
+                svtype = token.split(":")[0].upper()
 
-                info = _parse_info(info_s)
-                pos = int(pos_s)
-                end = int(info.get("END", pos_s))
-                alt_is_symbolic = alt.startswith("<") and alt.endswith(">")
+            if svtype is None:
+                continue
 
-                svtype = info.get("SVTYPE")
-                svlen = int(info["SVLEN"]) if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit() else 0
+            cipos = _parse_ci(info.get("CIPOS"))
+            ciend = _parse_ci(info.get("CIEND"))
 
-                if svtype is None and _is_large_indel(ref, alt, self.min_size):
-                    first_alt = alt.split(",")[0]
-                    delta = len(first_alt) - len(ref)
-                    inferred_type = "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
-                    svtype = inferred_type
-                    svlen = delta
-                    end = pos + max(len(ref), 1)
+            event = SvEvent(
+                chrom=row.CHROM,
+                pos=pos,
+                end=end,
+                svtype=svtype,
+                svlen=svlen,
+                alt=row.ALT,
+                id=row.ID,
+                qual=row.QUAL,
+                info=info,
+                cipos=cipos,
+                ciend=ciend,
+                sample_fmt=row.FORMAT,
+                sample_value=row.SAMPLE,
+            )
 
-                if svtype is None and alt_is_symbolic:
-                    token = alt.strip("<>")
-                    svtype = token.split(":")[0].upper()
-
-                if svtype is None:
-                    continue
-
-                cipos = _parse_ci(info.get("CIPOS"))
-                ciend = _parse_ci(info.get("CIEND"))
-
-                event = SvEvent(
-                    chrom=chrom,
-                    pos=pos,
-                    end=end,
-                    svtype=svtype,
-                    svlen=svlen,
-                    alt=alt,
-                    id=id_s,
-                    qual=qual,
-                    info=info,
-                    cipos=cipos,
-                    ciend=ciend,
-                    sample_fmt=fmt,
-                    sample_value=sample,
-                )
-
-                if svtype == "BND":
-                    mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
-                    if mate_id:
-                        if mate_id in bnd_cache:
-                            yield bnd_cache.pop(mate_id)
-                            yield event
-                        else:
-                            bnd_cache[event.id] = event
+            if svtype == "BND":
+                mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
+                if mate_id:
+                    if mate_id in bnd_cache:
+                        yield bnd_cache.pop(mate_id)
+                        yield event
                     else:
-                        yield event
+                        bnd_cache[event.id] = event
                 else:
-                    if event.size >= self.min_size:
-                        yield event
+                    yield event
+            else:
+                if event.size >= self.min_size:
+                    yield event
 
 
 

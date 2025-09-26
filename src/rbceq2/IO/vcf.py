@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 import re
-
+from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
@@ -377,11 +377,16 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pd.DataFrame: A Pandas DataFrame containing only the filtered variants from
             the original DataFrame, with the temporary 'LOCI' column removed.
     """
+    #TODO maybe best to switch to tabix? 
+    # although fuzzy mtaching won't work with tabix...
     df = df.with_columns(
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
+    large_vars = set(df.filter(
+    (df["REF"].str.len_chars() > 50) | (df["ALT"].str.len_chars() > 50)
+    )["LOCI"])
     neighbours = find_phased_neighbors(df)
-    merged_set = neighbours | unique_variants
+    merged_set = neighbours | unique_variants | large_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)
