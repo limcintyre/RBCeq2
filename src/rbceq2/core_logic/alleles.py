@@ -11,7 +11,7 @@ from loguru import logger
 
 from rbceq2.core_logic.utils import Zygosity  # , chunk_list_by_rank
 from rbceq2.core_logic.constants import AlleleState
-
+from frozendict import frozendict
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
@@ -57,7 +57,7 @@ class Allele:
     weight_geno: int = 1
     reference: bool = False
     sub_type: str = ""
-    # phases: dict[str, dict[str,str]] | None = None
+    big_variants: frozendict[str, str] = field(default_factory=frozendict)
     number_of_defining_variants: int = field(init=False)
 
     def __post_init__(self: Allele) -> None:
@@ -67,6 +67,21 @@ class Allele:
         """
         object.__setattr__(
             self, "number_of_defining_variants", len(self.defining_variants)
+        )
+    
+    def with_big_variants(self, new: dict[str, str]) -> "Allele":
+        """Return a new Allele with updated big_variants."""
+        return Allele(
+            genotype=self.genotype,
+            phenotype=self.phenotype,
+            genotype_alt=self.genotype_alt,
+            phenotype_alt=self.phenotype_alt,
+            defining_variants=self.defining_variants,
+            null=self.null,
+            weight_geno=self.weight_geno,
+            reference=self.reference,
+            sub_type=self.sub_type,
+            big_variants=frozendict(new),
         )
 
     def __contains__(self, other: Allele) -> bool:
@@ -134,11 +149,10 @@ class Allele:
             f"Allele \n "
             f"genotype: {self.genotype} \n "
             f"defining_variants: {sep_var}{sep_var.join(self.defining_variants)} \n "
+            f"big_variants: {self.big_variants} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
-            # f"weight_pheno: {self.weight_pheno} \n "
             f"reference: {self.reference} \n"
-            # f"phases: {self.phases} \n"
         )
 
     def __str__(self) -> str:
@@ -298,29 +312,6 @@ class BloodGroup:
         """
         return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
 
-    # @property
-    # def phase_set_ids(self) -> set[str]:
-    #     """Extract unique phase set IDs from raw alleles.
-
-    #     Returns:
-    #         Set[str]: A set of unique phase set IDs.
-
-    #     Raises:
-    #         ValueError: If there are no raw alleles to extract phase sets from.
-    #     """
-    #     if AlleleState.FILT in self.alleles:
-    #         return set().union(*[set(a.phases) for a in self.alleles[AlleleState.FILT]])
-    #     else:
-    #         raise ValueError("No raw alleles to get phase set ids from")
-
-    # @property
-    # def number_of_phase_set_ids(self) -> int:
-    #     """Count the number of unique phase set IDs.
-
-    #     Returns:
-    #         int: The number of unique phase set IDs.
-    #     """
-    #     return len(self.phase_set_ids)
 
     @property
     def number_of_putative_alleles(self) -> int:

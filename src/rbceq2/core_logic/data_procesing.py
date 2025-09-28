@@ -20,7 +20,7 @@ from rbceq2.IO.vcf import VCF
 import pandas as pd
 from icecream import ic
 
-def raw_results(db: Db, vcf: VCF, exclude: list[str], big_vars: dict[str, str]) -> dict[str, list[Allele]]:
+def raw_results(db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
 
@@ -33,18 +33,44 @@ def raw_results(db: Db, vcf: VCF, exclude: list[str], big_vars: dict[str, str]) 
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
     """
-    all_vars = vcf.variants | big_vars
-    ic(len(vcf.variants), len(big_vars), len(all_vars))
 
     res: dict[str, list[Allele]] = defaultdict(list)
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
         if all(var in vcf.variants for var in allele.defining_variants):
+            if var_map:
+                allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
-
     return res
 
+
+def make_blood_groups(
+    res: dict[str, list[Allele]], sample: str
+) -> dict[str, BloodGroup]:
+    """Create a dictionary of BloodGroup objects from allele data.
+
+    Iterates through the 'res' mapping of blood group identifiers to lists of Allele
+    objects, and constructs a new dictionary where each key is a blood group name and
+    each value is a BloodGroup instance.
+
+    Args:
+        res (dict[str, list[Allele]]):
+            A dictionary mapping blood group names to a list of Allele objects.
+        sample (str):
+            The sample identifier to be associated with each BloodGroup.
+
+    Returns:
+        dict[str, BloodGroup]:
+            A dictionary mapping blood group identifiers to BloodGroup instances.
+    """
+    new_dict: dict[str, BloodGroup] = {}
+    for blood_group, alleles in res.items():
+        new_dict[blood_group] = BloodGroup(
+            type=blood_group, alleles={AlleleState.RAW: alleles}, sample=sample
+        )
+
+    return new_dict
 
 @apply_to_dict_values
 def add_phasing(
@@ -477,32 +503,7 @@ def get_genotypes(bg: BloodGroup) -> BloodGroup:
     return bg
 
 
-def make_blood_groups(
-    res: dict[str, list[Allele]], sample: str
-) -> dict[str, BloodGroup]:
-    """Create a dictionary of BloodGroup objects from allele data.
 
-    Iterates through the 'res' mapping of blood group identifiers to lists of Allele
-    objects, and constructs a new dictionary where each key is a blood group name and
-    each value is a BloodGroup instance.
-
-    Args:
-        res (dict[str, list[Allele]]):
-            A dictionary mapping blood group names to a list of Allele objects.
-        sample (str):
-            The sample identifier to be associated with each BloodGroup.
-
-    Returns:
-        dict[str, BloodGroup]:
-            A dictionary mapping blood group identifiers to BloodGroup instances.
-    """
-    new_dict: dict[str, BloodGroup] = {}
-    for blood_group, alleles in res.items():
-        new_dict[blood_group] = BloodGroup(
-            type=blood_group, alleles={AlleleState.RAW: alleles}, sample=sample
-        )
-
-    return new_dict
 
 
 def filter_vcf_metrics(
@@ -550,10 +551,13 @@ def filter_vcf_metrics(
     passed_filtering = []
     metric_threshold = float(metric_threshold)
     for allele in alleles:
+        if allele.big_variants:
+            passed_filtering.append(allele)
+            continue
         keep = True
         for variant in allele.defining_variants:
             read_depth = float(variant_metrics[variant][metric_name])
-            if microarray:
+            if microarray: #TODO !!
                 read_depth = 30.0  # for microarray
             else:
                 read_depth = float(variant_metrics[variant][metric_name])
@@ -625,8 +629,10 @@ def only_keep_alleles_if_FILTER_PASS(
         for variant in allele.defining_variants:
             if "_ref" in variant:
                 continue
+            vcf_var = allele.big_variants.get(variant, variant)
+            #ic(variant, allele, vcf_var,df,df.query("variant.str.contains(@vcf_var)"))
             try:
-                filter_value = df.query("variant.str.contains(@variant)")[
+                filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
                 ].iloc[0]
             except IndexError:

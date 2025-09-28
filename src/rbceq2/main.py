@@ -38,7 +38,7 @@ from rbceq2.IO.vcf import (
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
 )
-from rbceq2.core_logic.large_variants import SnifflesVcfSvReader,load_db_defs,load_db_defs2,SvMatcher,select_best_per_vcf
+from rbceq2.core_logic.large_variants import SnifflesVcfSvReader,load_db_defs,SvMatcher,select_best_per_vcf
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
@@ -265,34 +265,33 @@ def find_hits(
 ) -> pd.DataFrame | None:
     
     vcf = VCF(vcf, db.lane_variants, db.unique_variants)
-    vcf.df.to_csv(args.out / f'{vcf.sample}.tsv', sep='\t')
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
     events=list(reader.events())
-    #ic(vcf.sample, len(events))
 
-    #db_defs = load_db_defs(Path('/home/liam/code/RBCeq2/src/rbceq2/resources/db.tsv'))
-    db_defs = load_db_defs2(db.df)
-    #assert db_defs == db_defs2
+    db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
-    big_vars = {}
+    var_map = {}
     if best:
         for m in best:
-            print(
-                f"sample: {vcf.sample} == "
-                f"DB: {m.db.id} {m.db.raw} -> "
-                f"VCF: {m.vcf.svtype} {m.vcf.chrom}:{m.vcf.pos}-{m.vcf.end} "
-                f"len={abs(m.vcf.svlen or m.vcf.size)} "
-                f"(score={m.score:.3f}, Δpos={m.pos_delta}, Δlen={m.len_delta})"
-                "\n\n\n"
-            )
-            big_vars[m.db.raw] ='TODO' #TODO
+            # print(
+            #     f"sample: {vcf.sample} == "
+            #     f"DB: {m.db.id} {m.db.raw} -> "
+            #     f"VCF: {m.vcf.svtype} {m.vcf.chrom}:{m.vcf.pos}-{m.vcf.end} "
+            #     f"VCF2: {m} "
+            #     f"len={abs(m.vcf.svlen or m.vcf.size)} "
+            #     f"(score={m.score:.3f}, Δpos={m.pos_delta}, Δlen={m.len_delta})"
+            #     "\n\n\n"
+            # )
+
+            vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(zip(m.vcf.sample_fmt.split(':'), m.vcf.sample_value.split(':')))
+            var_map[f'{m.vcf.chrom}:{m.db.raw}'] = m.variant
         
     else:
         ic('missed', vcf.sample)
 
-    res = dp.raw_results(db, vcf, excluded,big_vars)
+    res = dp.raw_results(db, vcf, excluded, var_map)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [

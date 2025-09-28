@@ -151,6 +151,7 @@ class MatchResult:
     score: float
     pos_delta: int
     len_delta: int
+    variant: str
 
 
 @dataclass(slots=True)
@@ -246,7 +247,7 @@ class SvMatcher:
                     continue
                 s, pdelta, ld = self.score(db, ev)
                 if s != float("inf"):
-                    results.append(MatchResult(db=db, vcf=ev, score=s, pos_delta=pdelta, len_delta=ld))
+                    results.append(MatchResult(db=db, vcf=ev, score=s, pos_delta=pdelta, len_delta=ld, variant=ev.variant))
 
         # Keep best per (allele id, raw token, chrom)
         best: dict[tuple[str, str, str], MatchResult] = {}
@@ -356,22 +357,22 @@ class SvMatcher:
 
 
 
-def _sniff_delimiter(path: Path) -> str:
-    """Guess file delimiter using csv.Sniffer, fallback to tab.
+# def _sniff_delimiter(path: Path) -> str:
+#     """Guess file delimiter using csv.Sniffer, fallback to tab.
 
-    Args:
-        path (Path): TSV/CSV path.
+#     Args:
+#         path (Path): TSV/CSV path.
 
-    Returns:
-        str: Detected delimiter.
-    """
-    with open(path, "rt", encoding="utf-8-sig", newline="") as fh:
-        sample = fh.read(8192)
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=[",", "\t", ";", "|"])
-        return dialect.delimiter
-    except Exception:
-        return "\t"
+#     Returns:
+#         str: Detected delimiter.
+#     """
+#     with open(path, "rt", encoding="utf-8-sig", newline="") as fh:
+#         sample = fh.read(8192)
+#     try:
+#         dialect = csv.Sniffer().sniff(sample, delimiters=[",", "\t", ";", "|"])
+#         return dialect.delimiter
+#     except Exception:
+#         return "\t"
 
 
 
@@ -418,7 +419,7 @@ def _looks_like_sv_token(tok: str) -> bool:
     return False
 
 
-def load_db_defs2(
+def load_db_defs(
     df: pd.DataFrame,
     chrom_col: str | None = None,
     svtoken_col: str | None = None,
@@ -511,107 +512,6 @@ def load_db_defs2(
 
 
 
-
-
-def load_db_defs(db_tsv: Path,
-                 chrom_col: str | None = None,
-                 svtoken_col: str | None = None,
-                 ) -> list[SvDef]:
-    """Auto-detect and load SV definitions from a DB file.
-
-    Tries hard to cope with variant headers and delimiters. If `chrom_col` or
-    `svtoken_col` are provided, they are honored (case-insensitive). Otherwise:
-      - Chromosome column is chosen from {'chrom','chr'} (any case).
-      - SV tokens are collected from *all* columns that look like SV tokens.
-
-    Args:
-        db_tsv (Path): Path to DB TSV/CSV.
-        chrom_col (str | None): Column name for chromosome (case-insensitive).
-        svtoken_col (str | None): Column with SV token(s); if None, scan all.
-
-    Returns:
-        list[SvDef]: Parsed structural variant definitions.
-    """
-    delim = _sniff_delimiter(db_tsv)
-    defs: list[SvDef] = []
-    token_hits = 0
-    row_count = 0
-
-    with open(db_tsv, "rt", encoding="utf-8-sig", newline="") as fh:
-        reader = csv.reader(fh, delimiter=delim)
-        header = next(reader, None)
-        if header is None:
-            return defs
-
-        ci = _ci_lookup(header)
-
-        # Resolve chrom col
-        if chrom_col:
-            chrom_key = ci.get(chrom_col.lower())
-        else:
-            chrom_key = ci.get("chrom") or ci.get("chr")
-
-        if chrom_key is None:
-            # Try GRCh38 scaffold columns (very repo-specific fallback)
-            chrom_key = ci.get("grch38") or ci.get("grch37")
-            # If still none, we cannot proceed; tokens don’t have chrom embedded.
-            if chrom_key is None:
-                return defs
-
-        if svtoken_col:
-            token_key = ci.get(svtoken_col.lower())
-        else:
-            token_key = None  # trigger scan-all
-
-        # Determine allele id column (nice to have)
-        allele_key = ci.get("allele") or ci.get("id") or ci.get("genotype") or ci.get("name")
-
-        # Scan rows
-        for parts in reader:
-            row_count += 1
-            row = dict(zip(header, parts))
-
-            chrom = (row.get(chrom_key) or "").strip()
-            chrom = chrom.removeprefix("chr").removeprefix("CHR")
-            if not chrom:
-                continue
-
-            candidates: list[str] = []
-            if token_key:
-                # Single specified token column
-                candidates = [row.get(token_key, "")]
-            else:
-                # Scan all columns for likely tokens; split by comma/semicolon if present
-                for k, v in row.items():
-                    if not v:
-                        continue
-                    # quick path: if it obviously looks like SV token or contains commas with such tokens
-                    if _looks_like_sv_token(v):
-                        candidates.append(v)
-                    elif any(_looks_like_sv_token(t.strip()) for t in re.split(r"[;,]", v)):
-                        candidates.append(v)
-
-            if not candidates:
-                continue
-
-            allele_id = (row.get(allele_key) or row.get("Genotype") or "-") if allele_key else (row.get("Genotype") or "-")
-
-            for raw in candidates:
-                for tok in re.split(r"[;,]", raw):
-                    tok = tok.strip()
-                    if not tok:
-                        continue
-                    if not _looks_like_sv_token(tok):
-                        continue
-                    svd = parse_db_token(chrom, tok, db_id=str(allele_id))
-                    if svd:
-                        defs.append(svd)
-                        token_hits += 1
-
-
-    return defs
-
-
 def match_db_to_vcf(db_tsv: Path, vcf_path: Path, min_size: int = 50) -> list[MatchResult]:
     """High-level helper: match DB TSV definitions to VCF SV events.
 
@@ -683,6 +583,7 @@ class SvEvent:
     alt: str
     id: str
     qual: str
+    variant: str
     info: dict[str, str]
     cipos: ConfidenceInterval = field(default_factory=ConfidenceInterval)
     ciend: ConfidenceInterval = field(default_factory=ConfidenceInterval)
@@ -701,18 +602,18 @@ class SvEvent:
         return abs(self.end - self.pos)
 
 
-def _open_text_auto(path: Path) -> io.TextIOBase:
-    """Open a plain or gzipped text file in text mode.
+# def _open_text_auto(path: Path) -> io.TextIOBase:
+#     """Open a plain or gzipped text file in text mode.
 
-    Args:
-        path (Path): Path to file.
+#     Args:
+#         path (Path): Path to file.
 
-    Returns:
-        io.TextIOBase: Opened file handle.
-    """
-    if str(path).endswith(".gz"):
-        return io.TextIOWrapper(gzip.open(path, mode="rb"), encoding="utf-8", newline="")
-    return open(path, "rt", encoding="utf-8", newline="")
+#     Returns:
+#         io.TextIOBase: Opened file handle.
+#     """
+#     if str(path).endswith(".gz"):
+#         return io.TextIOWrapper(gzip.open(path, mode="rb"), encoding="utf-8", newline="")
+#     return open(path, "rt", encoding="utf-8", newline="")
 
 
 def _parse_info(info: str) -> dict[str, str]:
@@ -830,6 +731,7 @@ class SnifflesVcfSvReader:
                 id=row.ID,
                 qual=row.QUAL,
                 info=info,
+                variant=f'{row.CHROM}:{row.POS}_{row.REF}_{row.ALT}',
                 cipos=cipos,
                 ciend=ciend,
                 sample_fmt=row.FORMAT,

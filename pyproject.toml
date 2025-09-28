@@ -30,6 +30,7 @@ dependencies = [
     "loguru>=0.7.2",
     "pyarrow>=18.1",
     "reportlab>=4.3.1",
+    "frozendict>=2.4.6"
 ]
 
 
