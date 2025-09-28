@@ -556,6 +556,7 @@ def filter_vcf_metrics(
             continue
         keep = True
         for variant in allele.defining_variants:
+            ic(variant_metrics)
             read_depth = float(variant_metrics[variant][metric_name])
             if microarray: #TODO !!
                 read_depth = 30.0  # for microarray

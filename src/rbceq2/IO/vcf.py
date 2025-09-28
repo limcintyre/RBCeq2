@@ -3,14 +3,14 @@ import io
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import pandas as pd
 import re
 from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
-
+from collections import defaultdict
 from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
 
 
@@ -27,7 +27,7 @@ class VCF:
             A set of unique variant identifiers.
     """
 
-    input_vcf: Path | pd.DataFrame | None
+    input_vcf: pl.DataFrame | pd.DataFrame
     lane_variants: dict[str, Any]
     unique_variants: set[str]
     sample: str = field(init=False)
@@ -105,9 +105,9 @@ class VCF:
         Returns:
             pd.DataFrame: The DataFrame representation of the VCF data.
         """
-        if isinstance(self.input_vcf, Path):
-            vcf = read_vcf(self.input_vcf)
-            return filter_VCF_to_BG_variants(vcf, self.unique_variants)
+        
+        if isinstance(self.input_vcf, pl.DataFrame):
+            return filter_VCF_to_BG_variants(self.input_vcf, self.unique_variants)
         else:
             return self.input_vcf[0]
 
@@ -466,63 +466,209 @@ class VcfNoDataError(Exception):
         return super().__str__()
 
 
-def read_vcf(file_path: str) -> pl.DataFrame:
-    """Read a VCF file using polars while preserving the header and sample names.
 
-    This function manually extracts the header (line starting with "#CHROM")
-    and skips meta-information lines (starting with "##"). It then constructs a
-    CSV-formatted string and parses it with polars.
+
+@dataclass(frozen=True, slots=True)
+class Interval:
+    start: int
+    end: int
+
+
+
+
+def parse_positions(db_col: str) -> list[int]:
+    """Extract numeric positions from a database column entry string."""
+    if pd.isna(db_col):
+        return []
+    positions = []
+    for tok in str(db_col).split(","):
+        if "_" in tok:
+            pos = tok.split("_", 1)[0]
+            if pos.isdigit():
+                positions.append(int(pos))
+    return positions
+
+
+def build_intervals(
+    db: pd.DataFrame, genome: str, flank: int = 500_000
+) -> dict[str, list[Interval]]:
+    """Construct per-chrom intervals ±flank from database DataFrame.
 
     Args:
-        file_path (str): Path to the VCF file (can be gzipped).
+        db (pd.DataFrame): DataFrame with at least 'Chrom' and genome columns.
+        genome (str): Column to use ('GRCh37' or 'GRCh38').
+        flank (int): Window size on either side of each variant.
 
     Returns:
-        pl.DataFrame: DataFrame containing the VCF data.
+        dict[str, list[Interval]]: Per-chromosome merged intervals.
     """
+    intervals = defaultdict(list)
 
-    header = None
-    # Use gzip.open if file is gzipped, else standard open.
-    open_func = gzip.open if str(file_path).endswith(".gz") else open
-    with open_func(file_path, "rt") as f:
-        # Find header line starting with "#CHROM"
+    for row in db.itertuples(index=False):
+        chrom = getattr(row, "Chrom").removeprefix("chr")
+        genome_col = getattr(row, genome)
+        for pos in parse_positions(genome_col):
+            intervals[chrom].append(Interval(max(0, pos - flank), pos + flank))
+
+    # merge overlapping intervals per chromosome
+    merged = {}
+    for chrom, ivals in intervals.items():
+        ivals.sort(key=lambda x: x.start)
+        merged_list: list[Interval] = []
+        for iv in ivals:
+            if not merged_list or iv.start > merged_list[-1].end:
+                merged_list.append(iv)
+            else:
+                merged_list[-1] = Interval(
+                    merged_list[-1].start,
+                    max(merged_list[-1].end, iv.end)
+                )
+        merged[chrom] = merged_list
+    return merged
+
+
+def variant_in_intervals(chrom: str, pos: int, intervals: dict[str, list[Interval]]) -> bool:
+    """Check if a variant lies in any interval for that chrom."""
+    if chrom not in intervals:
+        return False
+    for iv in intervals[chrom]:
+        if iv.start <= pos <= iv.end:
+            return True
+    return False
+
+
+def read_vcf(
+    vcf_path: str, intervals: dict[str, list[Interval]]
+) -> pl.DataFrame:
+    """Stream a VCF, keep only relevant lines, return as Polars DataFrame."""
+    open_func = gzip.open if vcf_path.endswith(".gz") else open
+    header_line = None
+    rows: list[str] = []
+
+    with open_func(vcf_path, "rt") as f:
         for line in f:
             if line.startswith("##"):
                 continue
-            if line.startswith("#"):
-                header = line.lstrip("#").strip().split("\t")
-                if len(header) == 10:
-                    header[-1] = "SAMPLE"  # for single sample
-                break
+            if line.startswith("#CHROM"):
+                header_line = line.lstrip("#").strip()
+                continue
 
-        if header is None:
-            raise VcfMissingHeaderError(filename=file_path)
+            # parse variant
+            fields = line.split("\t")
+            chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
 
-        header_line = "\t".join(header) + "\n"
-        data = f.read()
+            if variant_in_intervals(chrom, pos, intervals):
+                rows.append(line)
 
-    csv_content = header_line + data
-    try:
-        df = pl.read_csv(
-            io.StringIO(csv_content),
-            separator="\t",
-            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-        )
-    except pl.exceptions.ComputeError:
-        logger.warning(
-            f"VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!"
-        )
-        df = pl.read_csv(
-            io.StringIO(csv_content),
-            separator="\t",
-            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-            truncate_ragged_lines=True,
-        )
-    if df.is_empty():
-        raise VcfNoDataError(filename=file_path)
-    df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
+    if not header_line:
+        raise RuntimeError("VCF missing header")
 
+    csv_content = header_line + "\n" + "".join(rows)
+
+    df = pl.read_csv(
+        io.StringIO(csv_content),
+        separator="\t",
+        schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
+        truncate_ragged_lines=True,
+    )
     return df
 
+
+
+
+
+# def read_vcf(file_path: str) -> pl.DataFrame:
+#     """Read a VCF file using polars while preserving the header and sample names.
+
+#     This function manually extracts the header (line starting with "#CHROM")
+#     and skips meta-information lines (starting with "##"). It then constructs a
+#     CSV-formatted string and parses it with polars.
+
+#     Args:
+#         file_path (str): Path to the VCF file (can be gzipped).
+
+#     Returns:
+#         pl.DataFrame: DataFrame containing the VCF data.
+#     """
+
+#     header = None
+#     # Use gzip.open if file is gzipped, else standard open.
+#     open_func = gzip.open if str(file_path).endswith(".gz") else open
+#     with open_func(file_path, "rt") as f:
+#         # Find header line starting with "#CHROM"
+#         for line in f:
+#             if line.startswith("##"):
+#                 continue
+#             if line.startswith("#"):
+#                 header = line.lstrip("#").strip().split("\t")
+#                 if len(header) == 10:
+#                     header[-1] = "SAMPLE"  # for single sample
+#                 break
+
+#         if header is None:
+#             raise VcfMissingHeaderError(filename=file_path)
+
+#         header_line = "\t".join(header) + "\n"
+#         data = f.read()
+
+#     csv_content = header_line + data
+#     try:
+#         df = pl.read_csv(
+#             io.StringIO(csv_content),
+#             separator="\t",
+#             schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+#         )
+#     except pl.exceptions.ComputeError:
+#         logger.warning(
+#             f"VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!"
+#         )
+#         df = pl.read_csv(
+#             io.StringIO(csv_content),
+#             separator="\t",
+#             schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+#             truncate_ragged_lines=True,
+#         )
+#     except MemoryError:
+#         message = 'VCF is too big, plz split into multiple VCFs and or trim ie bcftools view -R regions.bed ...'
+#         print(message)
+#         logger.error(message)
+#         raise
+#     if df.is_empty():
+#         raise VcfNoDataError(filename=file_path)
+#     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
+
+#     return df
+
+# def read_vcf_lazy(file_path: str) -> pl.DataFrame:
+#     open_func = gzip.open if str(file_path).endswith(".gz") else open
+#     with open_func(file_path, "rt") as f:
+#         # find header
+#         for line in f:
+#             if line.startswith("##"):
+#                 continue
+#             if line.startswith("#"):
+#                 header = line.lstrip("#").strip().split("\t")
+#                 if len(header) == 10:
+#                     header[-1] = "SAMPLE"
+#                 break
+#         else:
+#             raise VcfMissingHeaderError(filename=file_path)
+
+#     # now skip meta + header automatically, let Polars do lazy reading
+#     try:
+#         df = pl.read_csv(
+#         file_path,
+#         separator="\t",
+#         has_header=True,
+#         skip_rows=len([l for l in gzip.open(file_path, "rt") if l.startswith("##")]),
+#         schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
+#     )
+#     except:
+
+#     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
+#     if df.is_empty():
+#         raise VcfNoDataError(filename=file_path)
+#     return df
 
 def check_if_multi_sample_vcf(file_path: str) -> bool:
     """Read a VCF file header.

@@ -12,7 +12,7 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 
-
+import polars as pl
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as filt
@@ -37,6 +37,7 @@ from rbceq2.IO.vcf import (
     read_vcf,
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
+    build_intervals
 )
 from rbceq2.core_logic.large_variants import SnifflesVcfSvReader,load_db_defs,SvMatcher,select_best_per_vcf
 
@@ -204,7 +205,8 @@ def main():
             log_validation(result_valid, file_name)
         actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
         if actually_multi_vcf:
-            multi_vcf = read_vcf(args.vcf)
+            intervals = build_intervals(db_df, args.reference_genome)
+            multi_vcf = read_vcf(str(args.vcf), intervals)
             logger.info("Multi sample VCF passed")
             filtered_multi_vcf = filter_VCF_to_BG_variants(
                 multi_vcf, db.unique_variants
@@ -264,7 +266,12 @@ def find_hits(
     excluded: list[str],
 ) -> pd.DataFrame | None:
     
-    vcf = VCF(vcf, db.lane_variants, db.unique_variants)
+    intervals = build_intervals(db.df, args.reference_genome)
+    if isinstance(vcf, Path):
+        vcf_bed_filtered = read_vcf(str(vcf), intervals)
+        vcf = VCF(vcf_bed_filtered, db.lane_variants, db.unique_variants)
+    else:
+        vcf = VCF(vcf, db.lane_variants, db.unique_variants)
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
     events=list(reader.events())
 
@@ -288,8 +295,6 @@ def find_hits(
             vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(zip(m.vcf.sample_fmt.split(':'), m.vcf.sample_value.split(':')))
             var_map[f'{m.vcf.chrom}:{m.db.raw}'] = m.variant
         
-    else:
-        ic('missed', vcf.sample)
 
     res = dp.raw_results(db, vcf, excluded, var_map)
     res = dp.make_blood_groups(res, vcf.sample)
@@ -298,18 +303,18 @@ def find_hits(
         partial(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        partial(
-            dp.remove_alleles_with_low_read_depth,
-            variant_metrics=vcf.variants,
-            min_read_depth=1,
-            microarray=False,
-        ),
-        partial(
-            dp.remove_alleles_with_low_base_quality,
-            variant_metrics=vcf.variants,
-            min_base_quality=1,
-            microarray=False,
-        ),
+        # partial(
+        #     dp.remove_alleles_with_low_read_depth,
+        #     variant_metrics=vcf.variants,
+        #     min_read_depth=1,
+        #     microarray=False,
+        # ),
+        # partial(
+        #     dp.remove_alleles_with_low_base_quality,
+        #     variant_metrics=vcf.variants,
+        #     min_base_quality=1,
+        #     microarray=False,
+        # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(
             dp.add_phasing,
