@@ -3,18 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from collections import defaultdict
-import gzip
-import io
 from dataclasses import dataclass, field
 from typing import Iterator, Protocol, runtime_checkable
 
-from loguru import logger
-import csv
 import pandas as pd
 import re
 from typing import Iterable
-import re
-from icecream import ic
 
 
 @dataclass(slots=True, frozen=True)
@@ -123,7 +117,9 @@ def parse_db_token(chrom: str, token: str, db_id: str = "-") -> SvDef | None:
         alt = parts[2]
         delta = len(alt) - len(ref)
         svtype = "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
-        return SvDef(chrom=chrom, pos=pos, svtype=svtype, length=abs(delta), raw=raw, id=db_id)
+        return SvDef(
+            chrom=chrom, pos=pos, svtype=svtype, length=abs(delta), raw=raw, id=db_id
+        )
 
     # Word form: <pos>_<type>_<len>
     if len(parts) >= 3 and parts[1].lower() in {"del", "dup", "ins", "inv", "cnv"}:
@@ -201,7 +197,6 @@ class SvMatcher:
         """
         return abs(ev.svlen or ev.size)
 
-
     def _intervals_overlap(self, db: SvDef, ev: SvEvent) -> bool:
         """Test reciprocal overlap between DB and VCF intervals.
 
@@ -225,7 +220,9 @@ class SvMatcher:
         ev_len = max(1, ev_e - ev_s)
         return (inter / db_len) >= 0.1 and (inter / ev_len) >= 0.1
 
-    def match(self, db_defs: Iterable[SvDef], events: Iterable[SvEvent]) -> list[MatchResult]:
+    def match(
+        self, db_defs: Iterable[SvDef], events: Iterable[SvEvent]
+    ) -> list[MatchResult]:
         """Match DB definitions to VCF events and return best hits per DB token.
 
         Args:
@@ -247,7 +244,16 @@ class SvMatcher:
                     continue
                 s, pdelta, ld = self.score(db, ev)
                 if s != float("inf"):
-                    results.append(MatchResult(db=db, vcf=ev, score=s, pos_delta=pdelta, len_delta=ld, variant=ev.variant))
+                    results.append(
+                        MatchResult(
+                            db=db,
+                            vcf=ev,
+                            score=s,
+                            pos_delta=pdelta,
+                            len_delta=ld,
+                            variant=ev.variant,
+                        )
+                    )
 
         # Keep best per (allele id, raw token, chrom)
         best: dict[tuple[str, str, str], MatchResult] = {}
@@ -257,8 +263,7 @@ class SvMatcher:
                 best[key] = r
 
         return sorted(best.values(), key=lambda r: (r.db.chrom, r.db.pos, r.score))
-    
-    
+
     def _adaptive_pos_tol(self, db: SvDef, ev: SvEvent, overlap: bool) -> int:
         """Compute a size-aware positional tolerance.
 
@@ -281,8 +286,8 @@ class SvMatcher:
         ci_end = abs(ev.ciend.left) + abs(ev.ciend.right)
         ci_span = max(ci_pos, ci_end)
 
-        POS_FLOOR = 200          # tiny SVs
-        POS_FRAC = 0.50          # no-overlap: 50% of size
+        POS_FLOOR = 200  # tiny SVs
+        POS_FRAC = 0.50  # no-overlap: 50% of size
         POS_FRAC_OVERLAP = 0.75  # overlap: 75% of size
         POS_CAP = 50_000
 
@@ -310,10 +315,10 @@ class SvMatcher:
         Lev = max(1, self._length(ev))
         L = max(Ldb, Lev)
 
-        LEN_FLOOR = 50            # tolerate small caller jitter
-        LEN_FRAC = 0.35           # no-overlap: 35% of size
-        LEN_FRAC_OVERLAP = 0.50   # overlap: 50% of size
-        LEN_CAP = 100_000         # safety cap
+        LEN_FLOOR = 50  # tolerate small caller jitter
+        LEN_FRAC = 0.35  # no-overlap: 35% of size
+        LEN_FRAC_OVERLAP = 0.50  # overlap: 50% of size
+        LEN_CAP = 100_000  # safety cap
 
         frac = LEN_FRAC_OVERLAP if overlap else LEN_FRAC
         tol = max(LEN_FLOOR, int(frac * L))
@@ -356,7 +361,6 @@ class SvMatcher:
         return (max(s, 0.0), pos_delta, len_delta)
 
 
-
 # def _sniff_delimiter(path: Path) -> str:
 #     """Guess file delimiter using csv.Sniffer, fallback to tab.
 
@@ -375,9 +379,6 @@ class SvMatcher:
 #         return "\t"
 
 
-
-
-
 def _ci_lookup(names: list[str]) -> dict[str, str]:
     """Case-insensitive header map: lower->original.
 
@@ -388,7 +389,6 @@ def _ci_lookup(names: list[str]) -> dict[str, str]:
         dict[str, str]: Mapping from lowercase column names to originals.
     """
     return {n.lower(): n for n in names}
-
 
 
 def _looks_like_sv_token(tok: str) -> bool:
@@ -457,10 +457,7 @@ def load_db_defs(
 
     # Determine allele id column (nice to have)
     allele_key = (
-        ci.get("allele")
-        or ci.get("id")
-        or ci.get("genotype")
-        or ci.get("name")
+        ci.get("allele") or ci.get("id") or ci.get("genotype") or ci.get("name")
     )
 
     # Iterate rows
@@ -481,10 +478,7 @@ def load_db_defs(
                     continue
                 if _looks_like_sv_token(v):
                     candidates.append(v)
-                elif any(
-                    _looks_like_sv_token(t.strip())
-                    for t in re.split(r"[;,]", v)
-                ):
+                elif any(_looks_like_sv_token(t.strip()) for t in re.split(r"[;,]", v)):
                     candidates.append(v)
 
         if not candidates:
@@ -509,10 +503,9 @@ def load_db_defs(
     return defs
 
 
-
-
-
-def match_db_to_vcf(db_tsv: Path, vcf_path: Path, min_size: int = 50) -> list[MatchResult]:
+def match_db_to_vcf(
+    db_tsv: Path, vcf_path: Path, min_size: int = 50
+) -> list[MatchResult]:
     """High-level helper: match DB TSV definitions to VCF SV events.
 
     Args:
@@ -527,7 +520,6 @@ def match_db_to_vcf(db_tsv: Path, vcf_path: Path, min_size: int = 50) -> list[Ma
     db_defs = load_db_defs(db_tsv=db_tsv)
     matcher = SvMatcher()
     return matcher.match(db_defs, events)
-
 
 
 @runtime_checkable
@@ -551,6 +543,7 @@ class ConfidenceInterval:
         left (int): Lower CI bound (inclusive) relative to POS/END.
         right (int): Upper CI bound (inclusive) relative to POS/END.
     """
+
     left: int = 0
     right: int = 0
 
@@ -671,9 +664,14 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
     if alt == "." or alt == "*" or alt.startswith("<"):
         return False
     for a in alt.split(","):
-        if abs(len(a) - len(ref)) >= threshold or len(ref) >= threshold or len(a) >= threshold:
+        if (
+            abs(len(a) - len(ref)) >= threshold
+            or len(ref) >= threshold
+            or len(a) >= threshold
+        ):
             return True
     return False
+
 
 @dataclass(slots=True, frozen=True)
 class SnifflesVcfSvReader:
@@ -683,9 +681,10 @@ class SnifflesVcfSvReader:
         df (df): df of to VCF file.
         min_size (int): Minimum size threshold for emitting events.
     """
+
     df: pd.DataFrame
     min_size: int = 50
-    
+
     def events(self) -> Iterator[SvEvent]:
         """Iterate over structural variant events in a VCF.
 
@@ -694,19 +693,25 @@ class SnifflesVcfSvReader:
         """
         bnd_cache: dict[str, SvEvent] = {}
         for row in self.df.itertuples(index=True, name="Row"):
-            assert not row.CHROM.startswith('chr')
+            assert not row.CHROM.startswith("chr")
             info = _parse_info(row.INFO)
             pos = int(row.POS)
             end = int(info.get("END", row.POS))
             alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
 
             svtype = info.get("SVTYPE")
-            svlen = int(info["SVLEN"]) if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit() else 0
+            svlen = (
+                int(info["SVLEN"])
+                if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit()
+                else 0
+            )
 
             if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
                 first_alt = row.ALT.split(",")[0]
                 delta = len(first_alt) - len(row.REF)
-                inferred_type = "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
+                inferred_type = (
+                    "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
+                )
                 svtype = inferred_type
                 svlen = delta
                 end = pos + max(len(row.REF), 1)
@@ -731,7 +736,7 @@ class SnifflesVcfSvReader:
                 id=row.ID,
                 qual=row.QUAL,
                 info=info,
-                variant=f'{row.CHROM}:{row.POS}_{row.REF}_{row.ALT}',
+                variant=f"{row.CHROM}:{row.POS}_{row.REF}_{row.ALT}",
                 cipos=cipos,
                 ciend=ciend,
                 sample_fmt=row.FORMAT,
@@ -753,10 +758,9 @@ class SnifflesVcfSvReader:
                     yield event
 
 
-
-def select_best_per_vcf(matches: Iterable[MatchResult],
-                        tie_tol: float = 1e-6
-                        ) -> list[MatchResult]:
+def select_best_per_vcf(
+    matches: Iterable[MatchResult], tie_tol: float = 1e-6
+) -> list[MatchResult]:
     """Select the best match per VCF event, breaking ties by Δpos then Δlen.
 
     Args:
@@ -798,6 +802,7 @@ def select_best_per_vcf(matches: Iterable[MatchResult],
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered
 
+
 # def find_sv_events(vcf_path: Path, min_size: int = 50) -> list[SvEvent]:
 #     """Parse all SV events from a VCF.
 
@@ -810,4 +815,3 @@ def select_best_per_vcf(matches: Iterable[MatchResult],
 #     """
 #     reader = VcfSvReader(path=vcf_path, min_size=min_size)
 #     return list(reader.events())
-

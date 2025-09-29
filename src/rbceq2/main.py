@@ -12,7 +12,6 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 
-import polars as pl
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
 import rbceq2.filters.geno as filt
@@ -37,9 +36,14 @@ from rbceq2.IO.vcf import (
     read_vcf,
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
-    build_intervals
+    build_intervals,
 )
-from rbceq2.core_logic.large_variants import SnifflesVcfSvReader,load_db_defs,SvMatcher,select_best_per_vcf
+from rbceq2.core_logic.large_variants import (
+    SnifflesVcfSvReader,
+    load_db_defs,
+    SvMatcher,
+    select_best_per_vcf,
+)
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
@@ -142,9 +146,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--min_size",
         type=int,
-        help=(
-            "Minimum size indel/SV to apply fuzzy matching to"
-        ),
+        help=("Minimum size indel/SV to apply fuzzy matching to"),
         default=50,
     )
     # parser.add_argument(
@@ -159,7 +161,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
 
 def main():
     ic("Running RBCeq2...")
-    
+
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
     exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
@@ -265,15 +267,19 @@ def find_hits(
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
 ) -> pd.DataFrame | None:
-    
     intervals = build_intervals(db.df, args.reference_genome)
     if isinstance(vcf, Path):
-        vcf_bed_filtered = read_vcf(str(vcf), intervals)
-        vcf = VCF(vcf_bed_filtered, db.lane_variants, db.unique_variants)
+        vcf_filtered_by_500kb_padded_bed = read_vcf(str(vcf), intervals)
+        vcf = VCF(
+            vcf_filtered_by_500kb_padded_bed,
+            db.lane_variants,
+            db.unique_variants,
+            vcf.stem,
+        )
     else:
-        vcf = VCF(vcf, db.lane_variants, db.unique_variants)
+        vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
-    events=list(reader.events())
+    events = list(reader.events())
 
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
@@ -292,10 +298,10 @@ def find_hits(
             #     "\n\n\n"
             # )
 
-            vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(zip(m.vcf.sample_fmt.split(':'), m.vcf.sample_value.split(':')))
-            var_map[f'{m.vcf.chrom}:{m.db.raw}'] = m.variant
-        
-
+            vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(
+                zip(m.vcf.sample_fmt.split(":"), m.vcf.sample_value.split(":"))
+            )
+            var_map[f"{m.vcf.chrom}:{m.db.raw}"] = m.variant
     res = dp.raw_results(db, vcf, excluded, var_map)
     res = dp.make_blood_groups(res, vcf.sample)
 

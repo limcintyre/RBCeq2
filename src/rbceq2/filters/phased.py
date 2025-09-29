@@ -17,6 +17,7 @@ from rbceq2.filters.shared_filter_functionality import (
 from rbceq2.core_logic.alleles import Allele
 from icecream import ic
 
+
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Remove unphased alleles from the BloodGroup's FILT state if phased flag is set.
@@ -877,8 +878,15 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                     to_remove.append(pair)
                     break
     if to_remove:
-        ic(1,bg.sample, bg.type,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+        ic(
+            1,
+            bg.sample,
+            bg.type,
+            to_remove,
+            bg.alleles[AlleleState.NORMAL],
+            bg.variant_pool,
+        )
         bg.remove_pairs(to_remove, "no_defining_variant")
-        ic(2,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+        ic(2, to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
 
     return bg

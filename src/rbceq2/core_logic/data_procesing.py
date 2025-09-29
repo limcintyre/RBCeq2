@@ -20,7 +20,10 @@ from rbceq2.IO.vcf import VCF
 import pandas as pd
 from icecream import ic
 
-def raw_results(db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]) -> dict[str, list[Allele]]:
+
+def raw_results(
+    db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]
+) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
 
@@ -71,6 +74,7 @@ def make_blood_groups(
         )
 
     return new_dict
+
 
 @apply_to_dict_values
 def add_phasing(
@@ -503,9 +507,6 @@ def get_genotypes(bg: BloodGroup) -> BloodGroup:
     return bg
 
 
-
-
-
 def filter_vcf_metrics(
     alleles: list[Allele],
     variant_metrics: dict[str, dict[str, str]],
@@ -558,7 +559,7 @@ def filter_vcf_metrics(
         for variant in allele.defining_variants:
             ic(variant_metrics)
             read_depth = float(variant_metrics[variant][metric_name])
-            if microarray: #TODO !!
+            if microarray:  # TODO !!
                 read_depth = 30.0  # for microarray
             else:
                 read_depth = float(variant_metrics[variant][metric_name])
@@ -631,7 +632,7 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
-            #ic(variant, allele, vcf_var,df,df.query("variant.str.contains(@vcf_var)"))
+            # ic(variant, allele, vcf_var,df,df.query("variant.str.contains(@vcf_var)"))
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"

@@ -2,16 +2,17 @@ import gzip
 import io
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 import pandas as pd
 import re
-from icecream import ic
+
 os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
 import polars as pl
 from loguru import logger
 from collections import defaultdict
 from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
+
+from icecream import ic
 
 
 @dataclass(slots=True, frozen=False)
@@ -30,7 +31,7 @@ class VCF:
     input_vcf: pl.DataFrame | pd.DataFrame
     lane_variants: dict[str, Any]
     unique_variants: set[str]
-    sample: str = field(init=False)
+    sample: str  # field(init=False)
     df: pd.DataFrame = field(init=False)
     loci: set[str] = field(init=False)
     variants: dict[str, str] = field(init=False)
@@ -39,7 +40,7 @@ class VCF:
     def __post_init__(self):
         """Handle initialization after data class creation."""
         object.__setattr__(self, "df", self.handle_single_or_multi())
-        object.__setattr__(self, "sample", self.get_sample())
+        # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
         self.remove_home_ref()
         self.encode_variants()
@@ -105,7 +106,7 @@ class VCF:
         Returns:
             pd.DataFrame: The DataFrame representation of the VCF data.
         """
-        
+
         if isinstance(self.input_vcf, pl.DataFrame):
             return filter_VCF_to_BG_variants(self.input_vcf, self.unique_variants)
         else:
@@ -139,16 +140,16 @@ class VCF:
         """Add loci identifiers to the DataFrame."""
         self.df["loci"] = self.df.CHROM + ":" + self.df.POS
 
-    def get_sample(self) -> str:
-        """Determine the sample name from the VCF path or DataFrame.
+    # def get_sample(self) -> str:
+    #     """Determine the sample name from the VCF path or DataFrame.
 
-        Returns:
-            str: The sample name.
-        """
-        if isinstance(self.input_vcf, Path):
-            return self.input_vcf.stem
-        else:
-            return self.input_vcf[-1]
+    #     Returns:
+    #         str: The sample name.
+    #     """
+    #     if isinstance(self.input_vcf, Path):
+    #         return self.input_vcf.stem
+    #     else:
+    #         return self.input_vcf[-1]
 
     def set_loci(self) -> set[str]:
         """Create a set of loci identifiers from the DataFrame.
@@ -183,7 +184,6 @@ class VCF:
         1  159175354   G   A  ... 1:159175354_G_A,1:159175354_ref  1:159175354
 
         """
-
         new_lanes = {}
 
         for chrom, loci in self.lane_variants.items():
@@ -377,17 +377,22 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pd.DataFrame: A Pandas DataFrame containing only the filtered variants from
             the original DataFrame, with the temporary 'LOCI' column removed.
     """
-    #TODO maybe best to switch to tabix? 
+    # TODO maybe best to switch to tabix?
     # although fuzzy mtaching won't work with tabix...
+    df = df.with_columns(
+        df["CHROM"].str.replace("chr", "", literal=True).alias("CHROM")
+    )
     df = df.with_columns(
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
-    large_vars = set(df.filter(
-    (df["REF"].str.len_chars() > 50) | (df["ALT"].str.len_chars() > 50)
-    )["LOCI"])
-    massive_vars = set(df.filter(
-    (df["ALT"].str.contains('<')) | (df["ALT"].str.contains('>'))
-    )["LOCI"])
+    large_vars = set(
+        df.filter((df["REF"].str.len_chars() > 50) | (df["ALT"].str.len_chars() > 50))[
+            "LOCI"
+        ]
+    )
+    massive_vars = set(
+        df.filter((df["ALT"].str.contains("<")) | (df["ALT"].str.contains(">")))["LOCI"]
+    )
     neighbours = find_phased_neighbors(df)
     merged_set = neighbours | unique_variants | large_vars | massive_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
@@ -395,7 +400,6 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)
     else:
         pandas_df = filtered_df.to_pandas(use_pyarrow_extension_array=False)
-
     del pandas_df["LOCI"]
 
     return pandas_df
@@ -466,14 +470,10 @@ class VcfNoDataError(Exception):
         return super().__str__()
 
 
-
-
 @dataclass(frozen=True, slots=True)
 class Interval:
     start: int
     end: int
-
-
 
 
 def parse_positions(db_col: str) -> list[int]:
@@ -520,14 +520,15 @@ def build_intervals(
                 merged_list.append(iv)
             else:
                 merged_list[-1] = Interval(
-                    merged_list[-1].start,
-                    max(merged_list[-1].end, iv.end)
+                    merged_list[-1].start, max(merged_list[-1].end, iv.end)
                 )
         merged[chrom] = merged_list
     return merged
 
 
-def variant_in_intervals(chrom: str, pos: int, intervals: dict[str, list[Interval]]) -> bool:
+def variant_in_intervals(
+    chrom: str, pos: int, intervals: dict[str, list[Interval]]
+) -> bool:
     """Check if a variant lies in any interval for that chrom."""
     if chrom not in intervals:
         return False
@@ -537,20 +538,19 @@ def variant_in_intervals(chrom: str, pos: int, intervals: dict[str, list[Interva
     return False
 
 
-def read_vcf(
-    vcf_path: str, intervals: dict[str, list[Interval]]
-) -> pl.DataFrame:
+def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFrame:
     """Stream a VCF, keep only relevant lines, return as Polars DataFrame."""
     open_func = gzip.open if vcf_path.endswith(".gz") else open
-    header_line = None
+    header = None
     rows: list[str] = []
-
     with open_func(vcf_path, "rt") as f:
         for line in f:
             if line.startswith("##"):
                 continue
             if line.startswith("#CHROM"):
-                header_line = line.lstrip("#").strip()
+                header = line.lstrip("#").strip().split("\t")
+                if len(header) == 10:
+                    header[-1] = "SAMPLE"  # for single sample
                 continue
 
             # parse variant
@@ -560,21 +560,30 @@ def read_vcf(
             if variant_in_intervals(chrom, pos, intervals):
                 rows.append(line)
 
-    if not header_line:
-        raise RuntimeError("VCF missing header")
+    if header is None:
+        raise VcfMissingHeaderError(filename=vcf_path)
+    header_line = "\t".join(header) + "\n"
+    csv_content = header_line + "".join(rows)
+    try:
+        df = pl.read_csv(
+            io.StringIO(csv_content),
+            separator="\t",
+            schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
+        )
+    except pl.exceptions.ComputeError:
+        df = pl.read_csv(
+            io.StringIO(csv_content),
+            separator="\t",
+            schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
+            truncate_ragged_lines=True,
+        )
+    except MemoryError:
+        message = "VCF is too big, plz trim ie bcftools view -R regions.bed ..."
+        print(message)
+        logger.error(message)
+        raise
 
-    csv_content = header_line + "\n" + "".join(rows)
-
-    df = pl.read_csv(
-        io.StringIO(csv_content),
-        separator="\t",
-        schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
-        truncate_ragged_lines=True,
-    )
     return df
-
-
-
 
 
 # def read_vcf(file_path: str) -> pl.DataFrame:
@@ -639,36 +648,6 @@ def read_vcf(
 
 #     return df
 
-# def read_vcf_lazy(file_path: str) -> pl.DataFrame:
-#     open_func = gzip.open if str(file_path).endswith(".gz") else open
-#     with open_func(file_path, "rt") as f:
-#         # find header
-#         for line in f:
-#             if line.startswith("##"):
-#                 continue
-#             if line.startswith("#"):
-#                 header = line.lstrip("#").strip().split("\t")
-#                 if len(header) == 10:
-#                     header[-1] = "SAMPLE"
-#                 break
-#         else:
-#             raise VcfMissingHeaderError(filename=file_path)
-
-#     # now skip meta + header automatically, let Polars do lazy reading
-#     try:
-#         df = pl.read_csv(
-#         file_path,
-#         separator="\t",
-#         has_header=True,
-#         skip_rows=len([l for l in gzip.open(file_path, "rt") if l.startswith("##")]),
-#         schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
-#     )
-#     except:
-
-#     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
-#     if df.is_empty():
-#         raise VcfNoDataError(filename=file_path)
-#     return df
 
 def check_if_multi_sample_vcf(file_path: str) -> bool:
     """Read a VCF file header.
