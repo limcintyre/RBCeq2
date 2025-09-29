@@ -544,7 +544,7 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
     header = None
     rows: list[str] = []
     with open_func(vcf_path, "rt") as f:
-        for line in f:
+        for line in f: #TODO Pool
             if line.startswith("##"):
                 continue
             if line.startswith("#CHROM"):
