@@ -10,6 +10,8 @@ import argparse
 from rbceq2.core_logic.constants import DB_VERSION, VERSION, AlleleState
 from rbceq2.IO.validation import validate_vcf
 
+from rbceq2.core_logic.utils import collapse_variant
+from icecream import ic
 
 def configure_logging(args: argparse.Namespace) -> str:
     """
@@ -73,9 +75,12 @@ def record_filtered_data(results: tuple[Any]) -> None:
             - res: A dict mapping blood group names to BloodGroup objects.
     """
     def format_vars(pool):
-        return '\n' + '\n'.join([' : '.join([k, v]) for k, v in pool.items()])
+        return '\n' + '\n'.join([' : '.join([collapse_variant(k), v]) for k, v in pool.items()])
     
-    sample, genos, numeric_phenos, alphanumeric_phenos, res = results
+    sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results
+    
+    logger.debug(f"\n### Blood group allele info ###:\n")
+
     for bg_name, bg_data in res.items():
         if bg_data.filtered_out:
             logger.debug(
@@ -90,8 +95,16 @@ def record_filtered_data(results: tuple[Any]) -> None:
                 f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"
                 f"Vars_phase_set: {format_vars(bg_data.variant_pool_phase_set)}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
-                f"\n#Filters applied:\n"
             )
+            
+            for variant_db, variant_vcf in var_map.items():
+                if variant_db in bg_data.variant_pool:
+                    logger.debug(
+                        f"BIG VARIANT fuzzy matching map:\n"
+                        f"\tDatabase_variant: {collapse_variant(variant_db)}\n"
+                        f"\tVCF_variant: {collapse_variant(variant_vcf)}\n")
+            
+            logger.debug(f"### Filters applied ###:\n")
             no_filters = True
             for k, v in bg_data.filtered_out.items():
                 if v:
@@ -99,7 +112,7 @@ def record_filtered_data(results: tuple[Any]) -> None:
                     no_filters = False
             if no_filters:
                 logger.debug('No filters were applied\n')
-            logger.debug('\n______\n')
+            logger.debug('\n__________________________________________\n')
 
 
 def check_VCF(VCF_file):

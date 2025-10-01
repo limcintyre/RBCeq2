@@ -9,13 +9,15 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from loguru import logger
 
-from rbceq2.core_logic.utils import Zygosity  # , chunk_list_by_rank
+from rbceq2.core_logic.utils import Zygosity, collapse_variant
 from rbceq2.core_logic.constants import AlleleState
 from frozendict import frozendict
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
 from icecream import ic
+
+
 
 @dataclass(slots=False, frozen=True)
 class Allele:
@@ -145,11 +147,11 @@ class Allele:
     def _format_allele(self) -> str:
         """Generate a string representation of the allele."""
         sep_var = "\n\t\t"
+
         return (
             f"Allele \n "
             f"genotype: {self.genotype} \n "
-            f"defining_variants: {sep_var}{sep_var.join(self.defining_variants)} \n "
-            f"big_variants: {self.big_variants} \n "
+            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in self.defining_variants])} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
             f"reference: {self.reference} \n"
@@ -201,6 +203,8 @@ class Allele:
         if 'KLF' in bg.upper():
             bg = 'KLF' #most are KLF1, but need to all be the same
         return bg
+
+
 
 
 @dataclass(slots=True, frozen=False)

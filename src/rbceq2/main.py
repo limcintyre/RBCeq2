@@ -149,12 +149,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help=("Minimum size indel/SV to apply fuzzy matching to"),
         default=50,
     )
-    # parser.add_argument(
-    #     "--RH",
-    #     action="store_true",
-    #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
-    #     default=False,
-    # )min_size
+    parser.add_argument(
+        "--RH",
+        action="store_true",
+        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
+        default=False,
+    )
 
     return parser.parse_args(args)
 
@@ -164,9 +164,9 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
-    # if not args.RH:
-    #     exclude += ["RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "ATP11C", "CD99"] #, "RHD", "RHCE"]
+    if not args.RH:
+        exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
@@ -238,7 +238,7 @@ def main():
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
-                sample, genos, numeric_phenos, alphanumeric_phenos, res = results
+                sample, genos, numeric_phenos, alphanumeric_phenos, _, _ = results
                 dfs_geno[sample] = genos
                 dfs_pheno_numeric[sample] = numeric_phenos
                 dfs_pheno_alphanumeric[sample] = alphanumeric_phenos
@@ -258,6 +258,7 @@ def main():
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
     print(f"{len(dfs_geno)} VCFs processed in {time_str}")
+
 
 
 def find_hits(
@@ -302,6 +303,7 @@ def find_hits(
                 zip(m.vcf.sample_fmt.split(":"), m.vcf.sample_value.split(":"))
             )
             var_map[f"{m.vcf.chrom}:{m.db.raw}"] = m.variant
+    
     res = dp.raw_results(db, vcf, excluded, var_map)
     res = dp.make_blood_groups(res, vcf.sample)
 
@@ -462,6 +464,7 @@ def find_hits(
         formated_called_numeric_phenos,
         formated_called_alphanumeric_phenos,
         res,
+        var_map
     )
 
 
