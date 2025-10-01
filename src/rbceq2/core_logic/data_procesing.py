@@ -14,6 +14,7 @@ from rbceq2.core_logic.utils import (
     check_available_variants,
     chunk_geno_list_by_rank,
     get_non_refs,
+    collapse_variant
 )
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
@@ -438,12 +439,64 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
+        
         zygosity = {var: get_ref(vcf.variants[var]) for var in allele.defining_variants}
         variant_pool = variant_pool | zygosity
     bg.variant_pool = variant_pool
 
     return bg
 
+@apply_to_dict_values
+def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
+    """Construct or update a variant pool for a BloodGroup from VCF data.
+
+    This function traverses the alleles in the BloodGroup object, extracts reference
+    information for each defining variant from the VCF, and combines these into a
+    single dictionary (the variant pool).
+
+    Args:
+        bg (BloodGroup):
+            The BloodGroup object to be updated with the new variant pool.
+        vcf (VCF):
+            The VCF object providing variant data.
+
+    Returns:
+        BloodGroup:
+            The updated BloodGroup object, including the combined 'variant_pool' with
+            reference data for each defining variant.
+
+    Raises:
+        KeyError:
+            If a variant in 'bg.alleles[AlleleState.FILT]' is not found in 'vcf.variants'.
+    """
+
+    def get_start_pos(current_variant):
+        return int(current_variant.strip().split(':')[1].split('_')[0])
+    new_variant_pool = {}
+    big_dels = []
+    for variant in bg.variant_pool:
+        no_seq_variant = collapse_variant(variant)
+        if 'DEL' in no_seq_variant.upper():
+            big_dels.append(variant) #these are teh db version of var,
+            #should try get the VCF version TODO
+    if big_dels and len(bg.variant_pool) > len(big_dels):
+        ic(bg.sample, bg.type, bg.variant_pool, big_dels)
+        for big_del in big_dels:
+            start = get_start_pos(big_del)
+            length = big_del.split('_')[-1]
+            length = int(length[:-2])*1000 if length.endswith('kb') else int(length)
+            end = start + length
+            ic(big_del, start, length, end)
+            for variant, zygosity in bg.variant_pool.items():
+                if start < get_start_pos(variant) < end:
+                    new_variant_pool[variant] = Zygosity.HET
+                else:
+                    new_variant_pool[variant] = zygosity
+
+    if new_variant_pool:
+        bg.variant_pool = new_variant_pool
+
+    return bg
 
 def get_ref(ref_dict: dict[str, str]) -> str:
     """Determine the zygosity from a reference dictionary containing genotype
@@ -886,6 +939,7 @@ class SomeHomMultiVariantStrategy:
                     first_chunk,
                 )
             ]
+        ic(homs, self.ranked_chunks, bg.variant_pool)
         return combine_all(
             self.ranked_chunks[0] + self.ranked_chunks[1], bg.variant_pool_numeric
         )

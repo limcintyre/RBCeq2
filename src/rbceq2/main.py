@@ -324,6 +324,7 @@ def find_hits(
         #     microarray=False,
         # ),
         partial(dp.make_variant_pool, vcf=vcf),
+        partial(dp.modify_variant_pool_if_large_indel),
         partial(
             dp.add_phasing,
             phased=args.phased,
