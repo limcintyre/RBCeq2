@@ -504,8 +504,8 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                 if variant == big_del:
                     new_variant_pool[variant] = zygosity
                 elif start < get_start_pos(variant) < end:
-                    new_variant_pool[variant] = Zygosity.HET
-                    assert bg.variant_pool[big_del] == Zygosity.HET
+                    new_variant_pool[variant] = Zygosity.HEM
+                    assert bg.variant_pool[big_del] == Zygosity.HEM
                 else:
                     new_variant_pool[variant] = zygosity
 

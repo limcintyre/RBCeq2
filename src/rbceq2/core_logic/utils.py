@@ -84,6 +84,7 @@ class Zygosity:
     HOM = "Homozygous"  # hom alt
     HET = "Heterozygous"
     REF = "Reference"  # hom ref
+    HEM = "Hemizygous" # ie with big del
 
 
 Preprocessor = Callable[[dict[str, "BloodGroup"]], dict[str, "BloodGroup"]]
