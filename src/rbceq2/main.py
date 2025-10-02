@@ -331,6 +331,7 @@ def find_hits(
             variant_metrics=vcf.variants,
             phase_sets=vcf.phase_sets,
         ),
+        partial(dp.modify_phase_if_large_indel, phased=args.phased),
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
