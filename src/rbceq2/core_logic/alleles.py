@@ -271,7 +271,8 @@ class BloodGroup:
         default_factory=lambda: defaultdict(list)
     )
     len_dict: dict[str, int] = field(
-        default_factory=lambda: {Zygosity.HOM: 2, Zygosity.HET: 1, Zygosity.REF: 2}
+        default_factory=lambda: {Zygosity.HOM: 2, Zygosity.HET: 1,
+                                  Zygosity.REF: 2, Zygosity.HEM: 1}
     )
     misc: dict[Any, Any] = None  # TODO - pheno separately??
 

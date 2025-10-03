@@ -11,7 +11,7 @@ import polars as pl
 from loguru import logger
 from collections import defaultdict
 from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
-
+from rbceq2.IO.encoders import VariantEncoderFactory
 from icecream import ic
 
 
@@ -121,20 +121,28 @@ class VCF:
         self.df = self.df[~self.df["SAMPLE"].str.startswith("0/0")].copy(deep=True)
 
     def encode_variants(self) -> None:
-        """Encode variants into a unified format in the DataFrame."""
-
-        def join_vars(chrom: str, pos: str, ref: str, alts: str) -> bool:
-            return ",".join([f"{chrom}:{pos}_{ref}_{alt}" for alt in alts.split(",")])
-
+        """Encode variants into a unified format using the encoder factory."""
+        factory = VariantEncoderFactory()
+        
         self.df["variant"] = self.df.apply(
-            lambda x: join_vars(
-                x["CHROM"],
-                x["POS"],
-                x["REF"],
-                x["ALT"],
-            ),
-            axis=1,
+            lambda row: factory.encode_variant(row),
+            axis=1
         )
+    # def encode_variants(self) -> None:
+    #     """Encode variants into a unified format in the DataFrame."""
+
+    #     def join_vars(chrom: str, pos: str, ref: str, alts: str) -> bool:
+    #         return ",".join([f"{chrom}:{pos}_{ref}_{alt}" for alt in alts.split(",")])
+
+    #     self.df["variant"] = self.df.apply(
+    #         lambda x: join_vars(
+    #             x["CHROM"],
+    #             x["POS"],
+    #             x["REF"],
+    #             x["ALT"],
+    #         ),
+    #         axis=1,
+    #     )
 
     def add_loci(self) -> None:
         """Add loci identifiers to the DataFrame."""

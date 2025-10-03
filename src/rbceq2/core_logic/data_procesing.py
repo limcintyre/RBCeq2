@@ -504,8 +504,12 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                 if variant == big_del:
                     new_variant_pool[variant] = zygosity
                 elif start < get_start_pos(variant) < end:
-                    new_variant_pool[variant] = Zygosity.HEM
-                    assert bg.variant_pool[big_del] == Zygosity.HEM
+                    if zygosity == Zygosity.HOM:
+                        new_variant_pool[variant] = Zygosity.HEM
+                    else:
+                        new_variant_pool[variant] = zygosity
+                        logger.warning(f'Heterozygous variant detected where hemizygousity expected {bg.sample} {bg.type} {variant}')
+                    assert bg.variant_pool[big_del] == Zygosity.HET
                 else:
                     new_variant_pool[variant] = zygosity
 
@@ -514,9 +518,10 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
 
     return bg
 
+
 @apply_to_dict_values
 def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """Infers and updates phase information for large deletions based on overlapping variants.
+    """Infers and updates phase information for large deletions and reference variants.
     
     When a large deletion is unphased (has '/' separator) but overlaps with phased variants
     (using '|' separator) in the same phase set, this function infers the deletion's phase
@@ -524,12 +529,14 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     on one haplotype means the other haplotype carries the reference allele where variants
     are called.
     
+    Additionally, reference variants (ending in '_ref') have their phase inferred based on
+    which deletion they overlap with. If a reference variant overlaps with a deletion
+    that is phased as '0|1', the reference is phased as '1|0' (opposite haplotype).
+    
     The function only modifies deletion phase if:
     1. The deletion overlaps with at least one phased variant
     2. All variants (including those ending in '_ref') share the same phase set
     3. The deletion is currently unphased (contains '/')
-    
-    Variants ending in '_ref' will also inherit the phase set from other variants in the pool.
     
     Args:
         bg: A BloodGroup object containing variant_pool_phase (dict mapping variants to
@@ -539,15 +546,21 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
             returns the BloodGroup unchanged.
     
     Returns:
-        The modified BloodGroup object with updated phase information for large deletions
-        and phase sets for reference variants. If no phasing is available or no large 
+        The modified BloodGroup object with updated phase information for large deletions,
+        reference variants, and phase sets. If no phasing is available or no large 
         deletions need updating, returns the original BloodGroup unchanged.
+    
+    Raises:
+        ValueError: If a reference variant overlaps with multiple deletions, which is
+            biologically impossible (only 2 alleles exist per locus).
     
     Note:
         - Reference variants (ending in '_ref') ARE included in phase set validation
         - Phase is flipped: if overlapping variant is '1|0', deletion becomes '0|1'
         - Deletions are identified by 'del' or 'DEL' in the variant string
         - Only deletions with '/' in their phase string are considered for updating
+        - Multiple non-overlapping deletions can have different phases (different chromosomes)
+        - Any variant overlapping a deletion must be on the other chromosome
     
     Example:
         >>> bg = BloodGroup(
@@ -567,6 +580,8 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
         '0|1'
         >>> modified_bg.variant_pool_phase_set['4:143999443_ref']
         '143821229'
+        >>> modified_bg.variant_pool_phase['4:143999443_ref']
+        '1|0'
     """
     def get_start_pos(current_variant):
         return int(current_variant.strip().split(':')[1].split('_')[0])
@@ -575,6 +590,14 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
         """Flip the phase: '1|0' becomes '0|1' and vice versa."""
         alleles = phase_str.split('|')
         return f"{alleles[1]}|{alleles[0]}"
+    
+    def get_deletion_boundaries(big_del):
+        """Extract start and end positions for a deletion."""
+        start = get_start_pos(big_del)
+        length_str = big_del.split('_')[-1]
+        length = int(length_str[:-2]) * 1000 if length_str.endswith('kb') else int(length_str)
+        end = start + length
+        return start, end
     
     if not phased:
         return bg
@@ -602,11 +625,7 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     
     # Process each unphased deletion
     for big_del in unphased_big_dels:
-        # Get deletion boundaries
-        start = get_start_pos(big_del)
-        length_str = big_del.split('_')[-1]
-        length = int(length_str[:-2]) * 1000 if length_str.endswith('kb') else int(length_str)
-        end = start + length
+        start, end = get_deletion_boundaries(big_del)
         
         # Find overlapping phased variants
         overlapping_variants = []
@@ -630,13 +649,45 @@ def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
             bg.variant_pool_phase[big_del] = inferred_del_phase
             bg.variant_pool_phase_set[big_del] = common_phase_set
     
-    # Update phase set for all '_ref' variants to match the common phase set
-    for variant in bg.variant_pool_phase_set:
+    # Now infer phase for reference variants based on overlapping deletions
+    # First, collect all deletions (both originally phased and newly phased)
+    all_deletions = {}
+    for variant, phase in bg.variant_pool_phase.items():
+        if ('del' in variant.lower() or 'DEL' in variant) and '|' in phase:
+            start, end = get_deletion_boundaries(variant)
+            all_deletions[variant] = {'phase': phase, 'start': start, 'end': end}
+    
+    # Update reference variants
+    for variant in list(bg.variant_pool_phase.keys()):
         if variant.endswith('_ref'):
-            bg.variant_pool_phase_set[variant] = common_phase_set
+            variant_pos = get_start_pos(variant)
+            
+            # Find which deletion(s) this reference overlaps with
+            overlapping_deletions = []
+            for del_variant, del_info in all_deletions.items():
+                if del_info['start'] < variant_pos < del_info['end']:
+                    overlapping_deletions.append(del_variant)
+            
+            # Check for invalid case: multiple deletions overlapping same locus
+            if len(overlapping_deletions) > 1:
+                raise ValueError(
+                    f"Reference variant {variant} at position {variant_pos} overlaps with "
+                    f"multiple deletions: {overlapping_deletions}. This is biologically "
+                    f"impossible as there are only 2 alleles per locus."
+                )
+            
+            # If the reference overlaps with a deletion, infer its phase
+            if overlapping_deletions:
+                # Reference is on the opposite haplotype from the deletion
+                del_phase = all_deletions[overlapping_deletions[0]]['phase']
+                ref_phase = flip_phase(del_phase)
+                bg.variant_pool_phase[variant] = ref_phase
+                bg.variant_pool_phase_set[variant] = common_phase_set
+            else:
+                # If no overlap with deletions, just update phase set
+                bg.variant_pool_phase_set[variant] = common_phase_set
     
     return bg
-
 
 def get_ref(ref_dict: dict[str, str]) -> str:
     """Determine the zygosity from a reference dictionary containing genotype
@@ -824,6 +875,7 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
+            #ic(allele, vcf_var, df, df.query("variant.str.contains(@vcf_var)"))
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"

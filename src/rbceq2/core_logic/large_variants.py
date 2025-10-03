@@ -9,7 +9,7 @@ from typing import Iterator, Protocol, runtime_checkable
 import pandas as pd
 import re
 from typing import Iterable
-
+from icecream import ic
 
 @dataclass(slots=True, frozen=True)
 class SvDef:
@@ -736,7 +736,7 @@ class SnifflesVcfSvReader:
                 id=row.ID,
                 qual=row.QUAL,
                 info=info,
-                variant=f"{row.CHROM}:{row.POS}_{row.REF}_{row.ALT}",
+                variant=row.variant,
                 cipos=cipos,
                 ciend=ciend,
                 sample_fmt=row.FORMAT,
