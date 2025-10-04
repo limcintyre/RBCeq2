@@ -491,13 +491,15 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     big_dels = []
     for variant in bg.variant_pool:
         no_seq_variant = collapse_variant(variant)
+        
         if 'DEL' in no_seq_variant.upper():
-            big_dels.append(variant) #these are teh db version of var,
+            big_dels.append((variant, no_seq_variant)) #these are teh db version of var,
             #should try get the VCF version TODO
     if big_dels and len(bg.variant_pool) > len(big_dels):
-        for big_del in big_dels:
-            start = get_start_pos(big_del)
-            length = big_del.split('_')[-1]
+        for big_del, no_seq_variant in big_dels:
+            start = get_start_pos(no_seq_variant)
+            length = no_seq_variant.split('_')[-1]
+            #ic(big_del, start, length,variant, no_seq_variant)
             length = int(length[:-2])*1000 if length.endswith('kb') else int(length)
             end = start + length
             for variant, zygosity in bg.variant_pool.items():

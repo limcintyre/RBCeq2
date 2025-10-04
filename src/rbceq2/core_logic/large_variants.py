@@ -361,22 +361,6 @@ class SvMatcher:
         return (max(s, 0.0), pos_delta, len_delta)
 
 
-# def _sniff_delimiter(path: Path) -> str:
-#     """Guess file delimiter using csv.Sniffer, fallback to tab.
-
-#     Args:
-#         path (Path): TSV/CSV path.
-
-#     Returns:
-#         str: Detected delimiter.
-#     """
-#     with open(path, "rt", encoding="utf-8-sig", newline="") as fh:
-#         sample = fh.read(8192)
-#     try:
-#         dialect = csv.Sniffer().sniff(sample, delimiters=[",", "\t", ";", "|"])
-#         return dialect.delimiter
-#     except Exception:
-#         return "\t"
 
 
 def _ci_lookup(names: list[str]) -> dict[str, str]:
@@ -503,23 +487,7 @@ def load_db_defs(
     return defs
 
 
-def match_db_to_vcf(
-    db_tsv: Path, vcf_path: Path, min_size: int = 50
-) -> list[MatchResult]:
-    """High-level helper: match DB TSV definitions to VCF SV events.
 
-    Args:
-        db_tsv (Path): Path to DB TSV containing allele SV tokens.
-        vcf_path (Path): Path to sample VCF (``.vcf`` or ``.vcf.gz``).
-        min_size (int): Minimum event size in bp to consider from the VCF.
-
-    Returns:
-        list[MatchResult]: Best matches per DB SV token.
-    """
-    events = list(VcfSvReader(path=vcf_path, min_size=min_size).events())
-    db_defs = load_db_defs(db_tsv=db_tsv)
-    matcher = SvMatcher()
-    return matcher.match(db_defs, events)
 
 
 @runtime_checkable
@@ -594,19 +562,6 @@ class SvEvent:
             return abs(self.svlen)
         return abs(self.end - self.pos)
 
-
-# def _open_text_auto(path: Path) -> io.TextIOBase:
-#     """Open a plain or gzipped text file in text mode.
-
-#     Args:
-#         path (Path): Path to file.
-
-#     Returns:
-#         io.TextIOBase: Opened file handle.
-#     """
-#     if str(path).endswith(".gz"):
-#         return io.TextIOWrapper(gzip.open(path, mode="rb"), encoding="utf-8", newline="")
-#     return open(path, "rt", encoding="utf-8", newline="")
 
 
 def _parse_info(info: str) -> dict[str, str]:
@@ -802,16 +757,3 @@ def select_best_per_vcf(
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered
 
-
-# def find_sv_events(vcf_path: Path, min_size: int = 50) -> list[SvEvent]:
-#     """Parse all SV events from a VCF.
-
-#     Args:
-#         vcf_path (Path): Path to VCF/VCF.GZ file.
-#         min_size (int): Minimum size threshold in bp.
-
-#     Returns:
-#         list[SvEvent]: Parsed SV events.
-#     """
-#     reader = VcfSvReader(path=vcf_path, min_size=min_size)
-#     return list(reader.events())

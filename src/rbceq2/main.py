@@ -38,6 +38,7 @@ from rbceq2.IO.vcf import (
     split_vcf_to_dfs,
     build_intervals,
 )
+
 from rbceq2.core_logic.large_variants import (
     SnifflesVcfSvReader,
     load_db_defs,
@@ -247,10 +248,13 @@ def main():
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
+    df_geno = df_geno.replace('', 'Undetermined/Undetermined')
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
+    df_pheno_numeric = df_pheno_numeric.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
     df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
+    df_pheno_alpha = df_pheno_alpha.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
