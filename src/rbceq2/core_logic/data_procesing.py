@@ -20,10 +20,12 @@ from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
 from icecream import ic
-
+from rbceq2.core_logic.large_variants import (
+    select_best_per_vcf, MatchResult
+)
 
 def raw_results(
-    db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]
+    db: Db, vcf: VCF, exclude: list[str], var_map,matches
 ) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
@@ -36,16 +38,41 @@ def raw_results(
     Returns:
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
-    """
 
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    best_var_map={}
+    for match in best:
+        best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    alleles_with_big_vars = []
+    for allele in bg.alleles[AlleleState.RAW]:
+        if any(var in best_var_map for var in allele.defining_variants):
+            allele = allele.with_big_variants(best_var_map)
+        alleles_with_big_vars.append(allele)
+    bg.alleles[AlleleState.RAW] = alleles_with_big_vars
+    """
     res: dict[str, list[Allele]] = defaultdict(list)
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
-        if all(var in vcf.variants for var in allele.defining_variants):
-            if var_map:
+        
+        if all(variant in vcf.variants for variant in allele.defining_variants):
+            if any(variant in var_map for variant in allele.defining_variants):
+                # best_match = [
+                #     match for match in select_best_per_vcf(matches, tie_tol=1e-9) if
+                #       allele.blood_group in match.db.id
+                #       ]
+                # #ic(allele.blood_group,best_match, select_best_per_vcf(matches, tie_tol=1e-9))
+                # #ic(allele,allele.big_variants, var_map, best_match)
+                # if len(best_match) == 0:
+                #     continue 
+                # assert len(best_match) ==1
+                # best = best_match[0]
+                # best_var_map = {db_var: vcf_var for db_var, vcf_var in var_map.items() if 
+                #                 db_var == f"{best.vcf.chrom}:{best.db.raw}"}
+                # #ic(allele, best_var_map,allele.big_variants, var_map, best_match)
                 allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
+            #ic(allele.blood_group, allele)
     return res
 
 
@@ -491,13 +518,15 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     big_dels = []
     for variant in bg.variant_pool:
         no_seq_variant = collapse_variant(variant)
+        
         if 'DEL' in no_seq_variant.upper():
-            big_dels.append(variant) #these are teh db version of var,
+            big_dels.append((variant, no_seq_variant)) #these are teh db version of var,
             #should try get the VCF version TODO
     if big_dels and len(bg.variant_pool) > len(big_dels):
-        for big_del in big_dels:
-            start = get_start_pos(big_del)
-            length = big_del.split('_')[-1]
+        for big_del, no_seq_variant in big_dels:
+            start = get_start_pos(no_seq_variant)
+            length = no_seq_variant.split('_')[-1]
+            #ic(big_del, start, length,variant, no_seq_variant)
             length = int(length[:-2])*1000 if length.endswith('kb') else int(length)
             end = start + length
             for variant, zygosity in bg.variant_pool.items():
@@ -875,7 +904,7 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
-            #ic(allele, vcf_var, df, df.query("variant.str.contains(@vcf_var)"))
+            loci = vcf_var.split('_')[0]
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
@@ -883,6 +912,7 @@ def only_keep_alleles_if_FILTER_PASS(
             except IndexError:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
+                ic(bg.sample,bg.type,loci, allele,allele.big_variants, vcf_var, df, df.query("loci == '@loci'"), df.query("CHROM == '4'"))
                 raise
             if filter_value != "PASS":
                 keeper = False
@@ -1309,7 +1339,7 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
 
 @apply_to_dict_values
 def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
-    """
+    """ TODO why not just use the CD99 vars??
     adds CD to XG blood group.
 
     Args:
@@ -1355,3 +1385,22 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
                 genotypes=[f"{reference.genotype}/{reference.genotype}"],
             )
     return res
+
+@apply_to_dict_values
+def only_keep_alleles_if_best_big_del(bg: BloodGroup, matches: list[MatchResult]) -> BloodGroup:
+    """
+    
+    """
+
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    best_var_map={}
+    for match in best:
+        best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    alleles_with_big_vars = []
+    for allele in bg.alleles[AlleleState.RAW]:
+        if any(var in best_var_map for var in allele.defining_variants):
+            allele = allele.with_big_variants(best_var_map)
+        alleles_with_big_vars.append(allele)
+    bg.alleles[AlleleState.RAW] = alleles_with_big_vars
+
+    return bg

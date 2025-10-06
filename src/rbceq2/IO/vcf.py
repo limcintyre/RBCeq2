@@ -563,8 +563,11 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
 
             # parse variant
             fields = line.split("\t")
-            chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
-
+            try:
+                chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
+            except:
+                ic(vcf_path,line, fields)
+                raise
             if variant_in_intervals(chrom, pos, intervals):
                 rows.append(line)
 

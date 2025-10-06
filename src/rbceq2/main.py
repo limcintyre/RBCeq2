@@ -38,11 +38,11 @@ from rbceq2.IO.vcf import (
     split_vcf_to_dfs,
     build_intervals,
 )
+
 from rbceq2.core_logic.large_variants import (
     SnifflesVcfSvReader,
     load_db_defs,
-    SvMatcher,
-    select_best_per_vcf,
+    SvMatcher,select_best_per_vcf
 )
 
 
@@ -247,18 +247,21 @@ def main():
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
+    df_geno = df_geno.replace('', 'Undetermined/Undetermined')
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
+    df_pheno_numeric = df_pheno_numeric.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
     df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
+    df_pheno_alpha = df_pheno_alpha.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    print(f"{len(dfs_geno)} VCFs processed in {time_str}")
-
+    #print(f"{len(dfs_geno)} VCFs processed in {time_str}.")
+    print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
 
 
 def find_hits(
@@ -285,26 +288,22 @@ def find_hits(
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
+    #ic(len(matches), matches)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     var_map = {}
+    # for match in matches:
+    #     vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+    #         zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
+    #     )
+    #     var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    #ic(best)
     if best:
-        for m in best:
-            # print(
-            #     f"sample: {vcf.sample} == "
-            #     f"DB: {m.db.id} {m.db.raw} -> "
-            #     f"VCF: {m.vcf.svtype} {m.vcf.chrom}:{m.vcf.pos}-{m.vcf.end} "
-            #     f"VCF2: {m} "
-            #     f"len={abs(m.vcf.svlen or m.vcf.size)} "
-            #     f"(score={m.score:.3f}, Δpos={m.pos_delta}, Δlen={m.len_delta})"
-            #     "\n\n\n"
-            # )
-
-            vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(
-                zip(m.vcf.sample_fmt.split(":"), m.vcf.sample_value.split(":"))
+        for match in best:
+            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+                zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
-            var_map[f"{m.vcf.chrom}:{m.db.raw}"] = m.variant
-    
-    res = dp.raw_results(db, vcf, excluded, var_map)
+            var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
@@ -322,6 +321,9 @@ def find_hits(
         #     variant_metrics=vcf.variants,
         #     min_base_quality=1,
         #     microarray=False,
+        # ),
+        # partial(
+        #     dp.only_keep_alleles_if_best_big_del, matches=matches
         # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(dp.modify_variant_pool_if_large_indel),
@@ -395,7 +397,6 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        # partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
         dp.add_CD_to_XG,
     ]

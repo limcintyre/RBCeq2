@@ -262,7 +262,7 @@ def add_ref_phenos(bg: BloodGroup, df: pd.DataFrame) -> BloodGroup:
     df_ref = df.loc[(df["Reference_genotype"] == "Yes") & (df["type"] == bg.type)]
 
     try:
-        assert df_ref.shape == (1, 20)
+        assert df_ref.shape == (1, 19)
     except AssertionError:
         ic(df_ref.shape, df_ref)
     bg.misc = {}
