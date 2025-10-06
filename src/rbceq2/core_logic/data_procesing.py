@@ -20,7 +20,9 @@ from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
 from icecream import ic
-
+from rbceq2.core_logic.large_variants import (
+    select_best_per_vcf, MatchResult
+)
 
 def raw_results(
     db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]
@@ -37,14 +39,11 @@ def raw_results(
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
     """
-
     res: dict[str, list[Allele]] = defaultdict(list)
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
         if all(var in vcf.variants for var in allele.defining_variants):
-            if var_map:
-                allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
     return res
 
@@ -877,7 +876,8 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
-            #ic(allele, vcf_var, df, df.query("variant.str.contains(@vcf_var)"))
+            loci = vcf_var.split('_')[0]
+            ic(loci, allele, vcf_var, df, df.query("loci == '@loci'"), df.query("CHROM == '4'"))
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
@@ -1311,7 +1311,7 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
 
 @apply_to_dict_values
 def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
-    """
+    """ TODO why not just use the CD99 vars??
     adds CD to XG blood group.
 
     Args:
@@ -1357,3 +1357,22 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
                 genotypes=[f"{reference.genotype}/{reference.genotype}"],
             )
     return res
+
+@apply_to_dict_values
+def only_keep_alleles_if_best_big_del(bg: BloodGroup, matches: list[MatchResult]) -> BloodGroup:
+    """
+    
+    """
+
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    best_var_map={}
+    for match in best:
+        best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    alleles_with_big_vars = []
+    for allele in bg.alleles[AlleleState.RAW]:
+        if any(var in best_var_map for var in allele.defining_variants):
+            allele = allele.with_big_variants(best_var_map)
+        alleles_with_big_vars.append(allele)
+    bg.alleles[AlleleState.RAW] = alleles_with_big_vars
+
+    return bg
