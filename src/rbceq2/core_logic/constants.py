@@ -2,7 +2,7 @@ from enum import Enum, auto
 
 # Define version
 VERSION = "2.4.0"
-DB_VERSION = "2.3.4"
+DB_VERSION = "2.4.0"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]

@@ -261,7 +261,7 @@ def main():
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    print(f"{len(dfs_geno)} VCFs processed in {time_str}")
+    print(f"{len(dfs_geno)} VCFs processed in {time_str}. Results saved 💾")
 
 
 
@@ -292,21 +292,11 @@ def find_hits(
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     var_map = {}
     if best:
-        for m in best:
-            # print(
-            #     f"sample: {vcf.sample} == "
-            #     f"DB: {m.db.id} {m.db.raw} -> "
-            #     f"VCF: {m.vcf.svtype} {m.vcf.chrom}:{m.vcf.pos}-{m.vcf.end} "
-            #     f"VCF2: {m} "
-            #     f"len={abs(m.vcf.svlen or m.vcf.size)} "
-            #     f"(score={m.score:.3f}, Δpos={m.pos_delta}, Δlen={m.len_delta})"
-            #     "\n\n\n"
-            # )
-
-            vcf.variants[f"{m.vcf.chrom}:{m.db.raw}"] = dict(
-                zip(m.vcf.sample_fmt.split(":"), m.vcf.sample_value.split(":"))
+        for match in best:
+            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+                zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
-            var_map[f"{m.vcf.chrom}:{m.db.raw}"] = m.variant
+            var_map[f"{match.vcf.chrom}:{m.db.raw}"] = match.variant
     
     res = dp.raw_results(db, vcf, excluded, var_map)
     res = dp.make_blood_groups(res, vcf.sample)
@@ -399,7 +389,6 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        # partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
         dp.add_CD_to_XG,
     ]

@@ -642,7 +642,7 @@ class SnifflesVcfSvReader:
 
     def events(self) -> Iterator[SvEvent]:
         """Iterate over structural variant events in a VCF.
-
+6
         Returns:
             Iterator[SvEvent]: Yielded SV events.
         """
