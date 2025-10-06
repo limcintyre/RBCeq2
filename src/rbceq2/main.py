@@ -42,7 +42,7 @@ from rbceq2.IO.vcf import (
 from rbceq2.core_logic.large_variants import (
     SnifflesVcfSvReader,
     load_db_defs,
-    SvMatcher,
+    SvMatcher,select_best_per_vcf
 )
 
 
@@ -288,22 +288,22 @@ def find_hits(
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
-    #best = select_best_per_vcf(matches, tie_tol=1e-9)
-    #ic(best)
+    #ic(len(matches), matches)
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
     var_map = {}
-    for match in matches:
-        vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
-            zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
-        )
-        var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    # for match in matches:
+    #     vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+    #         zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
+    #     )
+    #     var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
     #ic(best)
-    #if best:
-        # for match in best:
-        #     vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
-        #         zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
-        #     )
-        #     var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
-    res = dp.raw_results(db, vcf, excluded, var_map)
+    if best:
+        for match in best:
+            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+                zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
+            )
+            var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
@@ -322,9 +322,9 @@ def find_hits(
         #     min_base_quality=1,
         #     microarray=False,
         # ),
-        partial(
-            dp.only_keep_alleles_if_best_big_del, matches=matches
-        ),
+        # partial(
+        #     dp.only_keep_alleles_if_best_big_del, matches=matches
+        # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(dp.modify_variant_pool_if_large_indel),
         partial(

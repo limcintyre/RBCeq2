@@ -149,6 +149,12 @@ class MatchResult:
     len_delta: int
     variant: str
 
+    def __repr__(self) -> str:
+        return (
+        f"MatchResult(score={self.score}, pos_delta={self.pos_delta}, "
+        f"len_delta={self.len_delta}, db_id='{self.db.id}', "
+        f"db_raw='{self.db.raw}', vcf_variant='{self.vcf.variant}')"
+    )
 
 @dataclass(slots=True)
 class SvMatcher:
@@ -712,18 +718,19 @@ class SnifflesVcfSvReader:
                 if event.size >= self.min_size:
                     yield event
 
-
 def select_best_per_vcf(
-    matches: Iterable[MatchResult], tie_tol: float = 1e-6
+    matches: Iterable[MatchResult], tie_tol: float = 1e-6, delta_weight: float = 0.5
 ) -> list[MatchResult]:
-    """Select the best match per VCF event, breaking ties by Δpos then Δlen.
+    """Select the best match per VCF event, breaking ties by combined Δpos and Δlen.
 
     Args:
         matches (Iterable[MatchResult]): All DB↔VCF matches.
         tie_tol (float): Scores within this of the minimum are considered ties.
+        delta_weight (float): Weight for pos_delta vs len_delta (0.5 = equal weight).
+            Higher values (e.g., 0.7) favor positional accuracy over length accuracy.
 
     Returns:
-        list[MatchResult]: Filtered matches; ≤1 per VCF event unless perfect tie after Δpos/Δlen.
+        list[MatchResult]: Filtered matches; ≤1 per VCF event unless perfect tie.
     """
     by_vcf: dict[tuple[str, int, int, str], list[MatchResult]] = defaultdict(list)
     for m in matches:
@@ -732,28 +739,84 @@ def select_best_per_vcf(
 
     filtered: list[MatchResult] = []
     for group in by_vcf.values():
-        # Sort primarily by score, then Δpos, then Δlen
-        group.sort(key=lambda r: (r.score, r.pos_delta, r.len_delta))
+        # Sort primarily by score
+        group.sort(key=lambda r: r.score)
         best_score = group[0].score
         # Keep only matches within score tolerance
         tied = [g for g in group if abs(g.score - best_score) <= tie_tol]
 
         if len(tied) > 1:
-            # Break ties by Δpos
-            tied.sort(key=lambda r: (r.pos_delta, r.len_delta))
-            best_pos = tied[0].pos_delta
-            tied = [t for t in tied if t.pos_delta == best_pos]
+            # Normalize deltas within this group for fair comparison
+            max_pos = max(t.pos_delta for t in tied)
+            max_len = max(t.len_delta for t in tied)
+            
+            # Avoid division by zero
+            max_pos = max(max_pos, 1)
+            max_len = max(max_len, 1)
+            
+            # Compute combined delta score
+            def combined_delta(r: MatchResult) -> float:
+                norm_pos = r.pos_delta / max_pos
+                norm_len = r.len_delta / max_len
+                return delta_weight * norm_pos + (1 - delta_weight) * norm_len
+            
+            tied.sort(key=combined_delta)
+            best_combined = combined_delta(tied[0])
+            # Keep matches within a small tolerance of best combined score
+            tied = [t for t in tied if abs(combined_delta(t) - best_combined) < 1e-9]
 
+        # If still tied, break by DB id for deterministic results
         if len(tied) > 1:
-            # Break remaining ties by Δlen
-            tied.sort(key=lambda r: r.len_delta)
-            best_len = tied[0].len_delta
-            tied = [t for t in tied if t.len_delta == best_len]
+            tied.sort(key=lambda r: r.db.id)
+            tied = [tied[0]]
 
-        # If still tied after Δlen → keep all of them
         filtered.extend(tied)
 
-    # Stable-ish ordering: by VCF, then score, then DB id
+    # Stable ordering: by VCF, then score, then DB id
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered
+
+# def select_best_per_vcf(
+#     matches: Iterable[MatchResult], tie_tol: float = 1e-6
+# ) -> list[MatchResult]:
+#     """Select the best match per VCF event, breaking ties by Δpos then Δlen.
+
+#     Args:
+#         matches (Iterable[MatchResult]): All DB↔VCF matches.
+#         tie_tol (float): Scores within this of the minimum are considered ties.
+
+#     Returns:
+#         list[MatchResult]: Filtered matches; ≤1 per VCF event unless perfect tie after Δpos/Δlen.
+#     """
+#     by_vcf: dict[tuple[str, int, int, str], list[MatchResult]] = defaultdict(list)
+#     for m in matches:
+#         key = (m.vcf.chrom, m.vcf.pos, m.vcf.end, m.vcf.svtype)
+#         by_vcf[key].append(m)
+
+#     filtered: list[MatchResult] = []
+#     for group in by_vcf.values():
+#         # Sort primarily by score, then Δpos, then Δlen
+#         group.sort(key=lambda r: (r.score, r.pos_delta, r.len_delta))
+#         best_score = group[0].score
+#         # Keep only matches within score tolerance
+#         tied = [g for g in group if abs(g.score - best_score) <= tie_tol]
+
+#         if len(tied) > 1:
+#             # Break ties by Δpos
+#             tied.sort(key=lambda r: (r.pos_delta, r.len_delta))
+#             best_pos = tied[0].pos_delta
+#             tied = [t for t in tied if t.pos_delta == best_pos]
+
+#         if len(tied) > 1:
+#             # Break remaining ties by Δlen
+#             tied.sort(key=lambda r: r.len_delta)
+#             best_len = tied[0].len_delta
+#             tied = [t for t in tied if t.len_delta == best_len]
+
+#         # If still tied after Δlen → keep all of them
+#         filtered.extend(tied)
+
+#     # Stable-ish ordering: by VCF, then score, then DB id
+#     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
+#     return filtered
 

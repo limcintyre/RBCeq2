@@ -25,7 +25,7 @@ from rbceq2.core_logic.large_variants import (
 )
 
 def raw_results(
-    db: Db, vcf: VCF, exclude: list[str], var_map: dict[str, str]
+    db: Db, vcf: VCF, exclude: list[str], var_map,matches
 ) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
@@ -38,13 +38,41 @@ def raw_results(
     Returns:
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
+
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    best_var_map={}
+    for match in best:
+        best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    alleles_with_big_vars = []
+    for allele in bg.alleles[AlleleState.RAW]:
+        if any(var in best_var_map for var in allele.defining_variants):
+            allele = allele.with_big_variants(best_var_map)
+        alleles_with_big_vars.append(allele)
+    bg.alleles[AlleleState.RAW] = alleles_with_big_vars
     """
     res: dict[str, list[Allele]] = defaultdict(list)
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
-        if all(var in vcf.variants for var in allele.defining_variants):
+        
+        if all(variant in vcf.variants for variant in allele.defining_variants):
+            if any(variant in var_map for variant in allele.defining_variants):
+                # best_match = [
+                #     match for match in select_best_per_vcf(matches, tie_tol=1e-9) if
+                #       allele.blood_group in match.db.id
+                #       ]
+                # #ic(allele.blood_group,best_match, select_best_per_vcf(matches, tie_tol=1e-9))
+                # #ic(allele,allele.big_variants, var_map, best_match)
+                # if len(best_match) == 0:
+                #     continue 
+                # assert len(best_match) ==1
+                # best = best_match[0]
+                # best_var_map = {db_var: vcf_var for db_var, vcf_var in var_map.items() if 
+                #                 db_var == f"{best.vcf.chrom}:{best.db.raw}"}
+                # #ic(allele, best_var_map,allele.big_variants, var_map, best_match)
+                allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
+            #ic(allele.blood_group, allele)
     return res
 
 
@@ -877,7 +905,6 @@ def only_keep_alleles_if_FILTER_PASS(
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
             loci = vcf_var.split('_')[0]
-            ic(loci, allele, vcf_var, df, df.query("loci == '@loci'"), df.query("CHROM == '4'"))
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
@@ -885,6 +912,7 @@ def only_keep_alleles_if_FILTER_PASS(
             except IndexError:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
+                ic(bg.sample,bg.type,loci, allele,allele.big_variants, vcf_var, df, df.query("loci == '@loci'"), df.query("CHROM == '4'"))
                 raise
             if filter_value != "PASS":
                 keeper = False
