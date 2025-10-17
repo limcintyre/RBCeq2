@@ -597,67 +597,6 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
     return df
 
 
-# def read_vcf(file_path: str) -> pl.DataFrame:
-#     """Read a VCF file using polars while preserving the header and sample names.
-
-#     This function manually extracts the header (line starting with "#CHROM")
-#     and skips meta-information lines (starting with "##"). It then constructs a
-#     CSV-formatted string and parses it with polars.
-
-#     Args:
-#         file_path (str): Path to the VCF file (can be gzipped).
-
-#     Returns:
-#         pl.DataFrame: DataFrame containing the VCF data.
-#     """
-
-#     header = None
-#     # Use gzip.open if file is gzipped, else standard open.
-#     open_func = gzip.open if str(file_path).endswith(".gz") else open
-#     with open_func(file_path, "rt") as f:
-#         # Find header line starting with "#CHROM"
-#         for line in f:
-#             if line.startswith("##"):
-#                 continue
-#             if line.startswith("#"):
-#                 header = line.lstrip("#").strip().split("\t")
-#                 if len(header) == 10:
-#                     header[-1] = "SAMPLE"  # for single sample
-#                 break
-
-#         if header is None:
-#             raise VcfMissingHeaderError(filename=file_path)
-
-#         header_line = "\t".join(header) + "\n"
-#         data = f.read()
-
-#     csv_content = header_line + data
-#     try:
-#         df = pl.read_csv(
-#             io.StringIO(csv_content),
-#             separator="\t",
-#             schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-#         )
-#     except pl.exceptions.ComputeError:
-#         logger.warning(
-#             f"VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!"
-#         )
-#         df = pl.read_csv(
-#             io.StringIO(csv_content),
-#             separator="\t",
-#             schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
-#             truncate_ragged_lines=True,
-#         )
-#     except MemoryError:
-#         message = 'VCF is too big, plz split into multiple VCFs and or trim ie bcftools view -R regions.bed ...'
-#         print(message)
-#         logger.error(message)
-#         raise
-#     if df.is_empty():
-#         raise VcfNoDataError(filename=file_path)
-#     df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
-
-#     return df
 
 
 def check_if_multi_sample_vcf(file_path: str) -> bool:

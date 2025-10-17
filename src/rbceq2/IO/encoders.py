@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Protocol
 import pandas as pd
-
+from loguru import logger
 
 class VariantEncoder(Protocol):
     """Protocol defining the interface for variant encoders."""
@@ -231,6 +231,6 @@ class VariantEncoderFactory:
         for encoder in self.encoders:
             if encoder.can_encode(row):
                 return encoder.encode(row)
-        
+        logger.warning('Variants encoded in an unsupported way')
         # Ultimate fallback if no encoder matches
         return f"{row['CHROM']}:{row['POS']}_{row['REF']}_{row['ALT']}"

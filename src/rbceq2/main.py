@@ -288,16 +288,10 @@ def find_hits(
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
-    ic(len(matches), matches)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     ic(best)
     var_map = {}
-    # for match in matches:
-    #     vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
-    #         zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
-    #     )
-    #     var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
-    #ic(best)
+    
     if best:
         for match in best:
             vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
@@ -311,21 +305,6 @@ def find_hits(
         partial(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        # partial(
-        #     dp.remove_alleles_with_low_read_depth,
-        #     variant_metrics=vcf.variants,
-        #     min_read_depth=1,
-        #     microarray=False,
-        # ),
-        # partial(
-        #     dp.remove_alleles_with_low_base_quality,
-        #     variant_metrics=vcf.variants,
-        #     min_base_quality=1,
-        #     microarray=False,
-        # ),
-        # partial(
-        #     dp.only_keep_alleles_if_best_big_del, matches=matches
-        # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(dp.modify_variant_pool_if_large_indel),
         partial(dp.modify_allele_pool_if_large_indel),
