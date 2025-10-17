@@ -147,7 +147,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         "--min_size",
         type=int,
         help=("Minimum size indel/SV to apply fuzzy matching to"),
-        default=50,
+        default=10,
     )
     parser.add_argument(
         "--RH",
@@ -164,7 +164,7 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "CD99"] #, "RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "CD99","ATP11C"] #, "RHD", "RHCE"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
@@ -250,17 +250,14 @@ def main():
     df_geno = df_geno.replace('', 'Undetermined/Undetermined')
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
-    df_pheno_numeric = df_pheno_numeric.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
     df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
-    df_pheno_alpha = df_pheno_alpha.replace('', 'Undetermined/Undetermined')
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    #print(f"{len(dfs_geno)} VCFs processed in {time_str}.")
     print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
 
 
@@ -284,12 +281,16 @@ def find_hits(
         vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
+    for event in events:
+        if event.chrom == '1' and event.svlen == 35:
+            ic(event)
 
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
-    #ic(len(matches), matches)
+    ic(len(matches), matches)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
+    ic(best)
     var_map = {}
     # for match in matches:
     #     vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
@@ -327,6 +328,7 @@ def find_hits(
         # ),
         partial(dp.make_variant_pool, vcf=vcf),
         partial(dp.modify_variant_pool_if_large_indel),
+        partial(dp.modify_allele_pool_if_large_indel),
         partial(
             dp.add_phasing,
             phased=args.phased,

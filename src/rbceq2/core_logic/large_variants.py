@@ -380,33 +380,59 @@ def _ci_lookup(names: list[str]) -> dict[str, str]:
     """
     return {n.lower(): n for n in names}
 
-
-def _looks_like_sv_token(tok: str) -> bool:
+def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
     """Heuristically check if a string looks like our SV token.
 
-    Args:
-        tok (str): Candidate string.
-
-    Returns:
-        bool: True if `tok` looks like an SV token.
+    Accepts:
+      - word form: 25272547_del_59kb
+      - sequence form: <pos>_<REF>_<ALT>, where sequences are DNA and either
+        |len(ALT) - len(REF)| >= min_delta or max(len(REF), len(ALT)) >= min_delta.
     """
     if not tok or "_" not in tok:
         return False
     s = tok.strip()
-    # word form: 25272547_del_59kb (or dup/ins/inv/cnv)
+
+    # word form
     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
         return True
-    # sequence form: 126690214_<REF>_<ALT> (long REF preferred)
+
+    # sequence form
     parts = s.split("_")
     if len(parts) >= 3:
         p0, p1, p2 = parts[0], parts[1], parts[2]
-        if (
-            p0.isdigit()
-            and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20)
-            and (set(p2) <= set("ACGTNacgtn"))
-        ):
-            return True
+        if p0.isdigit():
+            dna = set("ACGTNacgtn")
+            if set(p1) <= dna and set(p2) <= dna:
+                delta = abs(len(p2) - len(p1))
+                if delta >= min_delta or max(len(p1), len(p2)) >= min_delta:
+                    return True
     return False
+# def _looks_like_sv_token(tok: str) -> bool:
+#     """Heuristically check if a string looks like our SV token.
+
+#     Args:
+#         tok (str): Candidate string.
+
+#     Returns:
+#         bool: True if `tok` looks like an SV token.
+#     """
+#     if not tok or "_" not in tok:
+#         return False
+#     s = tok.strip()
+#     # word form: 25272547_del_59kb (or dup/ins/inv/cnv)
+#     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
+#         return True
+#     # sequence form: 126690214_<REF>_<ALT> (long REF preferred)
+#     parts = s.split("_")
+#     if len(parts) >= 3:
+#         p0, p1, p2 = parts[0], parts[1], parts[2]
+#         if (
+#             p0.isdigit()
+#             and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20)
+#             and (set(p2) <= set("ACGTNacgtn"))
+#         ):
+#             return True
+#     return False
 
 
 def load_db_defs(
@@ -644,7 +670,7 @@ class SnifflesVcfSvReader:
     """
 
     df: pd.DataFrame
-    min_size: int = 50
+    min_size: int = 10
 
     def events(self) -> Iterator[SvEvent]:
         """Iterate over structural variant events in a VCF.

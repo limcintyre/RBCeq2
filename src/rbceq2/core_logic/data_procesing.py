@@ -526,27 +526,73 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
         for big_del, no_seq_variant in big_dels:
             start = get_start_pos(no_seq_variant)
             length = no_seq_variant.split('_')[-1]
-            #ic(big_del, start, length,variant, no_seq_variant)
             length = int(length[:-2])*1000 if length.endswith('kb') else int(length)
             end = start + length
+            big_del_is_hom = False
             for variant, zygosity in bg.variant_pool.items():
-                if variant == big_del:
-                    new_variant_pool[variant] = zygosity
-                elif start < get_start_pos(variant) < end:
-                    if zygosity == Zygosity.HOM:
-                        new_variant_pool[variant] = Zygosity.HEM
+                if variant == big_del and zygosity == Zygosity.HOM:
+                    big_del_is_hom = True
+            if big_del_is_hom:
+                for variant, zygosity in bg.variant_pool.items():
+                    if variant == big_del:
+                        new_variant_pool[variant] = zygosity
+                    elif start < get_start_pos(variant) < end:
+                        assert variant.endswith('_ref')
                     else:
                         new_variant_pool[variant] = zygosity
-                        logger.warning(f'Heterozygous variant detected where hemizygousity expected {bg.sample} {bg.type} {variant}')
-                    assert bg.variant_pool[big_del] == Zygosity.HET
-                else:
-                    new_variant_pool[variant] = zygosity
+            else:
+                for variant, zygosity in bg.variant_pool.items():
+                    if variant == big_del:
+                        new_variant_pool[variant] = zygosity
+                    elif start < get_start_pos(variant) < end:
+                        if zygosity == Zygosity.HOM:
+                            new_variant_pool[variant] = Zygosity.HEM
+                        else:
+                            new_variant_pool[variant] = zygosity
+                            logger.warning(f'Heterozygous variant detected where hemizygousity expected {bg.sample} {bg.type} {variant}')
+                        assert bg.variant_pool[big_del] == Zygosity.HET
+                    else:
+                        new_variant_pool[variant] = zygosity
 
     if new_variant_pool:
         bg.variant_pool = new_variant_pool
 
     return bg
 
+@apply_to_dict_values
+def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
+    """removes alleles that can't exist due to big indel
+    
+    Example - HOM del
+    allele1: Allele 
+              genotype: RHD*01N.01 
+              defining_variants: 
+                        1:25272547_DEL_59419 
+              weight_geno: 500 
+              phenotype: . or D- 
+              reference: False 
+    Removed as '_ref' is over ridden by big del
+    allele2: Allele 
+              genotype: RHD*10.00 
+              defining_variants: 
+                        1:25317062_ref 
+              weight_geno: 1000 
+              phenotype: . or DAU0 
+              reference: False 
+
+    """
+    keepers = []
+    for allele in bg.alleles[AlleleState.FILT]:
+        
+        for variant in allele.defining_variants:
+            try:
+                assert variant in bg.variant_pool
+            except AssertionError:
+                ic(bg.sample, allele, variant, bg.variant_pool)
+        if all(variant in bg.variant_pool for variant in allele.defining_variants):
+            keepers.append(allele)
+    bg.alleles[AlleleState.FILT] = keepers
+    return bg
 
 @apply_to_dict_values
 def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
