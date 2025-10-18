@@ -547,7 +547,19 @@ def variant_in_intervals(
 
 
 def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFrame:
-    """Stream a VCF, keep only relevant lines, return as Polars DataFrame."""
+    """Stream a VCF, keep only relevant lines, return as Polars DataFrame.
+        read a VCF file using polars while preserving the header and sample names.
+
+        This function manually extracts the header (line starting with "#CHROM")
+        and skips meta-information lines (starting with "##"). It then constructs a
+        CSV-formatted string and parses it with polars.
+
+        Args:
+            file_path (str): Path to the VCF file (can be gzipped).
+
+        Returns:
+            pl.DataFrame: DataFrame containing the VCF data."""
+    
     open_func = gzip.open if vcf_path.endswith(".gz") else open
     header = None
     rows: list[str] = []
@@ -566,7 +578,6 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
             try:
                 chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
             except:
-                ic(vcf_path,line, fields)
                 raise
             if variant_in_intervals(chrom, pos, intervals):
                 rows.append(line)

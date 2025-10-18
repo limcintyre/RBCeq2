@@ -289,7 +289,7 @@ def find_hits(
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
-    ic(best)
+    #ic(best)
     var_map = {}
     
     if best:
@@ -314,7 +314,8 @@ def find_hits(
             variant_metrics=vcf.variants,
             phase_sets=vcf.phase_sets,
         ),
-        partial(dp.modify_phase_if_large_indel, phased=args.phased),
+        partial(dp.modify_phase_of_large_indel, phased=args.phased),
+        partial(dp.modify_variant_phase_pool_if_large_indel),
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(

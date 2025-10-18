@@ -474,6 +474,7 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
 
     return bg
 
+
 @apply_to_dict_values
 def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     """Adjusts variant zygosity calls when large deletions are present.
@@ -560,6 +561,92 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     return bg
 
 @apply_to_dict_values
+def modify_variant_phase_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
+    """Adjusts variant zygosity calls when large deletions are present.
+    
+    When a blood group contains large deletions alongside other variants, this function
+    modifies the zygosity of variants that fall within the deletion boundaries. Variants
+    located inside a deletion region are reset to heterozygous (HET) status, as they
+    cannot reliably be called homozygous when overlapped by a deletion.
+    
+    The function only processes variant pools that contain both large deletions and
+    additional variants (i.e., pools with more than just deletions).
+    
+    Args:
+        bg: A BloodGroup object containing a variant_pool dictionary mapping variant
+            strings to Zygosity enum values.
+    
+    Returns:
+        The modified BloodGroup object with updated variant_pool. If no large deletions
+        are found or if the pool contains only deletions, returns the original BloodGroup
+        unchanged.
+    
+    Note:
+        - Variant strings are expected in format: "chr:pos_ref_alt" or "chr:pos_...DEL...kb"
+        - Large deletions are identified by the presence of 'DEL' in the collapsed variant string
+        - Deletion sizes ending in 'kb' are converted to base pairs (multiplied by 1000)
+        - The function asserts that all large deletions in the pool are heterozygous, if there
+        are otehr small HET variants that overlap the range
+    
+    Example:
+    bg.variant_pool: {'4:143995187_del_103kb': 'Heterozygous',
+                      '4:143999443_ref': 'Homozygous'}
+    Becomes
+    bg.variant_pool: {'4:143995187_del_103kb': 'Heterozygous',
+                      '4:143999443_ref': 'Heterozygous'}
+
+    """
+
+    def get_start_pos(current_variant):
+        return int(current_variant.strip().split(':')[1].split('_')[0])
+    
+    new_variant_pool = {}
+    big_dels = []
+    for variant in bg.variant_pool_phase:
+        no_seq_variant = collapse_variant(variant)
+        
+        if 'DEL' in no_seq_variant.upper():
+            big_dels.append((variant, no_seq_variant)) #these are teh db version of var,
+            #should try get the VCF version TODO
+    if big_dels and len(bg.variant_pool_phase) > len(big_dels):
+        for big_del, no_seq_variant in big_dels:
+            start = get_start_pos(no_seq_variant)
+            length = no_seq_variant.split('_')[-1]
+            length = int(length[:-2])*1000 if length.endswith('kb') else int(length)
+            end = start + length
+            big_del_is_hom = False
+            for variant, zygosity in bg.variant_pool_phase.items():
+                if variant == big_del and zygosity == '1/1':
+                    big_del_is_hom = True
+            if big_del_is_hom:
+                for variant, zygosity in bg.variant_pool_phase.items():
+                    if variant == big_del:
+                        new_variant_pool[variant] = zygosity
+                    elif start < get_start_pos(variant) < end:
+                        assert variant.endswith('_ref')
+                    else:
+                        new_variant_pool[variant] = zygosity
+            else:
+                for variant, zygosity in bg.variant_pool_phase.items():
+                    if variant == big_del:
+                        new_variant_pool[variant] = zygosity
+                    elif start < get_start_pos(variant) < end:
+                        if zygosity == '1/1':
+                            new_variant_pool[variant] = '1'
+                        else:
+                            new_variant_pool[variant] = zygosity
+                            logger.warning(f'Heterozygous variant detected where hemizygousity expected {bg.sample} {bg.type} {variant}')
+                    else:
+                        new_variant_pool[variant] = zygosity
+    if bg.type == 'RHD':
+        ic(8888888999999, bg. variant_pool, bg.variant_pool_phase, new_variant_pool)
+    if new_variant_pool:
+        ic(33344444, new_variant_pool)
+        bg.variant_pool_phase = new_variant_pool
+
+    return bg
+
+@apply_to_dict_values
 def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     """removes alleles that can't exist due to big indel
     
@@ -595,7 +682,7 @@ def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     return bg
 
 @apply_to_dict_values
-def modify_phase_if_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
+def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Infers and updates phase information for large deletions and reference variants.
     
     When a large deletion is unphased (has '/' separator) but overlaps with phased variants

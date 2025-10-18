@@ -932,22 +932,21 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     Raises:
         IndexError: If neither RAW nor POS allele lists contain any alleles.
     """
-    try:
-        allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
-    except IndexError:
-        ic(
-            bg.type,
-            bg.alleles[AlleleState.NORMAL],
-            bg.alleles[AlleleState.NORMAL][0].allele1,
-        )
-        allele_name = bg.alleles[AlleleState.FILT][0].phenotype.split(":")[0]
-        logger.warning(f"Why doesnt this have RAW???? {bg.alleles}")
+    
+    allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
+    
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         ants = [ant.name for ant in merged_pheno]
         as_str = ",".join(sorted(ants)) if bg.type == "ABO" else ",".join(ants)
         pheno = (
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
+        if ant_type == PhenoType.alphanumeric and bg.type == 'RHD':
+            #this is a hack to help debug - rm once done TODO
+            #if bg. sample == 'NA19003':
+            #ic(111,pair, pheno)
+            pheno = ','.join(sorted(pheno.split(',')))
+            #ic(2222,pair, pheno)
         bg.phenotypes[ant_type][pair] = pheno
 
     return bg
