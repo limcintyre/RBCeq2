@@ -4,7 +4,6 @@ from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.utils import Zygosity
 
-from icecream import ic
 
 def flatten_alleles(pairs: list[Pair]) -> set[Allele]:
     """Flatten the pairs into a set of alleles.
@@ -30,18 +29,20 @@ def all_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
 
 
 def identify_unphased(bg: BloodGroup, alleles: list[Allele]) -> list[Allele]:
-    '''
-    logic to check if an alleles varaints are in phase or not'''
+    """
+    logic to check if an alleles varaints are in phase or not"""
+
     def get_var_phase_info(current_var):
-        return bg.variant_pool_phase[current_var], bg.variant_pool_phase_set[current_var]
-    
+        return bg.variant_pool_phase[current_var], bg.variant_pool_phase_set[
+            current_var
+        ]
+
     def variant_not_phased(current_phase):
-        return '/' in current_phase
-    
+        return "/" in current_phase
+
     def variant_not_HET(current_var):
         return bg.variant_pool.get(current_var) != Zygosity.HET
-    
-    
+
     to_remove = []
     for allele in alleles:
         allele_added = False
@@ -71,11 +72,11 @@ def identify_unphased(bg: BloodGroup, alleles: list[Allele]) -> list[Allele]:
 
 
 def proceed(bg: BloodGroup, allele_state: AlleleState) -> bool:
-    '''Some filter functions iterate over AlleleStates
+    """Some filter functions iterate over AlleleStates
     ie for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
-    
-    if CO, we only want to process knops and then only if there are 
-    instances of co_exsisting alleles'''
+
+    if CO, we only want to process knops and then only if there are
+    instances of co_exsisting alleles"""
 
     if allele_state != AlleleState.CO:
         return True
@@ -83,14 +84,13 @@ def proceed(bg: BloodGroup, allele_state: AlleleState) -> bool:
         return False
     return True
 
-def check_var(bg: BloodGroup, pair: Pair, allele_state: AlleleState, variant: str) -> int:
-    '''checks that HET vars are used'''
-    allele1_vars_plus_het_var = set(pair.allele1.defining_variants) | {
-        variant
-    }
-    allele2_vars_plus_het_var = set(pair.allele2.defining_variants) | {
-        variant
-    }
+
+def check_var(
+    bg: BloodGroup, pair: Pair, allele_state: AlleleState, variant: str
+) -> int:
+    """checks that HET vars are used"""
+    allele1_vars_plus_het_var = set(pair.allele1.defining_variants) | {variant}
+    allele2_vars_plus_het_var = set(pair.allele2.defining_variants) | {variant}
     flattened = {
         allele
         for pair2 in bg.alleles[allele_state]

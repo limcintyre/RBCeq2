@@ -10,7 +10,6 @@ from rbceq2.core_logic.utils import (
     check_available_variants,
     chunk_geno_list_by_rank,
 )
-from icecream import ic
 
 
 def sub_alleles(lst: tuple[Allele], allele_relationship: dict[str, bool]) -> bool:
@@ -98,7 +97,7 @@ def all_hom_variants(all_homs: list[Allele], current_combo: tuple[Allele, ...]) 
                 hom_count += 1
             if hom_allele in allele:
                 hom_count += 1
-   
+
     return hom_count != len(all_homs)  # not less OR MORE
 
 
@@ -277,34 +276,34 @@ def prep_co_putative_combos(
             for combo1 in combinations(flattened_alleles, i):
                 if len({a.sub_type for a in combo1}) > 1:
                     continue
-                #ic(333333, combo1, homs)
+                # ic(333333, combo1, homs)
                 if all_hom_variants(homs, combo1):
                     continue
-                #ic(444444, combo1)
+                # ic(444444, combo1)
                 if sub_alleles(combo1, allele_relationship):
                     continue
-                #ic(555555, combo1)
+                # ic(555555, combo1)
                 if any(a.reference for a in combo1):
                     continue
-                #ic(666666, combo1)
+                # ic(666666, combo1)
                 ranked_combo1 = tuple(chunk_geno_list_by_rank(combo1)[0])
 
                 assert ranked_combo1 not in combos
                 combos.append(ranked_combo1)
-        #ic(8888888, combos)
+        # ic(8888888, combos)
         return combos
 
     if bg.type != "KN":
         bg.alleles[AlleleState.CO] = None
         return bg
-    
+
     unique_alleles = sorted(
         set(bg.alleles[AlleleState.FILT]), key=lambda allele: allele.genotype
     )
     bg.misc["combos"] = make_allele_combos(
         unique_alleles, bg.misc["homs"], allele_relationships[bg.type]
     )
-    #ic(555555666666665,set(bg.alleles[AlleleState.FILT]))
+    # ic(555555666666665,set(bg.alleles[AlleleState.FILT]))
     return bg
 
 

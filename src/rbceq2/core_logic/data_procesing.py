@@ -14,18 +14,17 @@ from rbceq2.core_logic.utils import (
     check_available_variants,
     chunk_geno_list_by_rank,
     get_non_refs,
-    collapse_variant
+    collapse_variant,
 )
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
 from icecream import ic
-from rbceq2.core_logic.large_variants import (
-    select_best_per_vcf, MatchResult
-)
+from rbceq2.core_logic.large_variants import select_best_per_vcf, MatchResult
+
 
 def raw_results(
-    db: Db, vcf: VCF, exclude: list[str], var_map,matches
+    db: Db, vcf: VCF, exclude: list[str], var_map, matches
 ) -> dict[str, list[Allele]]:
     """Generate raw results from database alleles and VCF data based on phasing
     information.
@@ -54,7 +53,7 @@ def raw_results(
     for allele in db.make_alleles():
         if any(x in allele.genotype for x in exclude):
             continue
-        
+
         if all(variant in vcf.variants for variant in allele.defining_variants):
             if any(variant in var_map for variant in allele.defining_variants):
                 # best_match = [
@@ -64,15 +63,15 @@ def raw_results(
                 # #ic(allele.blood_group,best_match, select_best_per_vcf(matches, tie_tol=1e-9))
                 # #ic(allele,allele.big_variants, var_map, best_match)
                 # if len(best_match) == 0:
-                #     continue 
+                #     continue
                 # assert len(best_match) ==1
                 # best = best_match[0]
-                # best_var_map = {db_var: vcf_var for db_var, vcf_var in var_map.items() if 
+                # best_var_map = {db_var: vcf_var for db_var, vcf_var in var_map.items() if
                 #                 db_var == f"{best.vcf.chrom}:{best.db.raw}"}
                 # #ic(allele, best_var_map,allele.big_variants, var_map, best_match)
                 allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
-            #ic(allele.blood_group, allele)
+            # ic(allele.blood_group, allele)
     return res
 
 
@@ -324,7 +323,7 @@ def add_phasing(
                 phase_set_pool_ref_fixed[variant] = new_phase
             else:
                 phase_set_pool_ref_fixed[variant] = phase
-        
+
         bg.variant_pool_phase_set = phase_set_pool_ref_fixed
     # if bg.type == 'RHD':
     #     ic(bg.variant_pool_phase, bg.variant_pool_phase_set)
@@ -453,67 +452,67 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
-        
         zygosity = {var: get_ref(vcf.variants[var]) for var in allele.defining_variants}
         variant_pool = variant_pool | zygosity
     bg.variant_pool = variant_pool
 
     return bg
 
+
 def _modify_variant_pool_with_large_indel(
-    variant_pool: dict,
-    sample: str,
-    bg_type: str,
-    is_phase_pool: bool = False
+    variant_pool: dict, sample: str, bg_type: str, is_phase_pool: bool = False
 ) -> dict:
     """Internal helper to adjust variant zygosity when large deletions are present.
-    
+
     Args:
         variant_pool (dict): Dictionary mapping variant strings to zygosity values.
         sample (str): Sample identifier for logging.
         bg_type (str): Blood group type for logging.
-        is_phase_pool (bool): If True, expects phase notation ('1/1', '1'), 
+        is_phase_pool (bool): If True, expects phase notation ('1/1', '1'),
             otherwise Zygosity enums. Defaults to False.
-    
+
     Returns:
         dict: Modified variant pool dictionary, or empty dict if no modifications needed.
     """
+
     def get_start_pos(current_variant):
-        return int(current_variant.strip().split(':')[1].split('_')[0])
-    
+        return int(current_variant.strip().split(":")[1].split("_")[0])
+
     # Identify large deletions
     big_dels = []
     for variant in variant_pool:
         no_seq_variant = collapse_variant(variant)
-        if 'DEL' in no_seq_variant.upper():
-            big_dels.append((variant, no_seq_variant)) #these are teh db version of var,
-            #should try get the VCF version TODO
-    
+        if "DEL" in no_seq_variant.upper():
+            big_dels.append(
+                (variant, no_seq_variant)
+            )  # these are teh db version of var,
+            # should try get the VCF version TODO
+
     # Early exit if no large deletions or only deletions present
     if not big_dels or len(variant_pool) <= len(big_dels):
         return {}
-    
+
     # Determine zygosity values based on pool type
     if is_phase_pool:
-        hom_value = '1/1'
-        het_value = ('1|0','0|1') 
-        hem_value = '1'
+        hom_value = "1/1"
+        het_value = ("1|0", "0|1")
+        hem_value = "1"
     else:
         hom_value = Zygosity.HOM
-        het_value = (Zygosity.HET)
+        het_value = Zygosity.HET
         hem_value = Zygosity.HEM
-    
+
     new_variant_pool = {}
-    
+
     for big_del, no_seq_variant in big_dels:
         start = get_start_pos(no_seq_variant)
-        length = no_seq_variant.split('_')[-1]
-        length = int(length[:-2]) * 1000 if length.endswith('kb') else int(length)
+        length = no_seq_variant.split("_")[-1]
+        length = int(length[:-2]) * 1000 if length.endswith("kb") else int(length)
         end = start + length
-        
+
         # Check if deletion is homozygous
         big_del_is_hom = variant_pool.get(big_del) == hom_value
-        
+
         for variant, zygosity in variant_pool.items():
             if variant == big_del:
                 # Keep deletion as-is
@@ -521,7 +520,7 @@ def _modify_variant_pool_with_large_indel(
             elif start < get_start_pos(variant) < end:
                 # Variant falls within deletion range
                 if big_del_is_hom:
-                    assert variant.endswith('_ref')
+                    assert variant.endswith("_ref")
                     new_variant_pool[variant] = zygosity
                 else:
                     if zygosity == hom_value:
@@ -531,46 +530,46 @@ def _modify_variant_pool_with_large_indel(
                         # Warn about unexpected heterozygous variant
                         new_variant_pool[variant] = zygosity
                         logger.warning(
-                            f'Heterozygous variant detected where hemizygousity expected '
-                            f'{sample} {bg_type} {variant}'
+                            f"Heterozygous variant detected where hemizygousity expected "
+                            f"{sample} {bg_type} {variant}"
                         )
                     if not is_phase_pool:
                         assert variant_pool[big_del] in het_value
             else:
                 # Variant outside deletion range
                 new_variant_pool[variant] = zygosity
-    
+
     return new_variant_pool
 
 
 @apply_to_dict_values
 def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     """Adjusts variant zygosity calls when large deletions are present.
-    
+
     When a blood group contains large deletions alongside other variants, this function
     modifies the zygosity of variants that fall within the deletion boundaries. Variants
     located inside a deletion region are reset to hemizygous (HEM) status when homozygous,
     as they cannot reliably be called homozygous when overlapped by a heterozygous deletion.
-    
+
     The function only processes variant pools that contain both large deletions and
     additional variants (i.e., pools with more than just deletions).
-    
+
     Args:
-        bg (BloodGroup): A BloodGroup object containing a variant_pool dictionary 
+        bg (BloodGroup): A BloodGroup object containing a variant_pool dictionary
             mapping variant strings to Zygosity enum values.
-    
+
     Returns:
-        BloodGroup: The modified BloodGroup object with updated variant_pool. If no 
-            large deletions are found or if the pool contains only deletions, returns 
+        BloodGroup: The modified BloodGroup object with updated variant_pool. If no
+            large deletions are found or if the pool contains only deletions, returns
             the original BloodGroup unchanged.
-    
+
     Note:
         - Variant strings are expected in format: "chr:pos_ref_alt" or "chr:pos_...DEL...kb"
         - Large deletions are identified by the presence of 'DEL' in the collapsed variant string
         - Deletion sizes ending in 'kb' are converted to base pairs (multiplied by 1000)
         - The function asserts that all large deletions in the pool are heterozygous, if there
           are other small HET variants that overlap the range
-    
+
     Example:
         bg.variant_pool: {'4:143995187_del_103kb': 'Heterozygous',
                           '4:143999443_ref': 'Homozygous'}
@@ -579,44 +578,41 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                           '4:143999443_ref': 'Hemizygous'}
     """
     new_variant_pool = _modify_variant_pool_with_large_indel(
-        bg.variant_pool,
-        bg.sample,
-        bg.type,
-        is_phase_pool=False
+        bg.variant_pool, bg.sample, bg.type, is_phase_pool=False
     )
-    
+
     if new_variant_pool:
         bg.variant_pool = new_variant_pool
-    
+
     return bg
 
 
 @apply_to_dict_values
 def modify_variant_phase_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     """Adjusts variant phase calls when large deletions are present.
-    
+
     When a blood group contains large deletions alongside other variants, this function
     modifies the phase notation of variants that fall within the deletion boundaries.
     Variants located inside a deletion region are converted from '1/1' to '1' (hemizygous)
     when overlapped by a heterozygous deletion.
-    
+
     The function only processes variant pools that contain both large deletions and
     additional variants (i.e., pools with more than just deletions).
-    
+
     Args:
-        bg (BloodGroup): A BloodGroup object containing a variant_pool_phase dictionary 
+        bg (BloodGroup): A BloodGroup object containing a variant_pool_phase dictionary
             mapping variant strings to phase notation strings.
-    
+
     Returns:
-        BloodGroup: The modified BloodGroup object with updated variant_pool_phase. If 
-            no large deletions are found or if the pool contains only deletions, returns 
+        BloodGroup: The modified BloodGroup object with updated variant_pool_phase. If
+            no large deletions are found or if the pool contains only deletions, returns
             the original BloodGroup unchanged.
-    
+
     Note:
         - Variant strings are expected in format: "chr:pos_ref_alt" or "chr:pos_...DEL...kb"
         - Large deletions are identified by the presence of 'DEL' in the collapsed variant string
         - Deletion sizes ending in 'kb' are converted to base pairs (multiplied by 1000)
-    
+
     Example:
         bg.variant_pool_phase: {'4:143995187_del_103kb': '0/1',
                                  '4:143999443_ref': '1/1'}
@@ -625,43 +621,39 @@ def modify_variant_phase_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                                  '4:143999443_ref': '1'}
     """
     new_variant_pool = _modify_variant_pool_with_large_indel(
-        bg.variant_pool_phase,
-        bg.sample,
-        bg.type,
-        is_phase_pool=True
+        bg.variant_pool_phase, bg.sample, bg.type, is_phase_pool=True
     )
-    
+
     if new_variant_pool:
         bg.variant_pool_phase = new_variant_pool
-    
+
     return bg
 
 
 @apply_to_dict_values
 def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     """removes alleles that can't exist due to big indel
-    
+
     Example - HOM del
-    allele1: Allele 
-              genotype: RHD*01N.01 
-              defining_variants: 
-                        1:25272547_DEL_59419 
-              weight_geno: 500 
-              phenotype: . or D- 
-              reference: False 
+    allele1: Allele
+              genotype: RHD*01N.01
+              defining_variants:
+                        1:25272547_DEL_59419
+              weight_geno: 500
+              phenotype: . or D-
+              reference: False
     Removed as '_ref' is over ridden by big del
-    allele2: Allele 
-              genotype: RHD*10.00 
-              defining_variants: 
-                        1:25317062_ref 
-              weight_geno: 1000 
-              phenotype: . or DAU0 
-              reference: False 
+    allele2: Allele
+              genotype: RHD*10.00
+              defining_variants:
+                        1:25317062_ref
+              weight_geno: 1000
+              phenotype: . or DAU0
+              reference: False
 
     """
     keepers = []
     for allele in bg.alleles[AlleleState.FILT]:
-        
         for variant in allele.defining_variants:
             try:
                 assert variant in bg.variant_pool
@@ -672,41 +664,42 @@ def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
     bg.alleles[AlleleState.FILT] = keepers
     return bg
 
+
 @apply_to_dict_values
 def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Infers and updates phase information for large deletions and reference variants.
-    
+
     When a large deletion is unphased (has '/' separator) but overlaps with phased variants
     (using '|' separator) in the same phase set, this function infers the deletion's phase
     as the opposite haplotype of the overlapping variants. This is valid because a deletion
     on one haplotype means the other haplotype carries the reference allele where variants
     are called.
-    
+
     Additionally, reference variants (ending in '_ref') have their phase inferred based on
     which deletion they overlap with. If a reference variant overlaps with a deletion
     that is phased as '0|1', the reference is phased as '1|0' (opposite haplotype).
-    
+
     The function only modifies deletion phase if:
     1. The deletion overlaps with at least one phased variant
     2. All variants (including those ending in '_ref') share the same phase set
     3. The deletion is currently unphased (contains '/')
-    
+
     Args:
         bg: A BloodGroup object containing variant_pool_phase (dict mapping variants to
             phase strings like '0|1' or '0/1') and variant_pool_phase_set (dict mapping
             variants to phase set IDs).
         phased: Boolean indicating whether phasing information is available. If False,
             returns the BloodGroup unchanged.
-    
+
     Returns:
         The modified BloodGroup object with updated phase information for large deletions,
-        reference variants, and phase sets. If no phasing is available or no large 
+        reference variants, and phase sets. If no phasing is available or no large
         deletions need updating, returns the original BloodGroup unchanged.
-    
+
     Raises:
         ValueError: If a reference variant overlaps with multiple deletions, which is
             biologically impossible (only 2 alleles exist per locus).
-    
+
     Note:
         - Reference variants (ending in '_ref') ARE included in phase set validation
         - Phase is flipped: if overlapping variant is '1|0', deletion becomes '0|1'
@@ -714,7 +707,7 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
         - Only deletions with '/' in their phase string are considered for updating
         - Multiple non-overlapping deletions can have different phases (different chromosomes)
         - Any variant overlapping a deletion must be on the other chromosome
-    
+
     Example:
         >>> bg = BloodGroup(
         ...     variant_pool_phase={
@@ -736,91 +729,96 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
         >>> modified_bg.variant_pool_phase['4:143999443_ref']
         '1|0'
     """
+
     def get_start_pos(current_variant):
-        return int(current_variant.strip().split(':')[1].split('_')[0])
-    
+        return int(current_variant.strip().split(":")[1].split("_")[0])
+
     def flip_phase(phase_str):
         """Flip the phase: '1|0' becomes '0|1' and vice versa."""
-        alleles = phase_str.split('|')
+        alleles = phase_str.split("|")
         return f"{alleles[1]}|{alleles[0]}"
-    
+
     def get_deletion_boundaries(big_del):
         """Extract start and end positions for a deletion."""
         start = get_start_pos(big_del)
-        length_str = big_del.split('_')[-1]
-        length = int(length_str[:-2]) * 1000 if length_str.endswith('kb') else int(length_str)
+        length_str = big_del.split("_")[-1]
+        length = (
+            int(length_str[:-2]) * 1000
+            if length_str.endswith("kb")
+            else int(length_str)
+        )
         end = start + length
         return start, end
-    
+
     if not phased:
         return bg
-    
+
     # Find large deletions that are unphased
     unphased_big_dels = []
     for variant, phase in bg.variant_pool_phase.items():
-        if ('del' in variant.lower() or 'DEL' in variant) and '/' in phase:
+        if ("del" in variant.lower() or "DEL" in variant) and "/" in phase:
             unphased_big_dels.append(variant)
-    
+
     if not unphased_big_dels:
         return bg
-    
+
     # Collect all phase sets (excluding 'unknown' and '.')
     all_phase_sets = set()
     for variant, phase_set in bg.variant_pool_phase_set.items():
-        if phase_set not in ['unknown', '.']:
+        if phase_set not in ["unknown", "."]:
             all_phase_sets.add(phase_set)
-    
+
     # Only proceed if all variants share the same phase set
     if len(all_phase_sets) != 1:
         return bg
-    
+
     common_phase_set = list(all_phase_sets)[0]
-    
+
     # Process each unphased deletion
     for big_del in unphased_big_dels:
         start, end = get_deletion_boundaries(big_del)
-        
+
         # Find overlapping phased variants
         overlapping_variants = []
-        
+
         for variant, phase in bg.variant_pool_phase.items():
             if variant == big_del:
                 continue
-            
-            if '|' in phase:  # Only consider phased variants
+
+            if "|" in phase:  # Only consider phased variants
                 variant_pos = get_start_pos(variant)
                 if start < variant_pos < end:
                     overlapping_variants.append(variant)
-        
+
         # Update deletion phase if we have overlapping variants
         if overlapping_variants:
             # Use the first overlapping variant's phase to infer deletion phase
             overlapping_phase = bg.variant_pool_phase[overlapping_variants[0]]
             inferred_del_phase = flip_phase(overlapping_phase)
-            
+
             # Update the deletion's phase and phase set
             bg.variant_pool_phase[big_del] = inferred_del_phase
             bg.variant_pool_phase_set[big_del] = common_phase_set
-    
+
     # Now infer phase for reference variants based on overlapping deletions
     # First, collect all deletions (both originally phased and newly phased)
     all_deletions = {}
     for variant, phase in bg.variant_pool_phase.items():
-        if ('del' in variant.lower() or 'DEL' in variant) and '|' in phase:
+        if ("del" in variant.lower() or "DEL" in variant) and "|" in phase:
             start, end = get_deletion_boundaries(variant)
-            all_deletions[variant] = {'phase': phase, 'start': start, 'end': end}
-    
+            all_deletions[variant] = {"phase": phase, "start": start, "end": end}
+
     # Update reference variants
     for variant in list(bg.variant_pool_phase.keys()):
-        if variant.endswith('_ref'):
+        if variant.endswith("_ref"):
             variant_pos = get_start_pos(variant)
-            
+
             # Find which deletion(s) this reference overlaps with
             overlapping_deletions = []
             for del_variant, del_info in all_deletions.items():
-                if del_info['start'] < variant_pos < del_info['end']:
+                if del_info["start"] < variant_pos < del_info["end"]:
                     overlapping_deletions.append(del_variant)
-            
+
             # Check for invalid case: multiple deletions overlapping same locus
             if len(overlapping_deletions) > 1:
                 raise ValueError(
@@ -828,19 +826,20 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
                     f"multiple deletions: {overlapping_deletions}. This is biologically "
                     f"impossible as there are only 2 alleles per locus."
                 )
-            
+
             # If the reference overlaps with a deletion, infer its phase
             if overlapping_deletions:
                 # Reference is on the opposite haplotype from the deletion
-                del_phase = all_deletions[overlapping_deletions[0]]['phase']
+                del_phase = all_deletions[overlapping_deletions[0]]["phase"]
                 ref_phase = flip_phase(del_phase)
                 bg.variant_pool_phase[variant] = ref_phase
                 bg.variant_pool_phase_set[variant] = common_phase_set
             else:
                 # If no overlap with deletions, just update phase set
                 bg.variant_pool_phase_set[variant] = common_phase_set
-    
+
     return bg
+
 
 def get_ref(ref_dict: dict[str, str]) -> str:
     """Determine the zygosity from a reference dictionary containing genotype
@@ -1028,7 +1027,7 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
-            loci = vcf_var.split('_')[0]
+            loci = vcf_var.split("_")[0]
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
@@ -1036,7 +1035,17 @@ def only_keep_alleles_if_FILTER_PASS(
             except IndexError:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
-                ic(bg.sample,bg.type,loci, allele,allele.big_variants, vcf_var, df, df.query("loci == '@loci'"), df.query("CHROM == '4'"))
+                ic(
+                    bg.sample,
+                    bg.type,
+                    loci,
+                    allele,
+                    allele.big_variants,
+                    vcf_var,
+                    df,
+                    df.query("loci == '@loci'"),
+                    df.query("CHROM == '4'"),
+                )
                 raise
             if filter_value != "PASS":
                 keeper = False
@@ -1463,7 +1472,7 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
 
 @apply_to_dict_values
 def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
-    """ TODO why not just use the CD99 vars??
+    """TODO why not just use the CD99 vars??
     adds CD to XG blood group.
 
     Args:
@@ -1510,14 +1519,15 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
             )
     return res
 
+
 @apply_to_dict_values
-def only_keep_alleles_if_best_big_del(bg: BloodGroup, matches: list[MatchResult]) -> BloodGroup:
-    """
-    
-    """
+def only_keep_alleles_if_best_big_del(
+    bg: BloodGroup, matches: list[MatchResult]
+) -> BloodGroup:
+    """ """
 
     best = select_best_per_vcf(matches, tie_tol=1e-9)
-    best_var_map={}
+    best_var_map = {}
     for match in best:
         best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
     alleles_with_big_vars = []

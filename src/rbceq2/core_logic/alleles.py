@@ -12,11 +12,10 @@ from loguru import logger
 from rbceq2.core_logic.utils import Zygosity, collapse_variant
 from rbceq2.core_logic.constants import AlleleState
 from frozendict import frozendict
+
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
-from icecream import ic
-
 
 
 @dataclass(slots=False, frozen=True)
@@ -70,7 +69,7 @@ class Allele:
         object.__setattr__(
             self, "number_of_defining_variants", len(self.defining_variants)
         )
-    
+
     def with_big_variants(self, new: dict[str, str]) -> "Allele":
         """Return a new Allele with updated big_variants."""
         return Allele(
@@ -96,10 +95,10 @@ class Allele:
             bool: True if all variants in other defining_variants, False otherwise.
         """
         if self.__eq__(other):
-            return False #if compared to self
+            return False  # if compared to self
         if other.reference and self.sub_type == other.sub_type:
-            return True # ref is always 'in' in any child allele
-            #especially necesary for KN and any BGs with no SNV for ref
+            return True  # ref is always 'in' in any child allele
+            # especially necesary for KN and any BGs with no SNV for ref
         if self.number_of_defining_variants > other.number_of_defining_variants:
             return other.defining_variants.issubset(self.defining_variants)
         return False
@@ -195,16 +194,14 @@ class Allele:
         Example:
             KN*01 -> KN
         """
-        bg =  (
+        bg = (
             self.genotype.split("*")[0]
             if self.genotype != "."
             else self.genotype_alt.split("*")[0]
         )
-        if 'KLF' in bg.upper():
-            bg = 'KLF' #most are KLF1, but need to all be the same
+        if "KLF" in bg.upper():
+            bg = "KLF"  # most are KLF1, but need to all be the same
         return bg
-
-
 
 
 @dataclass(slots=True, frozen=False)
@@ -271,8 +268,12 @@ class BloodGroup:
         default_factory=lambda: defaultdict(list)
     )
     len_dict: dict[str, int] = field(
-        default_factory=lambda: {Zygosity.HOM: 2, Zygosity.HET: 1,
-                                  Zygosity.REF: 2, Zygosity.HEM: 1}
+        default_factory=lambda: {
+            Zygosity.HOM: 2,
+            Zygosity.HET: 1,
+            Zygosity.REF: 2,
+            Zygosity.HEM: 1,
+        }
     )
     misc: dict[Any, Any] = None  # TODO - pheno separately??
 
@@ -317,7 +318,6 @@ class BloodGroup:
         """
         return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
 
-
     @property
     def number_of_putative_alleles(self) -> int:
         """Count the number of putative alleles classified as 'raw'.
@@ -347,7 +347,9 @@ class BloodGroup:
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
         if not self.alleles[allele_type]:
-            logger.warning(f'all pairs removed!: {self.sample} {self.type} {filter_name}')
+            logger.warning(
+                f"all pairs removed!: {self.sample} {self.type} {filter_name}"
+            )
 
     def remove_alleles(
         self, to_remove: list[str], filter_name: str, allele_type: str = "raw"
@@ -362,7 +364,10 @@ class BloodGroup:
             self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
         if not self.alleles[allele_type]:
-            logger.warning(f'all alleles removed!: {self.sample} {self.type} {filter_name}')
+            logger.warning(
+                f"all alleles removed!: {self.sample} {self.type} {filter_name}"
+            )
+
 
 @dataclass(slots=True, frozen=True)
 class Pair:

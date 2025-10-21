@@ -12,7 +12,6 @@ from loguru import logger
 from collections import defaultdict
 from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
 from rbceq2.IO.encoders import VariantEncoderFactory
-from icecream import ic
 
 
 @dataclass(slots=True, frozen=False)
@@ -123,11 +122,11 @@ class VCF:
     def encode_variants(self) -> None:
         """Encode variants into a unified format using the encoder factory."""
         factory = VariantEncoderFactory()
-        
+
         self.df["variant"] = self.df.apply(
-            lambda row: factory.encode_variant(row),
-            axis=1
+            lambda row: factory.encode_variant(row), axis=1
         )
+
     # def encode_variants(self) -> None:
     #     """Encode variants into a unified format in the DataFrame."""
 
@@ -225,34 +224,42 @@ class VCF:
                             #     self.df.loc[
                             #         self.df.loci == lane_loci
                             #     ]))
-                            original_row = self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
+                            original_row = (
+                                self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
+                            )
 
                             # Create the reference variant row
                             ref_row = original_row.copy()
-                            ref_row['variant'] = f"{lane_loci}_ref"
-                            ref_row['ALT'] = original_row['REF']  # ALT becomes the original REF
+                            ref_row["variant"] = f"{lane_loci}_ref"
+                            ref_row["ALT"] = original_row[
+                                "REF"
+                            ]  # ALT becomes the original REF
 
                             # Flip the genotype in FORMAT column
-                            gt_field = ref_row['SAMPLE'].split(':')[0]
-                            if '|' in gt_field:
+                            gt_field = ref_row["SAMPLE"].split(":")[0]
+                            if "|" in gt_field:
                                 # Phased: flip 0|1 to 1|0 or 1|0 to 0|1
-                                flipped_gt = '|'.join(reversed(gt_field.split('|')))
-                            elif '/' in gt_field:
+                                flipped_gt = "|".join(reversed(gt_field.split("|")))
+                            elif "/" in gt_field:
                                 # Unphased: flip 0/1 to 1/0 or 1/0 to 0/1
-                                flipped_gt = '/'.join(reversed(gt_field.split('/')))
+                                flipped_gt = "/".join(reversed(gt_field.split("/")))
                             else:
-                                raise ValueError('GT formated wrong')
+                                raise ValueError("GT formated wrong")
 
                             # Replace the GT field in SAMPLE
-                            sample_fields = ref_row['SAMPLE'].split(':')
+                            sample_fields = ref_row["SAMPLE"].split(":")
                             sample_fields[0] = flipped_gt
-                            ref_row['SAMPLE'] = ':'.join(sample_fields)
+                            ref_row["SAMPLE"] = ":".join(sample_fields)
 
                             # Update the original row's variant (don't concatenate)
-                            self.df.loc[self.df.loci == lane_loci, 'variant'] = f"{lane_loci}_{lane}"
+                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
+                                f"{lane_loci}_{lane}"
+                            )
 
                             # Append the new reference row to the dataframe
-                            self.df = pd.concat([self.df, pd.DataFrame([ref_row])], ignore_index=True)
+                            self.df = pd.concat(
+                                [self.df, pd.DataFrame([ref_row])], ignore_index=True
+                            )
                             # self.df.loc[self.df.loci == lane_loci, "variant"] = (
                             #     self.df.loc[
                             #         self.df.loci == lane_loci, "variant"
@@ -584,23 +591,23 @@ def variant_in_intervals(
 
 def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFrame:
     """Stream a VCF, keep only relevant lines, return as Polars DataFrame.
-        read a VCF file using polars while preserving the header and sample names.
+    read a VCF file using polars while preserving the header and sample names.
 
-        This function manually extracts the header (line starting with "#CHROM")
-        and skips meta-information lines (starting with "##"). It then constructs a
-        CSV-formatted string and parses it with polars.
+    This function manually extracts the header (line starting with "#CHROM")
+    and skips meta-information lines (starting with "##"). It then constructs a
+    CSV-formatted string and parses it with polars.
 
-        Args:
-            file_path (str): Path to the VCF file (can be gzipped).
+    Args:
+        file_path (str): Path to the VCF file (can be gzipped).
 
-        Returns:
-            pl.DataFrame: DataFrame containing the VCF data."""
-    
+    Returns:
+        pl.DataFrame: DataFrame containing the VCF data."""
+
     open_func = gzip.open if vcf_path.endswith(".gz") else open
     header = None
     rows: list[str] = []
     with open_func(vcf_path, "rt") as f:
-        for line in f: #TODO Pool
+        for line in f:  # TODO Pool
             if line.startswith("##"):
                 continue
             if line.startswith("#CHROM"):
@@ -642,8 +649,6 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
         raise
 
     return df
-
-
 
 
 def check_if_multi_sample_vcf(file_path: str) -> bool:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -9,7 +8,7 @@ from typing import Iterator, Protocol, runtime_checkable
 import pandas as pd
 import re
 from typing import Iterable
-from icecream import ic
+
 
 @dataclass(slots=True, frozen=True)
 class SvDef:
@@ -151,10 +150,11 @@ class MatchResult:
 
     def __repr__(self) -> str:
         return (
-        f"MatchResult(score={self.score}, pos_delta={self.pos_delta}, "
-        f"len_delta={self.len_delta}, db_id='{self.db.id}', "
-        f"db_raw='{self.db.raw}', vcf_variant='{self.vcf.variant}')"
-    )
+            f"MatchResult(score={self.score}, pos_delta={self.pos_delta}, "
+            f"len_delta={self.len_delta}, db_id='{self.db.id}', "
+            f"db_raw='{self.db.raw}', vcf_variant='{self.vcf.variant}')"
+        )
+
 
 @dataclass(slots=True)
 class SvMatcher:
@@ -367,8 +367,6 @@ class SvMatcher:
         return (max(s, 0.0), pos_delta, len_delta)
 
 
-
-
 def _ci_lookup(names: list[str]) -> dict[str, str]:
     """Case-insensitive header map: lower->original.
 
@@ -379,6 +377,7 @@ def _ci_lookup(names: list[str]) -> dict[str, str]:
         dict[str, str]: Mapping from lowercase column names to originals.
     """
     return {n.lower(): n for n in names}
+
 
 def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
     """Heuristically check if a string looks like our SV token.
@@ -407,6 +406,8 @@ def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
                 if delta >= min_delta or max(len(p1), len(p2)) >= min_delta:
                     return True
     return False
+
+
 # def _looks_like_sv_token(tok: str) -> bool:
 #     """Heuristically check if a string looks like our SV token.
 
@@ -519,9 +520,6 @@ def load_db_defs(
     return defs
 
 
-
-
-
 @runtime_checkable
 class VariantSource(Protocol):
     """Protocol for any source that yields structural variant events."""
@@ -593,7 +591,6 @@ class SvEvent:
         if self.svlen != 0:
             return abs(self.svlen)
         return abs(self.end - self.pos)
-
 
 
 def _parse_info(info: str) -> dict[str, str]:
@@ -674,9 +671,9 @@ class SnifflesVcfSvReader:
 
     def events(self) -> Iterator[SvEvent]:
         """Iterate over structural variant events in a VCF.
-6
-        Returns:
-            Iterator[SvEvent]: Yielded SV events.
+        6
+                Returns:
+                    Iterator[SvEvent]: Yielded SV events.
         """
         bnd_cache: dict[str, SvEvent] = {}
         for row in self.df.itertuples(index=True, name="Row"):
@@ -744,6 +741,7 @@ class SnifflesVcfSvReader:
                 if event.size >= self.min_size:
                     yield event
 
+
 def select_best_per_vcf(
     matches: Iterable[MatchResult], tie_tol: float = 1e-6, delta_weight: float = 0.5
 ) -> list[MatchResult]:
@@ -775,17 +773,17 @@ def select_best_per_vcf(
             # Normalize deltas within this group for fair comparison
             max_pos = max(t.pos_delta for t in tied)
             max_len = max(t.len_delta for t in tied)
-            
+
             # Avoid division by zero
             max_pos = max(max_pos, 1)
             max_len = max(max_len, 1)
-            
+
             # Compute combined delta score
             def combined_delta(r: MatchResult) -> float:
                 norm_pos = r.pos_delta / max_pos
                 norm_len = r.len_delta / max_len
                 return delta_weight * norm_pos + (1 - delta_weight) * norm_len
-            
+
             tied.sort(key=combined_delta)
             best_combined = combined_delta(tied[0])
             # Keep matches within a small tolerance of best combined score
@@ -801,6 +799,7 @@ def select_best_per_vcf(
     # Stable ordering: by VCF, then score, then DB id
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered
+
 
 # def select_best_per_vcf(
 #     matches: Iterable[MatchResult], tie_tol: float = 1e-6
@@ -845,4 +844,3 @@ def select_best_per_vcf(
 #     # Stable-ish ordering: by VCF, then score, then DB id
 #     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
 #     return filtered
-

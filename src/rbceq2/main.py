@@ -42,7 +42,8 @@ from rbceq2.IO.vcf import (
 from rbceq2.core_logic.large_variants import (
     SnifflesVcfSvReader,
     load_db_defs,
-    SvMatcher,select_best_per_vcf
+    SvMatcher,
+    select_best_per_vcf,
 )
 
 
@@ -164,7 +165,7 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "CD99","ATP11C"] #, "RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "CD99", "ATP11C"]  # , "RHD", "RHCE"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
@@ -247,7 +248,7 @@ def main():
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
-    df_geno = df_geno.replace('', 'Undetermined/Undetermined')
+    df_geno = df_geno.replace("", "Undetermined/Undetermined")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
@@ -258,7 +259,9 @@ def main():
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
+    print(
+        f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
+    )
 
 
 def find_hits(
@@ -289,9 +292,9 @@ def find_hits(
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
-    #ic(best)
+    # ic(best)
     var_map = {}
-    
+
     if best:
         for match in best:
             vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
@@ -449,7 +452,7 @@ def find_hits(
         formated_called_numeric_phenos,
         formated_called_alphanumeric_phenos,
         res,
-        var_map
+        var_map,
     )
 
 
