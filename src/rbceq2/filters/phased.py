@@ -546,12 +546,10 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
     """
-    if bg.type == 'RHD':
-        ic(999999)
+    
     if not phased:
         return bg
-    if bg.type == 'RHD':
-        ic(88888)
+    
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
@@ -564,15 +562,13 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             for allele in alleles
             if check_phase(bg.variant_pool_phase_set, allele, ".")
         ]
-        if bg.type == 'RHD':
-            ic(1111, alleles_with_variants_in_same_phase_set)
+        
         alleles_with_variants_in_same_phase = [
             allele
             for allele in alleles_with_variants_in_same_phase_set
             if check_phase(bg.variant_pool_phase, allele, "1/1")
         ]
-        if bg.type == 'RHD':
-            ic(2222, alleles_with_variants_in_same_phase)
+        
         # split by phase
         l1, l2, l3 = [], [], [] #1|0, 0|1, or 1 (hemi)
         for allele in sorted(
@@ -597,8 +593,7 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             else:
                 assert phase in "unknown" or "/" in phase
         # figure out what to remove
-        if bg.type == 'RHD':
-            ic(333, l1, l2, l3)
+        
         alleles_to_remove = iterate_over_list(l1)
         alleles_to_remove += iterate_over_list(l2)
         alleles_to_remove += iterate_over_list(l3)

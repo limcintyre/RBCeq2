@@ -164,7 +164,7 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "CD99","ATP11C"] #, "RHD", "RHCE"]
+    exclude = ["C4A", "C4B"] # "CD99","ATP11C"] #, "RHD", "RHCE"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
@@ -281,9 +281,9 @@ def find_hits(
         vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
-    for event in events:
-        if event.chrom == '1' and event.svlen == 35:
-            ic(event)
+    # for event in events:
+    #     if event.chrom == '1' and event.svlen == 35:
+    #         ic(event)
 
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()

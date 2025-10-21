@@ -221,12 +221,48 @@ class VCF:
                         alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
                         lane = LANE[f"chr{chrom}"][pos]
                         if f"{ref}_{alt}" == lane or lane == "no_ALT":
-                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
-                                self.df.loc[
-                                    self.df.loci == lane_loci, "variant"
-                                ].values[0]
-                                + f",{lane_loci}_ref"
-                            )
+                            # ic(1111,lane, lane_loci, (
+                            #     self.df.loc[
+                            #         self.df.loci == lane_loci
+                            #     ]))
+                            original_row = self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
+
+                            # Create the reference variant row
+                            ref_row = original_row.copy()
+                            ref_row['variant'] = f"{lane_loci}_ref"
+                            ref_row['ALT'] = original_row['REF']  # ALT becomes the original REF
+
+                            # Flip the genotype in FORMAT column
+                            gt_field = ref_row['SAMPLE'].split(':')[0]
+                            if '|' in gt_field:
+                                # Phased: flip 0|1 to 1|0 or 1|0 to 0|1
+                                flipped_gt = '|'.join(reversed(gt_field.split('|')))
+                            elif '/' in gt_field:
+                                # Unphased: flip 0/1 to 1/0 or 1/0 to 0/1
+                                flipped_gt = '/'.join(reversed(gt_field.split('/')))
+                            else:
+                                raise ValueError('GT formated wrong')
+
+                            # Replace the GT field in SAMPLE
+                            sample_fields = ref_row['SAMPLE'].split(':')
+                            sample_fields[0] = flipped_gt
+                            ref_row['SAMPLE'] = ':'.join(sample_fields)
+
+                            # Update the original row's variant (don't concatenate)
+                            self.df.loc[self.df.loci == lane_loci, 'variant'] = f"{lane_loci}_{lane}"
+
+                            # Append the new reference row to the dataframe
+                            self.df = pd.concat([self.df, pd.DataFrame([ref_row])], ignore_index=True)
+                            # self.df.loc[self.df.loci == lane_loci, "variant"] = (
+                            #     self.df.loc[
+                            #         self.df.loci == lane_loci, "variant"
+                            #     ].values[0]
+                            #     + f",{lane_loci}_ref"
+                            # )
+                            # ic(22222,lane, lane_loci, (
+                            #     self.df.loc[
+                            #         self.df.loci == lane_loci
+                            #     ]))
                 else:
                     new_lanes[lane_loci] = (
                         [chrom, pos]
