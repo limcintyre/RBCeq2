@@ -304,7 +304,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
         if not proceed(bg, allele_state):
             continue
         to_remove = []
-        pair_with_unphased_HETs = False
+        pairs_with_HET = []
         for pair in bg.alleles[allele_state]:
             if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
                 continue  # TODO - next refactor this type of functionality
@@ -322,16 +322,18 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                 continue
             if len(phase1) == 1 and len(phase2) == 1:
                 assert phase1.union(phase2) == {"1|0", "0|1"}
-                pair_with_unphased_HETs = True
-                break
-        if pair_with_unphased_HETs:
-            flattened_alleles = flatten_alleles(bg.alleles[allele_state])
-            for pair in bg.alleles[allele_state]:
-                for allele in pair:
-                    if all_hom(bg.variant_pool, allele) and any(
-                        allele in flat_allele for flat_allele in flattened_alleles
-                    ):
-                        to_remove.append(pair)
+                pairs_with_HET.append(pair)
+                
+        if pairs_with_HET:
+            for pair_with_HET in pairs_with_HET:
+                flattened_alleles = flatten_alleles([pair_with_HET])
+                for pair in bg.alleles[allele_state]:
+                    for allele in pair:
+                        if all_hom(bg.variant_pool, allele) and all(
+                            allele in flat_allele for flat_allele in flattened_alleles
+                        ): 
+                            ic(111,allele)
+                            to_remove.append(pair)
 
         if to_remove:
             bg.remove_pairs(
