@@ -164,7 +164,7 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B"] # "CD99","ATP11C"] #, "RHD", "RHCE"]
+    exclude = ["C4A", "C4B", "CD99","ATP11C"] #, "RHD", "RHCE"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
