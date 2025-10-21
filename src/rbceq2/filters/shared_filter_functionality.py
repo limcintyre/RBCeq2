@@ -19,8 +19,7 @@ def flatten_alleles(pairs: list[Pair]) -> set[Allele]:
 
 
 def all_hom(variant_pool: dict[str, str], current_allele: Allele) -> bool:
-    """if > 1 het vars in an alleles defiing variant set, this shouldnt apply
-    unless phased, which is handled elsewhere - TODO ensure its handled elsewhere"""
+    """All variants are homozygous"""
 
     return all(
         variant_pool.get(allele_var) == Zygosity.HOM

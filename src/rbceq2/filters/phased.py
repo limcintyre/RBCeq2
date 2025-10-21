@@ -278,25 +278,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
 
     # If an allele is HOM and it's 'in' every other properly phased allele
     # AND the there's at least 1 of those on each side, it can't exist
-    def find_phase(allele: Allele) -> set[str | None]:
-        """find phase"""
-        return set(
-            [
-                bg.variant_pool_phase.get(variant)
-                for variant in allele.defining_variants
-                if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", "1/0"]
-            ]
-        )
-
-    def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
-        """check if alleles phase sets are the same, if not can't be phased"""
-        phase_sets = [
-            phase_dict.get(variant, "None") for variant in allele.defining_variants
-        ]
-        return (
-            len(set([phase_set for phase_set in phase_sets if phase_set.isdigit()]))
-            == 1
-        )
+    
 
     if not phased:
         return bg
@@ -306,22 +288,27 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
         to_remove = []
         pairs_with_HET = []
         for pair in bg.alleles[allele_state]:
+            if all_hom(bg.variant_pool, pair.allele1) or \
+                all_hom(bg.variant_pool, pair.allele2):
+                continue
             if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
                 continue  # TODO - next refactor this type of functionality
             # should move into a new PhasedAllele class
             if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
                 continue
-            phase1 = find_phase(pair.allele1)
-            phase2 = find_phase(pair.allele2)
-            assert len(phase1) < 2
-            assert len(phase2) < 2
+            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
 
             if phase1 == {None} or phase2 == {None}:
                 continue
             if phase1 == {"unknown"} or phase2 == {"unknown"}:
                 continue
             if len(phase1) == 1 and len(phase2) == 1:
-                assert phase1.union(phase2) == {"1|0", "0|1"}
+                
+                try: 
+                    assert phase1.union(phase2) == {"1|0", "0|1"}
+                except AssertionError:
+                    ic(4444444,phase1.union(phase2))
                 pairs_with_HET.append(pair)
                 
         if pairs_with_HET:
@@ -332,13 +319,259 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                         if all_hom(bg.variant_pool, allele) and all(
                             allele in flat_allele for flat_allele in flattened_alleles
                         ): 
-                            ic(111,allele)
                             to_remove.append(pair)
 
         if to_remove:
             bg.remove_pairs(
                 to_remove,
                 "filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased",
+                allele_state,
+            )
+
+    return bg
+
+@apply_to_dict_values
+def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """
+
+    Example
+    025-10-21 13:35:31.854 Sample: NA18913.vcf BG Name: ABO
+
+    #Results:
+    Genotypes count: 4
+    Genotypes: 
+    ABO*O.01.83/ABO*O.01.83 #no - handled in 
+        filter_on_in_relationship_if_all_HOM_and_phased
+    ABO*O.01.24/ABO*O.01.44
+    ABO*O.01.24/ABO*O.01.83
+    ABO*O.01.44/ABO*O.01.83 #no - because; ABO*O.01.83 and ABO*O.01.44 can be on the 
+    same side (neither is in the other) but ABO*O.01.83 and ABO*O.01.24 can't be on 
+    the same side and this ABO*O.01.44/ABO*O.01.83 means that they are on the same side
+    because ABO*O.01.44 is 0|1 and ABO*O.01.24 is 1|0
+    
+    Phenotypes (numeric): 
+    Phenotypes (alphanumeric): O
+
+    #Data:
+    Vars: 
+    9:133257521_ref : Homozygous
+    9:133257486_T_C : Homozygous
+    9:133256074_G_A : Heterozygous
+    9:133261367_C_A : Homozygous
+    9:133259833_G_A : Homozygous
+    9:133256028_C_T : Heterozygous
+    9:133259834_C_T : Homozygous
+    9:133256205_G_C : Heterozygous
+    9:133255935_G_T : Heterozygous
+    9:133255801_C_T : Heterozygous
+    9:133255928_C_G : Heterozygous
+    9:133255902_C_T : Heterozygous
+    9:133256085_A_T : Heterozygous
+    9:133255960_G_A : Heterozygous
+    Vars_phase: 
+    9:133257521_ref : 1/1
+    9:133257486_T_C : 1/1
+    9:133256074_G_A : 1|0
+    9:133261367_C_A : 1/1
+    9:133259833_G_A : 1/1
+    9:133256028_C_T : 1|0
+    9:133259834_C_T : 1/1
+    9:133256205_G_C : 1|0
+    9:133255935_G_T : 1|0
+    9:133255801_C_T : 1|0
+    9:133255928_C_G : 1|0
+    9:133255902_C_T : 0|1
+    9:133256085_A_T : 0|1
+    9:133255960_G_A : 0|1
+    Vars_phase_set:  (all 133104364)
+
+    Allele 
+    genotype: ABO*O.01.83 (in ABO*O.01.24)
+    defining_variants: 
+            9:133257486_T_C 1/1
+            9:133257521_ref 1/1
+            9:133261367_C_A 1/1
+            9:133259834_C_T 1/1
+    weight_geno: 1000 
+    phenotype: . or O 
+    reference: False 
+    
+    Allele 
+    genotype: ABO*O.01.24 
+    defining_variants: 
+            9:133255928_C_G 1|0
+            9:133257521_ref 1/1
+            9:133255935_G_T 1|0
+            9:133256074_G_A 1|0
+            9:133257486_T_C 1/1
+            9:133255801_C_T 1|0
+            9:133261367_C_A 1/1
+            9:133259833_G_A 1/1
+            9:133256028_C_T 1|0
+            9:133259834_C_T 1/1
+            9:133256205_G_C 1|0
+    weight_geno: 1000 
+    phenotype: . or O 
+    reference: False 
+    
+    Allele 
+    genotype: ABO*O.01.44 
+    defining_variants: 
+            9:133257521_ref 1/1
+            9:133257486_T_C 1/1
+            9:133255960_G_A 0|1
+            9:133256085_A_T 0|1
+            9:133255902_C_T 0|1
+    weight_geno: 1000 
+    phenotype: . or O 
+    reference: False 
+    """
+    
+
+    if not phased:
+        return bg
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if not proceed(bg, allele_state):
+            continue
+        to_remove = []
+        fully_phased_pairs = []
+        for pair in bg.alleles[allele_state]:
+            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
+                continue  # TODO - next refactor this type of functionality
+            # should move into a new PhasedAllele class
+            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
+                continue
+            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
+            if phase1 == {None} or phase2 == {None}:
+                continue
+            if phase1 == {"unknown"} or phase2 == {"unknown"}:
+                continue
+            fully_phased_pairs.append(pair)
+        if fully_phased_pairs:
+            flattened_alleles = flatten_alleles(fully_phased_pairs)
+            for pair in fully_phased_pairs:
+                if all_hom(bg.variant_pool, pair.allele1) or \
+                    all_hom(bg.variant_pool, pair.allele2):
+                    if all_hom(bg.variant_pool, pair.allele1):
+                        homs_partner_allele = pair.allele2
+                        hom_allele = pair.allele1
+                    else:
+                        homs_partner_allele = pair.allele1
+                        hom_allele = pair.allele2
+                    phase_of_homs_partner = find_phase(bg.variant_pool_phase, homs_partner_allele)
+                    for flat_allele in flattened_alleles:
+                        if flat_allele in pair.alleles:
+                            continue
+                        phase_of_flat_allele = find_phase(bg.variant_pool_phase, flat_allele)
+                        if phase_of_flat_allele != phase_of_homs_partner and hom_allele in flat_allele:
+                            to_remove.append(pair)
+        if to_remove:
+            bg.remove_pairs(
+                to_remove,
+                "filter_on_in_relationship_when_HOM_cant_be_on_one_side",
+                allele_state,
+            )
+
+    return bg
+
+def find_phase(variant_pool_phase: dict[str, str], allele: Allele) -> set[str | None]:
+    """find phase"""
+    return set(
+        [
+            variant_pool_phase.get(variant)
+            for variant in allele.defining_variants
+            if variant_pool_phase.get(variant) not in ["0/1", "1/0"]
+        ]
+    )
+
+def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
+    """check if alleles phase sets are the same, if not can't be phased"""
+    phase_sets = set([
+        phase_dict.get(variant, "None") for variant in allele.defining_variants
+    ])
+    if phase_sets == set('.'):
+        return True #all hom
+    return (
+        len([phase_set for phase_set in phase_sets if phase_set.isdigit()])
+        == 1
+    )
+
+@apply_to_dict_values
+def filter_on_in_relationship_if_all_HOM_and_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """
+    2025-10-21 13:35:31.854 | DEBUG    | Sample: NA18913.vcf BG Name: ABO
+    Genotypes: ABO*O.01.24/ABO*O.01.44
+    #Results:
+    Genotypes count: 4
+    Genotypes: 
+    ABO*O.01.83/ABO*O.01.83 #no
+    ABO*O.01.24/ABO*O.01.44
+    ABO*O.01.24/ABO*O.01.83
+    ABO*O.01.44/ABO*O.01.83 #no - but dif filter needed
+    Phenotypes (numeric): 
+    Phenotypes (alphanumeric): O
+
+    #Data:
+    Vars: 
+    9:133257521_ref : Homozygous
+    9:133257486_T_C : Homozygous
+    9:133256074_G_A : Heterozygous
+    9:133261367_C_A : Homozygous
+    9:133259833_G_A : Homozygous
+    9:133256028_C_T : Heterozygous
+    9:133259834_C_T : Homozygous
+    9:133256205_G_C : Heterozygous
+    9:133255935_G_T : Heterozygous
+    9:133255801_C_T : Heterozygous
+    9:133255928_C_G : Heterozygous
+    9:133255902_C_T : Heterozygous
+    9:133256085_A_T : Heterozygous
+    9:133255960_G_A : Heterozygous
+    Vars_phase: 
+    9:133257521_ref : 1/1
+    9:133257486_T_C : 1/1
+    9:133256074_G_A : 1|0
+    9:133261367_C_A : 1/1
+    9:133259833_G_A : 1/1
+    9:133256028_C_T : 1|0
+    9:133259834_C_T : 1/1
+    9:133256205_G_C : 1|0
+    9:133255935_G_T : 1|0
+    9:133255801_C_T : 1|0
+    9:133255928_C_G : 1|0
+    9:133255902_C_T : 0|1
+    9:133256085_A_T : 0|1
+    9:133255960_G_A : 0|1
+    Vars_phase_set:  (all 133104364)
+
+    """
+
+    
+
+    if not phased:
+        return bg
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if not proceed(bg, allele_state):
+            continue
+        if len(bg.alleles[allele_state]) < 2:
+            continue
+        to_remove = []
+        flattened_alleles = flatten_alleles(bg.alleles[allele_state])
+        for pair in bg.alleles[allele_state]:
+            if pair.allele1 == pair.allele2 and \
+            all_hom(bg.variant_pool, pair.allele1) and \
+                any(pair.allele1 in flat_allele for flat_allele in flattened_alleles): 
+                to_remove.append(pair)
+
+        if to_remove:
+            bg.remove_pairs(
+                to_remove,
+                "filter_on_in_relationship_if_all_HOM_and_phased",
                 allele_state,
             )
 

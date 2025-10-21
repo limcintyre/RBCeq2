@@ -165,7 +165,7 @@ def main():
 
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "CD99", "ATP11C"]  # , "RHD", "RHCE"]
+    exclude = ["C4A", "C4B"] # "CD99", "ATP11C"]  # , "RHD", "RHCE"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
@@ -284,15 +284,11 @@ def find_hits(
         vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
     reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
-    # for event in events:
-    #     if event.chrom == '1' and event.svlen == 35:
-    #         ic(event)
 
     db_defs = load_db_defs(db.df)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
-    # ic(best)
     var_map = {}
 
     if best:
@@ -373,6 +369,14 @@ def find_hits(
         ),
         partial(
             filt_phase.filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.filter_on_in_relationship_if_all_HOM_and_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.filter_on_in_relationship_when_HOM_cant_be_on_one_side,
             phased=args.phased,
         ),
         partial(filt_phase.rm_ref_if_2x_HET_phased, phased=args.phased),
