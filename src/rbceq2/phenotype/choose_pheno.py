@@ -688,6 +688,7 @@ def internal_anithetical_consistency_HET(
             "GYPB*24",
             "RHCE*01.34",
             "RHCE*01.35",
+            'GYPA*11'
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)

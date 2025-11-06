@@ -519,40 +519,6 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
             "weak" in self.given_name.lower() or "very_weak" in self.given_name.lower()
         )
 
-    # def _is_partial(self):
-    #     """Determine if the AlphaNumericAntigen is weak based on its given name.
-
-    #     Returns:
-    #         bool: True if 'partial' is present in the given name, False otherwise.
-    #     """
-    #     return "partial" in self.given_name.lower()
-
-    # def _is_negative(self):
-    #     """Determine if the AlphaNumericAntigen is negative based on its given name.
-
-    #     Returns:
-    #         bool: True if 'negative' or 'neg' is present in the given name, False otherwise.
-    #     """
-    #     return "negative" in self.given_name.lower() or "neg" in self.given_name.lower()
-
-    # def _is_monoclonal(self):
-    #     """Determine if the AlphaNumericAntigen is monoclonal based on its given name.
-
-    #     Returns:
-    #         bool: True if 'monoclonal' is present in the given name, False otherwise.
-    #     """
-    #     return "monoclonal" in self.given_name.lower()
-
-    # def _is_infered(self):
-    #     """Determine if the AlphaNumericAntigen is infered based on its given name.
-
-    #     Returns:
-    #         bool: True if 'infered' is present in the given name, False otherwise.
-    #     """
-    #     return "infered" in self.given_name.lower()
-
-    # is robust
-    # these are just for repr??
 
     def _get_base_name(self) -> str:
         """Extract the base name for the AlphaNumericAntigenRHCE by removing specific
