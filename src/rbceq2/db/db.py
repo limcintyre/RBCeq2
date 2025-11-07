@@ -505,6 +505,7 @@ _NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORE
 _ALPHA_MOD = {
     "weak": "w",
     "very_weak": "v",
+    "el": "v",
     "partial": "p",
     "neg": "n",
     "negative": "n",
