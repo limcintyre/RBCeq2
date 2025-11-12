@@ -1091,7 +1091,7 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 defining_variants:
                         1:25420739_G_C
                         1:25408711_ref
-                        1:25390874_ref
+                        1:25390874_ref #not possible as 25390874_C_G HOM
                 weight_geno: 1000
                 phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+
                 reference: True
@@ -1111,19 +1111,142 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
                     continue
                 if variant not in bg.variant_pool:
-                    #ic(variant)
                     to_remove.append(pair)
                     break
     if to_remove:
-        # ic(
-        #     1,
-        #     bg.sample,
-        #     bg.type,
-        #     to_remove,
-        #     bg.alleles[AlleleState.NORMAL],
-        #     bg.variant_pool,
-        # )
         bg.remove_pairs(to_remove, "no_defining_variant")
-        #ic(2, to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+
+    return bg
+
+
+@apply_to_dict_values
+def ref_not_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    need to rm ref due to not being phased
+    ie
+    2025-11-12 09:09:21.312 | WARNING  | rbceq2.core_logic.alleles:remove_pairs:350 - all pairs removed!: HG00128.vcf RHCE filter_if_all_HET_vars_on_same_side_and_phased
+    #Results:
+    Genotypes count: 1
+    Genotypes: 
+    Phenotypes (numeric): 
+    Phenotypes (alphanumeric): 
+
+    #Data:
+    Vars: 
+    1:25390874_ref : Heterozygous
+    1:25420739_G_C : Heterozygous
+    1:25408711_ref : Heterozygous
+    1:25420739_ref : Heterozygous
+    1:25408711_G_A : Heterozygous
+    1:25390874_C_G : Heterozygous
+    Vars_phase: 
+    1:25390874_ref : 0|1
+    1:25420739_G_C : 1|0
+    1:25408711_ref : 1|0
+    1:25420739_ref : 0|1
+    1:25408711_G_A : 0|1
+    1:25390874_C_G : 1|0
+    Vars_phase_set: 
+    1:25390874_ref : 25214110
+    1:25420739_G_C : 25214110
+    1:25408711_ref : 25214110
+    1:25420739_ref : 25214110
+    1:25408711_G_A : 25214110
+    1:25390874_C_G : 25214110
+
+    Raw: 
+    Allele 
+    genotype: RHCE*01 
+    defining_variants: 
+            1:25390874_ref 0|1
+            1:25408711_ref 1|0
+            1:25420739_G_C 1|0
+    weight_geno: 1000 
+    phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+ 
+    reference: True 
+
+    Allele 
+    genotype: RHCE*03 
+    defining_variants: 
+            1:25408711_ref 1|0
+            1:25420739_G_C 1|0
+            1:25390874_C_G 1|0
+    weight_geno: 1000 
+    phenotype: RH:-2,3,4,-5,27 or C-,E+,c+,e-,cE+ 
+    reference: False 
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        for allele in pair.alleles:
+            if not allele.reference:
+                continue
+            if allele in bg.filtered_out['remove_unphased']:
+                to_remove.append(pair)
+                #refs get added back in even if they've been previoulsy
+                #identified as unphased, its a bit clunky ... 
+    if to_remove:
+        bg.remove_pairs(to_remove, "ref_not_phased")
+
+    return bg
+
+@apply_to_dict_values
+def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """
+    2025-11-12 13:47:12.043 | DEBUG    | Sample: HG00365.vcf BG Name: RHCE
+
+    #Results:
+    Genotypes count: 1
+    Genotypes: 
+    Phenotypes (numeric): 
+    Phenotypes (alphanumeric): 
+
+    #Data:
+    Vars: 
+    1:25408711_ref : Heterozygous
+    1:25390874_ref : Homozygous
+    1:25420739_G_C : Heterozygous
+    1:25420739_ref : Heterozygous
+    1:25408711_G_A : Heterozygous
+    Vars_phase: 
+    1:25408711_ref : 0|1
+    1:25390874_ref : 1/1
+    1:25420739_G_C : 0|1
+    1:25420739_ref : 1|0
+    1:25408711_G_A : 1|0
+    Vars_phase_set: 
+    1:25408711_ref : 25211850
+    1:25390874_ref : .
+    1:25420739_G_C : 25211850
+    1:25420739_ref : 25211850
+    1:25408711_G_A : 25211850
+
+    Raw: 
+    Allele 
+    genotype: RHCE*01 
+    defining_variants: 
+            1:25408711_ref : 0|1
+            1:25420739_G_C : 0|1
+            1:25390874_ref : 1/1
+    weight_geno: 1000 
+    phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+ 
+    reference: True 
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if pair.all_reference and any(
+            bg.variant_pool.get(variant) == Zygosity.HET
+            for variant in pair.allele1.defining_variants
+        ):
+            to_remove.append(pair)
+    if to_remove:
+        bg.remove_pairs(to_remove, "cant_be_hom_ref_due_to_HET_SNP")
 
     return bg

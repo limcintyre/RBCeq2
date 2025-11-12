@@ -348,7 +348,7 @@ class BloodGroup:
                 already_removed.add(pair_id)
         if not self.alleles[allele_type]:
             logger.warning(
-                f"all pairs removed!: {self.sample} {self.type} {filter_name}"
+                f"all pairs removed (reverting to reference allele, if possible): {self.sample} {self.type} {filter_name}"
             )
 
     def remove_alleles(
@@ -365,7 +365,7 @@ class BloodGroup:
             self.filtered_out[filter_name].append(allele)
         if not self.alleles[allele_type]:
             logger.warning(
-                f"all alleles removed!: {self.sample} {self.type} {filter_name}"
+                f"all alleles removed (will revert to reference): {self.sample} {self.type} {filter_name}"
             )
 
 
@@ -484,10 +484,10 @@ class Pair:
 
     @property
     def all_reference(self) -> bool:
-        """Check if the pair contains a reference allele.
+        """Check if both alleles in the pair are the reference allele.
 
         Returns:
-            bool: True if the pair contains a reference allele, False otherwise.
+            bool: True if the pair contains 2 reference alleles, False otherwise.
         """
         return all(allele.reference for allele in self.alleles)
 

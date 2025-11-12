@@ -516,8 +516,15 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     for variant, zygo in variant_pool.items():
         if variant.endswith("_ref") and zygo == Zygosity.HET:
             matching = find_matching_keys(variant_pool.keys(), variant)
-            if not matching: #het pair gone
-                variant_pool[variant] = Zygosity.HOM
+            if not matching: 
+                failed = []
+                for allele in bg.filtered_out['FILTER_not_PASS']:
+                    for variant in allele.defining_variants:
+                        if variant not in variant_pool:
+                            failed.append(variant)
+                matching2 = find_matching_keys(failed, variant)
+                if matching2:#het pair gone
+                    variant_pool[variant] = Zygosity.HOM
     bg.variant_pool = variant_pool
 
     return bg

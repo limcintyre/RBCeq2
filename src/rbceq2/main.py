@@ -334,6 +334,14 @@ def find_hits(
             filt_phase.no_defining_variant,
             phased=args.phased,
         ),
+        partial(
+            filt_phase.ref_not_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.cant_be_hom_ref_due_to_HET_SNP,
+            phased=args.phased,
+        ),
         co.homs,
         co.max_rank,
         partial(co.prep_co_putative_combos, allele_relationships=allele_relationships),
