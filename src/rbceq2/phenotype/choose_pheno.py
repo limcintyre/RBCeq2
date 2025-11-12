@@ -843,7 +843,7 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     Returns:
         BloodGroup: The updated (or unmodified) blood group.
     """
-    if bg.type in ["FUT1", "FUT2", "FUT3", "ABO", "RHCE"]:
+    if bg.type in ["FUT1", "FUT2", "FUT3", "ABO", "RHCE", "RHD"]:
         return bg
     no_of_positions_required = number_of_primary_antitheticals.get(bg.type, 2)
     if no_of_positions_required == 0:
@@ -858,6 +858,7 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         for i, name_ant in enumerate(reference.items(), start=1):
             _, ref_ant_list = name_ant
+            #ic(pair, ref_ant_list)
             assert len(ref_ant_list) == 1
             ref_ant = ref_ant_list[0]
 

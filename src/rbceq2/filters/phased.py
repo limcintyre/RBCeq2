@@ -304,11 +304,6 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
             if phase1 == {"unknown"} or phase2 == {"unknown"}:
                 continue
             if len(phase1) == 1 and len(phase2) == 1:
-                
-                try: 
-                    assert phase1.union(phase2) == {"1|0", "0|1"}
-                except AssertionError:
-                    ic(4444444,phase1.union(phase2))
                 pairs_with_HET.append(pair)
                 
         if pairs_with_HET:
@@ -335,7 +330,6 @@ def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
     bg: BloodGroup, phased: bool
 ) -> BloodGroup:
     """
-
     Example
     025-10-21 13:35:31.854 Sample: NA18913.vcf BG Name: ABO
 

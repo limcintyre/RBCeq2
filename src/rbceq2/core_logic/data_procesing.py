@@ -449,11 +449,75 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
         KeyError:
             If a variant in 'bg.alleles[AlleleState.FILT]' is not found in 'vcf.variants'.
     """
+
+    def find_matching_keys(dict_keys, ref_key):
+        """to protect against instances like below
+        ie when filter not passed, ref needs to be homozygous
+        #Results:
+        Genotypes count: 1
+        Genotypes:
+        Phenotypes (numeric):
+        Phenotypes (alphanumeric):
+
+        #Data:
+        Vars:
+        1:159205564_ref : Heterozygous
+        Vars_phase:
+        1:159205564_ref : 0|1
+        Vars_phase_set:
+        1:159205564_ref : 159155563
+        Raw:
+        Allele
+        genotype: FY*01
+        defining_variants:
+                1:159205564_ref
+        weight_geno: 1000
+        phenotype: FY:1,-2 or Fy(a+),Fy(b-)
+        reference: True
+
+        Allele
+        genotype: FY*02
+        defining_variants:
+                1:159205564_G_A
+        weight_geno: 1000
+        phenotype: FY:-1,2 or Fy(a-),Fy(b+)
+        reference: False
+
+
+        2025-11-12 09:39:51.322 | DEBUG    | ### Filters applied ###:
+
+        2025-11-12 09:39:51.322 | DEBUG    |
+        FILTER_not_PASS: Allele
+        genotype: FY*02
+        defining_variants:
+                1:159205564_G_A
+        weight_geno: 1000
+        phenotype: FY:-1,2 or Fy(a-),Fy(b+)
+        reference: False"""
+        # Parse the reference key
+        chrom, pos_ref = ref_key.split(":")
+        pos = pos_ref.split("_")[0]
+
+        # Find matching keys
+        matches = [
+            key
+            for key in dict_keys
+            if key.startswith(f"{chrom}:{pos}_") and key != ref_key
+        ]
+
+        return matches
+
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
         zygosity = {var: get_ref(vcf.variants[var]) for var in allele.defining_variants}
         variant_pool = variant_pool | zygosity
+
+    for variant, zygo in variant_pool.items():
+        if variant.endswith("_ref") and zygo == Zygosity.HET:
+            matching = find_matching_keys(variant_pool.keys(), variant)
+            if not matching: #het pair gone
+                variant_pool[variant] = Zygosity.HOM
     bg.variant_pool = variant_pool
 
     return bg
@@ -1027,7 +1091,7 @@ def only_keep_alleles_if_FILTER_PASS(
             if "_ref" in variant:
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
-            loci = vcf_var.split("_")[0]
+            # loci = vcf_var.split("_")[0]
             try:
                 filter_value = df.query("variant.str.contains(@vcf_var)")[
                     "FILTER"
@@ -1035,17 +1099,6 @@ def only_keep_alleles_if_FILTER_PASS(
             except IndexError:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
-                ic(
-                    bg.sample,
-                    bg.type,
-                    loci,
-                    allele,
-                    allele.big_variants,
-                    vcf_var,
-                    df,
-                    df.query("loci == '@loci'"),
-                    df.query("CHROM == '4'"),
-                )
                 raise
             if filter_value != "PASS":
                 keeper = False
