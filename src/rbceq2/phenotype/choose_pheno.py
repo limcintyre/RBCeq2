@@ -6,7 +6,13 @@ from functools import partial
 from itertools import product
 from typing import TYPE_CHECKING
 
-from rbceq2.core_logic.constants import ANTITHETICAL, AlleleState, BgName, PhenoType
+from rbceq2.core_logic.constants import (
+    ANTITHETICAL,
+    AlleleState,
+    BgName,
+    PhenoType,
+    RHD_ANT_MAP,
+)
 from rbceq2.core_logic.data_procesing import apply_to_dict_values
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
@@ -688,7 +694,7 @@ def internal_anithetical_consistency_HET(
             "GYPB*24",
             "RHCE*01.34",
             "RHCE*01.35",
-            'GYPA*11'
+            "GYPA*11",
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
@@ -858,7 +864,7 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         for i, name_ant in enumerate(reference.items(), start=1):
             _, ref_ant_list = name_ant
-            #ic(pair, ref_ant_list)
+            # ic(pair, ref_ant_list)
             assert len(ref_ant_list) == 1
             ref_ant = ref_ant_list[0]
 
@@ -1251,6 +1257,55 @@ def modify_MNS(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             pheno = pheno.replace("U+w", "U+var")
 
         bg.phenotypes[ant_type][pair] = pheno
+
+    return bg
+
+
+@apply_to_dict_values
+def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
+    """Annotate RHD partial/weak phenotypes with specific variant types.
+
+    Modifies RHD phenotype annotations by adding variant-specific labels to
+    partial and weak D antigens. For example, 'D+partial' becomes
+    'D+partial(DAU0.01)' based on the underlying genotype.
+
+    Args:
+        bg: BloodGroup object containing phenotype and genotype information.
+        ant_type: Phenotype representation type (e.g., verbose, short).
+
+    Returns:
+        The modified BloodGroup object with annotated RHD phenotypes. Returns
+        the original object unchanged if not RHD type or if ant_type is numeric.
+
+    Example:
+    'D+partial' -> 'D+partial(DAU0.01)'
+    """
+
+    if bg.type != "RHD":
+        return bg
+    if ant_type == PhenoType.numeric:
+        return bg
+
+    for pair, pheno in bg.phenotypes[ant_type].items():
+        new_pheno = []
+        for allele in pair:
+            if allele.genotype not in RHD_ANT_MAP:
+                continue
+            genotype_label = RHD_ANT_MAP[allele.genotype]
+            for ant in allele.phenotype_alt.split(","):
+                if ant not in pheno:
+                    continue
+                if "partial" in ant:
+                    new_pheno.append(
+                        ant.replace("partial", f"partial({genotype_label})")
+                    )
+                elif "weak" in ant:
+                    new_pheno.append(ant.replace("weak", f"weak({genotype_label})"))
+                else:
+                    new_pheno.append(ant)
+        if new_pheno:
+            updated_pheno = ",".join(new_pheno)
+            bg.phenotypes[ant_type][pair] = updated_pheno
 
     return bg
 

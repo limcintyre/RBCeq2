@@ -56,22 +56,8 @@ def raw_results(
 
         if all(variant in vcf.variants for variant in allele.defining_variants):
             if any(variant in var_map for variant in allele.defining_variants):
-                # best_match = [
-                #     match for match in select_best_per_vcf(matches, tie_tol=1e-9) if
-                #       allele.blood_group in match.db.id
-                #       ]
-                # #ic(allele.blood_group,best_match, select_best_per_vcf(matches, tie_tol=1e-9))
-                # #ic(allele,allele.big_variants, var_map, best_match)
-                # if len(best_match) == 0:
-                #     continue
-                # assert len(best_match) ==1
-                # best = best_match[0]
-                # best_var_map = {db_var: vcf_var for db_var, vcf_var in var_map.items() if
-                #                 db_var == f"{best.vcf.chrom}:{best.db.raw}"}
-                # #ic(allele, best_var_map,allele.big_variants, var_map, best_match)
                 allele = allele.with_big_variants(var_map)
             res[allele.blood_group].append(allele)
-            # ic(allele.blood_group, allele)
     return res
 
 
@@ -192,8 +178,6 @@ def add_phasing(
 
     def assign_ref_phase(
         current_variant: str,
-        # bg_variant_pool: dict[str, str],
-        # current_phase_pool: dict[str, str],
     ) -> str:
         """
         Assigns the correct phase to a reference variant at a heterozygous site.
@@ -204,48 +188,6 @@ def add_phasing(
         elif "/" in phase_pool[current_variant]:
             return "unknown"
         return phase_pool[current_variant]
-        # # 1. Validate that the input variant is a heterozygous reference variant
-        # if not current_variant.endswith("_ref"):
-        #     raise ValueError(
-        #         f"Input variant '{current_variant}' must be a reference variant (ending in '_ref')."
-        #     )
-
-        # if zygosity != Zygosity.HET:
-        #     raise ValueError(
-        #         f"Variant '{current_variant}' must be present and 'Heterozygous' in bg_variant_pool. "
-        #         f"Found: {zygosity}"
-        #     )
-
-        # # 2. Find the corresponding alternate allele variant at the same position
-        # position = current_variant.split("_")[0]
-        # partner_variant = None
-        # for key in phase_pool:
-        #     # Match keys that start with the same position but are not the ref variant itself
-        #     if key.startswith(position + "_") and key != current_variant:
-        #         partner_variant = key
-        #         break  # Found the partner, no need to continue searching
-        # if partner_variant is None:
-        #     return phase_pool[current_variant]
-
-        # # 3. Get the phase of the partner variant
-        # partner_phase = phase_pool.get(partner_variant)
-        # if partner_phase is None:
-        #     raise ValueError(
-        #         f"Partner variant '{partner_variant}' found but has no entry in phase_pool."
-        #     )
-
-        # # 4. Calculate the ref phase by "flipping" the partner's phase
-        # phase_parts = partner_phase.split("|")
-        # if len(phase_parts) != 2:
-        #     raise ValueError(
-        #         f"Invalid phase format for partner '{partner_variant}': '{partner_phase}'"
-        #     )
-
-        # # The ref allele is on the opposite haplotype from the alt allele
-        # # e.g., if partner is 1|0, ref is 0|1
-        # ref_phase = f"{phase_parts[1]}|{phase_parts[0]}"
-        # ic(888888888888888888,current_variant, ref_phase)
-        # return ref_phase
 
     def assign_ref_phase_set(current_variant):
         """ """
@@ -325,105 +267,104 @@ def add_phasing(
                 phase_set_pool_ref_fixed[variant] = phase
 
         bg.variant_pool_phase_set = phase_set_pool_ref_fixed
-    # if bg.type == 'RHD':
-    #     ic(bg.variant_pool_phase, bg.variant_pool_phase_set)
-    return bg
-
-
-@apply_to_dict_values
-def ABO_phasing(
-    bg: BloodGroup,
-    phased: bool,
-) -> BloodGroup:
-    # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
-    # do it at DB level #TODO look for vars that have only ever been observed in cis with
-    # ABO*O, or never been observed with it and take phasing info from there. Best
-    # to actually phase indels though
-    """9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
-    calls but aren't always assigned a phase group by phasing algos
-
-    some alleles are same/similar except for this locus
-
-    ie HG04054 for 1kg data
-
-    Allele
-    genotype: ABO*B.01
-    defining_variants:
-                9:133255935_G_T 0|1
-                9:133257521_T_TC 0/1
-                9:133257486_T_C 1/1
-                9:133255928_C_G 0|1
-                9:133256074_G_A 0|1
-                9:133256028_C_T 0|1
-                9:133256205_G_C 0|1
-                9:133255801_C_T 0|1
-    weight_geno: 1000
-    phenotype: . or B
-    reference: False
-
-    Allele
-    genotype: ABO*O.01.41
-    defining_variants:
-                9:133257486_T_C 1/1
-                9:133255928_C_G 0|1
-                9:133256074_G_A 0|1
-                9:133256028_C_T 0|1
-                9:133256205_G_C 0|1
-                9:133257521_ref unknown
-                9:133255801_C_T 0|1
-
-    this function will infer the phase of this locus from the phase of ABO*O.01
-    specific variants
-    """
-    if not phased:
-        return bg
-
-    if bg.type != "ABO":
-        return bg
-    # 261delG
-    c261delGs = [
-        "9:133257521_ref",
-        "9:133257521_T_TC",
-        "9:136132908_ref",
-        "9:136132908_T_TC",
-    ]
-    if any(bg.variant_pool.get(c261delG) == Zygosity.HOM for c261delG in c261delGs):
-        return bg
-
-    aboO = set([])
-    other = set([])
-    for allele in bg.alleles[AlleleState.FILT]:
-        if allele.genotype.startswith("ABO*O.01"):
-            for variant in allele.defining_variants:
-                aboO.add(variant)
-        else:
-            for variant in allele.defining_variants:
-                other.add(variant)
-    aboO_phases = set([])
-    for variant in aboO.difference(other):
-        if not variant.startswith(("9:133257521", "9:136132908")):
-            phase = bg.variant_pool_phase[variant]
-            aboO_phases.add(phase)
-
-    if len(aboO_phases) == 0:
-        return bg  # can't rescue ABO
-    if len(aboO_phases) > 1:
-        return bg  # can't rescue ABO
-    abo_phase = aboO_phases.pop()
-    not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"
-    new_phases = {}
-
-    for variant, phase in bg.variant_pool_phase.items():
-        if variant in c261delGs:
-            if variant.endswith("_ref"):
-                new_phases[variant] = abo_phase
-            else:
-                new_phases[variant] = not_abo_phase
-        else:
-            new_phases[variant] = phase
-    bg.variant_pool_phase = new_phases
 
     return bg
+
+
+# @apply_to_dict_values
+# def ABO_phasing(
+#     bg: BloodGroup,
+#     phased: bool,
+# ) -> BloodGroup:
+#     # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
+#     # do it at DB level #TODO look for vars that have only ever been observed in cis with
+#     # ABO*O, or never been observed with it and take phasing info from there. Best
+#     # to actually phase indels though
+#     """9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
+#     calls but aren't always assigned a phase group by phasing algos
+
+#     some alleles are same/similar except for this locus
+
+#     ie HG04054 for 1kg data
+
+#     Allele
+#     genotype: ABO*B.01
+#     defining_variants:
+#                 9:133255935_G_T 0|1
+#                 9:133257521_T_TC 0/1
+#                 9:133257486_T_C 1/1
+#                 9:133255928_C_G 0|1
+#                 9:133256074_G_A 0|1
+#                 9:133256028_C_T 0|1
+#                 9:133256205_G_C 0|1
+#                 9:133255801_C_T 0|1
+#     weight_geno: 1000
+#     phenotype: . or B
+#     reference: False
+
+#     Allele
+#     genotype: ABO*O.01.41
+#     defining_variants:
+#                 9:133257486_T_C 1/1
+#                 9:133255928_C_G 0|1
+#                 9:133256074_G_A 0|1
+#                 9:133256028_C_T 0|1
+#                 9:133256205_G_C 0|1
+#                 9:133257521_ref unknown
+#                 9:133255801_C_T 0|1
+
+#     this function will infer the phase of this locus from the phase of ABO*O.01
+#     specific variants
+#     """
+#     if not phased:
+#         return bg
+
+#     if bg.type != "ABO":
+#         return bg
+#     # 261delG
+#     c261delGs = [
+#         "9:133257521_ref",
+#         "9:133257521_T_TC",
+#         "9:136132908_ref",
+#         "9:136132908_T_TC",
+#     ]
+#     if any(bg.variant_pool.get(c261delG) == Zygosity.HOM for c261delG in c261delGs):
+#         return bg
+
+#     aboO = set([])
+#     other = set([])
+#     for allele in bg.alleles[AlleleState.FILT]:
+#         if allele.genotype.startswith("ABO*O.01"):
+#             for variant in allele.defining_variants:
+#                 aboO.add(variant)
+#         else:
+#             for variant in allele.defining_variants:
+#                 other.add(variant)
+#     aboO_phases = set([])
+#     for variant in aboO.difference(other):
+#         if not variant.startswith(("9:133257521", "9:136132908")):
+#             phase = bg.variant_pool_phase[variant]
+#             aboO_phases.add(phase)
+
+#     if len(aboO_phases) == 0:
+#         return bg  # can't rescue ABO
+#     if len(aboO_phases) > 1:
+#         return bg  # can't rescue ABO
+#     abo_phase = aboO_phases.pop()
+#     not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"
+#     new_phases = {}
+
+#     for variant, phase in bg.variant_pool_phase.items():
+#         if variant in c261delGs:
+#             if variant.endswith("_ref"):
+#                 new_phases[variant] = abo_phase
+#             else:
+#                 new_phases[variant] = not_abo_phase
+#         else:
+#             new_phases[variant] = phase
+#     bg.variant_pool_phase = new_phases
+
+#     return bg
 
 
 @apply_to_dict_values
@@ -516,14 +457,14 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     for variant, zygo in variant_pool.items():
         if variant.endswith("_ref") and zygo == Zygosity.HET:
             matching = find_matching_keys(variant_pool.keys(), variant)
-            if not matching: 
+            if not matching:
                 failed = []
-                for allele in bg.filtered_out['FILTER_not_PASS']:
+                for allele in bg.filtered_out["FILTER_not_PASS"]:
                     for variant in allele.defining_variants:
                         if variant not in variant_pool:
                             failed.append(variant)
                 matching2 = find_matching_keys(failed, variant)
-                if matching2:#het pair gone
+                if matching2:  # het pair gone
                     variant_pool[variant] = Zygosity.HOM
     bg.variant_pool = variant_pool
 
@@ -1584,7 +1525,25 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
 def only_keep_alleles_if_best_big_del(
     bg: BloodGroup, matches: list[MatchResult]
 ) -> BloodGroup:
-    """ """
+    """Keep alleles only if they contain best-matching large deletion variants.
+
+    Filters alleles to retain only those containing large deletion variants that
+    are among the best matches from variant calling. Updates alleles with their
+    corresponding best-match large variant information.
+
+    Args:
+        bg: BloodGroup object containing alleles to filter and update.
+        matches: List of MatchResult objects from variant matching, containing
+            variant call information and database references.
+
+    Returns:
+        The modified BloodGroup object with alleles updated to include large
+        variant information for best matches.
+
+    Note:
+        Uses a very tight tolerance (1e-9) for selecting best matches to ensure
+        only the highest quality variant calls are considered.
+    """
 
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     best_var_map = {}
