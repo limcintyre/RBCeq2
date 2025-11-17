@@ -859,14 +859,12 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     new_phenos = []
     ref = bg.misc[f"ref_{str(ant_type)}"]
     if ref is not None:
-        # reference = ref.copy()
         reference = copy.deepcopy(ref)
     else:
         return bg
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         for i, name_ant in enumerate(reference.items(), start=1):
             _, ref_ant_list = name_ant
-            # ic(pair, ref_ant_list)
             assert len(ref_ant_list) == 1
             ref_ant = ref_ant_list[0]
 
@@ -916,8 +914,7 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-    # if bg.type == "RHCE":
-    #     ic(2222222, bg.phenotypes[ant_type])
+   
     return bg
 
 
@@ -948,17 +945,11 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         ants = [ant.name for ant in merged_pheno]
         as_str = ",".join(sorted(ants)) if bg.type == "ABO" else ",".join(ants)
-        # if bg.type == "RHCE":
-        #     ic(111111222222, as_str)
         pheno = (
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
-        # if bg.type == "RHCE":
-        #     ic(11111133333, pheno)
-
         bg.phenotypes[ant_type][pair] = pheno
-    # if bg.type == "RHCE":
-    #     ic(111111, bg.phenotypes[ant_type])
+    
     return bg
 
 
@@ -1318,14 +1309,6 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                 new_pheno.append(ant)
         if new_pheno:
             updated_pheno = ",".join(new_pheno)
-            # ic(
-            #     bg.sample,
-            #     pair,
-            #     pheno,
-            #     updated_pheno,
-            #     allele.phenotype_alt,
-            #     allele.phenotype_alt.split(","),
-            # )
             bg.phenotypes[ant_type][pair] = updated_pheno
 
     return bg
@@ -1393,25 +1376,22 @@ def compare_numeric_ants_to_alphanumeric(
         or bg.phenotypes.get(PhenoType.numeric) == {}
     ):
         return bg
-    # if bg.type == 'GBGT':
-    #     return bg
+ 
     bg_name_map = {
         "GBGT1": "FORS",
-        # "GYPA": "MNS",
-        # "GYPB": "MNS",
         "ABCC4": "PEL",
         "PIGG": "EMM",
         "GCNT2": "I",
     }
     for pair_alpha, pheno_alpha in bg.phenotypes[PhenoType.alphanumeric].items():
         compare = True
-        # if bg.type == "RHCE":
-        #     ic(
-        #         bg.type,
-        #         pair_alpha,
-        #         pheno_alpha,
-        #         bg.phenotypes[PhenoType.numeric][pair_alpha],
-        #     )
+        if bg.type.startswith('RH'): #"RHCE":
+            ic(
+                bg.type,
+                pair_alpha,
+                pheno_alpha,
+                bg.phenotypes[PhenoType.numeric][pair_alpha],
+            )
         pheno_numeric = bg.phenotypes[PhenoType.numeric][pair_alpha]
         for skip in ["Vel+strong", "erythroid"]:
             if skip in pheno_alpha or skip in pheno_numeric:

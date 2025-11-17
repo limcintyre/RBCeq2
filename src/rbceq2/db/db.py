@@ -552,7 +552,7 @@ class AlphaParser:
                 continue
 
             try:
-                idx = next(i for i, ch in enumerate(tok) if ch in "+-")
+                idx = next(i for i, ch in enumerate(tok) if ch in "+-?")
             except StopIteration:
                 raise ValueError(f"Missing +/- in token: {tok}")
 
