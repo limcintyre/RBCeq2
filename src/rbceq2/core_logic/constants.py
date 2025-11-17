@@ -690,7 +690,6 @@ RHD_ANT_MAP = {
     "RHD*01W.97": "Type97",
     "RHD*01W.98": "Type98",
     "RHD*01W.99": "Type99",
-
     "RHD*02": "DII",
     "RHD*03.01": "DIIIa",
     "RHD*03.02": "DIIIb",

@@ -615,16 +615,16 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
 
         return 2  # Normal / Strong
 
-    @property
-    def name(self) -> str:
-        """Return the name for the AlphaNumericAntigenVel.
+    # @property
+    # def name(self) -> str:
+    #     """Return the name for the AlphaNumericAntigenVel.
 
-        For RHCE antigens, the given name is returned directly without modification.
+    #     For RHCE antigens, the given name is returned directly without modification.
 
-        Returns:
-            str: The original given name.
-        """
-        return self.given_name
+    #     Returns:
+    #         str: The original given name.
+    #     """
+    #     return self.given_name
 
 
 class NumericAntigenRHCE(NumericAntigen):
@@ -771,16 +771,16 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
 
         return 1  # Normal
 
-    @property
-    def name(self) -> str:
-        """Return the name for the AlphaNumericAntigenRHD.
+    # @property
+    # def name(self) -> str:
+    #     """Return the name for the AlphaNumericAntigenRHD.
 
-        For RHD antigens, the given name is returned directly without modification.
+    #     For RHD antigens, the given name is returned directly without modification.
 
-        Returns:
-            str: The original given name.
-        """
-        return self.given_name
+    #     Returns:
+    #         str: The original given name.
+    #     """
+    #     return self.given_name
 
 
 

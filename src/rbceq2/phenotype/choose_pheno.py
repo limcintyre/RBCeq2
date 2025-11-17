@@ -5,6 +5,7 @@ from collections import Counter, defaultdict
 from functools import partial
 from itertools import product
 from typing import TYPE_CHECKING
+from venv import logger
 
 from rbceq2.core_logic.constants import (
     ANTITHETICAL,
@@ -18,7 +19,8 @@ from rbceq2.core_logic.utils import (
     BeyondLogicError,
 )
 from icecream import ic
-
+from typing import Mapping
+from rbceq2.db.db import compare_antigen_profiles
 from rbceq2.core_logic.alleles import Allele
 
 from . import antigens as an
@@ -914,7 +916,8 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-
+    # if bg.type == "RHCE":
+    #     ic(2222222, bg.phenotypes[ant_type])
     return bg
 
 
@@ -945,17 +948,17 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         ants = [ant.name for ant in merged_pheno]
         as_str = ",".join(sorted(ants)) if bg.type == "ABO" else ",".join(ants)
+        # if bg.type == "RHCE":
+        #     ic(111111222222, as_str)
         pheno = (
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
-        if ant_type == PhenoType.alphanumeric and bg.type == "RHD":
-            # this is a hack to help debug - rm once done TODO
-            # if bg. sample == 'NA19003':
-            # ic(111,pair, pheno)
-            pheno = ",".join(sorted(pheno.split(",")))
-            # ic(2222,pair, pheno)
-        bg.phenotypes[ant_type][pair] = pheno
+        # if bg.type == "RHCE":
+        #     ic(11111133333, pheno)
 
+        bg.phenotypes[ant_type][pair] = pheno
+    # if bg.type == "RHCE":
+    #     ic(111111, bg.phenotypes[ant_type])
     return bg
 
 
@@ -974,7 +977,6 @@ def combine_anitheticals(bg: BloodGroup) -> BloodGroup:
                 than one string starting with the same prefix (substring before '(').
                 - The second list contains all other strings.
         Example:
-        Write a function that takes a list of strs:
 
         Ie
         Example1 = ['Kn(a+)','Kn(b-)','McC(a+)','Sl1+', 'Yk(a+)','McC(b-)', 'Vil-',
@@ -1287,24 +1289,43 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         return bg
 
     for pair, pheno in bg.phenotypes[ant_type].items():
+        # Start with all antigens from the original phenotype
+        pheno_parts = pheno.split(",")
         new_pheno = []
-        for allele in pair:
-            if allele.genotype not in RHD_ANT_MAP:
-                continue
-            genotype_label = RHD_ANT_MAP[allele.genotype]
-            for ant in allele.phenotype_alt.split(","):
-                if ant not in pheno:
-                    continue
-                if "partial" in ant:
-                    new_pheno.append(
-                        ant.replace("partial", f"partial({genotype_label})")
-                    )
-                elif "weak" in ant:
-                    new_pheno.append(ant.replace("weak", f"weak({genotype_label})"))
-                else:
-                    new_pheno.append(ant)
+
+        for ant in pheno_parts:
+            modified = False
+            # Check each allele to see if it should annotate this antigen
+            for allele in pair:
+                if (
+                    ant in allele.phenotype_alt.split(",")
+                    and allele.genotype in RHD_ANT_MAP
+                ):
+                    genotype_label = RHD_ANT_MAP[allele.genotype]
+                    if "partial" in ant:
+                        new_pheno.append(
+                            ant.replace("partial", f"partial({genotype_label})")
+                        )
+                        modified = True
+                        break
+                    elif "weak" in ant:
+                        new_pheno.append(ant.replace("weak", f"weak({genotype_label})"))
+                        modified = True
+                        break
+
+            # If not modified, keep original
+            if not modified:
+                new_pheno.append(ant)
         if new_pheno:
             updated_pheno = ",".join(new_pheno)
+            # ic(
+            #     bg.sample,
+            #     pair,
+            #     pheno,
+            #     updated_pheno,
+            #     allele.phenotype_alt,
+            #     allele.phenotype_alt.split(","),
+            # )
             bg.phenotypes[ant_type][pair] = updated_pheno
 
     return bg
@@ -1350,6 +1371,62 @@ def re_order_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         if not pheno.upper().startswith(big_k):
             pheno = sorter(pheno)
         bg.phenotypes[ant_type][pair] = pheno
+
+    return bg
+
+
+@apply_to_dict_values
+def compare_numeric_ants_to_alphanumeric(
+    bg: BloodGroup, mapping: Mapping[str, Mapping[str, str]]
+) -> BloodGroup:
+    """sanity checker
+    Args:
+        bg (BloodGroup): The BloodGroup object containing phenotype mappings.
+        ant_type (PhenoType): The phenotype type (e.g., numeric or alphanumeric) to be
+            processed.
+
+    Returns:
+        BloodGroup: The updated BloodGroup with re-ordered KEL phenotypes.
+    """
+    if (
+        bg.phenotypes.get(PhenoType.alphanumeric) == {}
+        or bg.phenotypes.get(PhenoType.numeric) == {}
+    ):
+        return bg
+    # if bg.type == 'GBGT':
+    #     return bg
+    bg_name_map = {
+        "GBGT1": "FORS",
+        # "GYPA": "MNS",
+        # "GYPB": "MNS",
+        "ABCC4": "PEL",
+        "PIGG": "EMM",
+        "GCNT2": "I",
+    }
+    for pair_alpha, pheno_alpha in bg.phenotypes[PhenoType.alphanumeric].items():
+        compare = True
+        # if bg.type == "RHCE":
+        #     ic(
+        #         bg.type,
+        #         pair_alpha,
+        #         pheno_alpha,
+        #         bg.phenotypes[PhenoType.numeric][pair_alpha],
+        #     )
+        pheno_numeric = bg.phenotypes[PhenoType.numeric][pair_alpha]
+        for skip in ["Vel+strong", "erythroid"]:
+            if skip in pheno_alpha or skip in pheno_numeric:
+                compare = False
+        if not compare:
+            continue
+        if not compare_antigen_profiles(
+            pheno_numeric,
+            pheno_alpha,
+            mapping,
+            bg_name_map.get(bg.type, bg.type),
+        ):
+            logger.warning(
+                f"WARNING: Modifiers dont match for sample {bg.sample}:\n{pheno_numeric}\n{pheno_alpha}\n plz report"
+            )
 
     return bg
 

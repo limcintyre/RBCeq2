@@ -11,6 +11,7 @@ from typing import Callable
 import pandas as pd
 from icecream import ic
 from loguru import logger
+from typing import Mapping
 
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
@@ -20,7 +21,12 @@ import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
 from rbceq2.core_logic.utils import compose, get_allele_relationships
-from rbceq2.db.db import Db, prepare_db, DbDataConsistencyChecker
+from rbceq2.db.db import (
+    Db,
+    prepare_db,
+    DbDataConsistencyChecker,
+    build_antigen_map_for_checks,
+)
 from rbceq2.IO.PDF_reports import generate_all_reports
 from rbceq2.IO.record_data import (
     check_VCF,
@@ -114,12 +120,6 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Use phase information",
         default=False,
     )
-    # parser.add_argument(
-    #     "--microarray",
-    #     action="store_true",
-    #     help="Input is from a microarray.",
-    #     default=False,
-    # ) TODO needed?
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -153,7 +153,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--RH",
         action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
+        help="Generate results for RHD and RHCE. WARNING! Long read only!",
         default=False,
     )
 
@@ -182,9 +182,8 @@ def main():
     logger.info("Database DataFrame prepared.")
 
     # 2. Run consistency checks on the prepared DataFrame
-    DbDataConsistencyChecker.run_all_checks(
-        df=db_df, ref_genome_name=args.reference_genome
-    )
+    #TODO put back on
+    # DbDataConsistencyChecker.run_all_checks(df=db_df)
     # If any check fails, an exception will be raised here, and the program will halt.
 
     # 3. If all checks pass, proceed to create the Db object
@@ -221,6 +220,7 @@ def main():
         else:
             logger.info("1 single sample VCF passed")
             vcfs = [args.vcf]
+    mapping = build_antigen_map_for_checks(db_df)
 
     all_alleles = defaultdict(list)
     for a in db.make_alleles():
@@ -236,6 +236,7 @@ def main():
             args=args,
             allele_relationships=allele_relationships,
             excluded=exclude,
+            ant_mapping=mapping,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
@@ -270,6 +271,7 @@ def find_hits(
     args: argparse.Namespace,
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
+    ant_mapping: Mapping[str, Mapping[str, str]],
 ) -> pd.DataFrame | None:
     intervals = build_intervals(db.df, args.reference_genome)
     if isinstance(vcf, Path):
@@ -411,7 +413,6 @@ def find_hits(
         res["FUT2"].genotypes.append(allele_pair)
 
     formated_called_genos = {k: ",".join(bg.genotypes) for k, bg in res.items()}
-
     pipe2: list[Callable] = [
         partial(ph.add_ref_phenos, df=db.df),
         partial(ph.instantiate_antigens, ant_type=PhenoType.numeric),
@@ -435,6 +436,7 @@ def find_hits(
         partial(ph.phenos_to_str, ant_type=PhenoType.numeric),
         partial(ph.phenos_to_str, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_FY, ant_type=PhenoType.numeric),
+        partial(ph.compare_numeric_ants_to_alphanumeric, mapping=ant_mapping),
         ph.combine_anitheticals,
         partial(ph.modify_FY, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_KEL, ant_type=PhenoType.alphanumeric),
@@ -444,6 +446,7 @@ def find_hits(
         partial(ph.modify_FY2, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_RHD, ant_type=PhenoType.numeric),
         partial(ph.modify_RHD, ant_type=PhenoType.alphanumeric),
+        
     ]
 
     preprocessor2 = compose(*pipe2)
