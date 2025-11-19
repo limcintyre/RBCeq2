@@ -5,7 +5,8 @@ from collections import Counter, defaultdict
 from functools import partial
 from itertools import product
 from typing import TYPE_CHECKING
-from venv import logger
+from loguru import logger
+
 
 from rbceq2.core_logic.constants import (
     ANTITHETICAL,
@@ -171,10 +172,12 @@ def choose_class_type(bg_type, ant_type):
             BgName.ABO: an.AlphaNumericAntigenABO,
             BgName.RHCE: an.AlphaNumericAntigenRHCE,
             BgName.RHD: an.AlphaNumericAntigenRHD,
+            BgName.DI: an.AlphaNumericAntigenDi
         },
         PhenoType.numeric: {
             BgName.RHCE: an.NumericAntigenRHCE,
             BgName.VEL: an.NumericAntigenVel,
+            BgName.RHD: an.NumericAntigenRHD,
         },
     }
     return (
@@ -623,6 +626,8 @@ def internal_anithetical_consistency_HET(
         return bg
 
     for pair, antigens in bg.phenotypes[ant_type].items():
+        # if bg.type == 'RHCE' and ant_type == PhenoType.numeric:
+        #     ic(pair, antigens)
         null = pair.allele1.null or pair.allele2.null
         already_checked = set()
         new_antigens = []
@@ -715,7 +720,7 @@ def internal_anithetical_consistency_HET(
                     try:
                         assert final_no_expressed == 2
                     except AssertionError:
-                        ic(
+                        logger.warning(
                             "Expressed antigens != 2! plz report to devs",
                             bg.sample,
                             new_antigens,
@@ -728,6 +733,8 @@ def internal_anithetical_consistency_HET(
                         )
 
     for pair, merged_pheno in new_phenos:
+        # if bg.type == 'RHCE' and ant_type == PhenoType.numeric:
+        #     ic(pair, merged_pheno)
         bg.phenotypes[ant_type][pair] = merged_pheno
 
     return bg
@@ -914,7 +921,8 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-   
+    # if bg.type.startswith('RHD'):
+    #     ic(111,bg.phenotypes[ant_type])
     return bg
 
 
@@ -1385,13 +1393,13 @@ def compare_numeric_ants_to_alphanumeric(
     }
     for pair_alpha, pheno_alpha in bg.phenotypes[PhenoType.alphanumeric].items():
         compare = True
-        if bg.type.startswith('RH'): #"RHCE":
-            ic(
-                bg.type,
-                pair_alpha,
-                pheno_alpha,
-                bg.phenotypes[PhenoType.numeric][pair_alpha],
-            )
+        # if bg.type.startswith('RHD'): #"RHCE":
+        #     ic(
+        #         bg.type,
+        #         pair_alpha,
+        #         pheno_alpha,
+        #         bg.phenotypes[PhenoType.numeric][pair_alpha],
+        #     )
         pheno_numeric = bg.phenotypes[PhenoType.numeric][pair_alpha]
         for skip in ["Vel+strong", "erythroid"]:
             if skip in pheno_alpha or skip in pheno_numeric:
@@ -1405,7 +1413,7 @@ def compare_numeric_ants_to_alphanumeric(
             bg_name_map.get(bg.type, bg.type),
         ):
             logger.warning(
-                f"WARNING: Modifiers dont match for sample {bg.sample}:\n{pheno_numeric}\n{pheno_alpha}\n plz report"
+                f"WARNING: Modifiers dont match for sample {bg.sample}:\n{pair_alpha}\n{pheno_numeric}\n{pheno_alpha}\n plz report"
             )
 
     return bg

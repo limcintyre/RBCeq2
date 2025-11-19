@@ -182,8 +182,7 @@ def main():
     logger.info("Database DataFrame prepared.")
 
     # 2. Run consistency checks on the prepared DataFrame
-    #TODO put back on
-    # DbDataConsistencyChecker.run_all_checks(df=db_df)
+    DbDataConsistencyChecker.run_all_checks(df=db_df)
     # If any check fails, an exception will be raised here, and the program will halt.
 
     # 3. If all checks pass, proceed to create the Db object

@@ -476,7 +476,10 @@ class AntigenParser(Protocol):
     def parse(self, text: str) -> list[Antigen]: ...
 
 
-_NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
+#_NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
+_NUMERIC_RE = re.compile(r"(?P<sign>[-?])?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
+
+
 _ALPHA_MOD = {
     "weak": "w",
     "very_weak": "v",
@@ -491,6 +494,7 @@ _ALPHA_MOD = {
     "positive_to_neg": "n",
     "weak_to_neg": "n",
     "very_weak_to_neg": "n",
+    'unknown': 'u'
 }
 
 OVERRIDING_INTENSITY_PHRASES = {
@@ -522,12 +526,21 @@ class NumericParser:
             if not m:
                 raise ValueError(f"Bad numeric token: {tok}")
 
+            # sign, num, mods = m.group("sign", "num", "mods")
+            # antigens.append(
+            #     Antigen(
+            #         system=self._system,
+            #         name=num,  # mapped to α later
+            #         expressed=sign != "-",
+            #         modifiers=frozenset(mods or ""),
+            #     )
+            # )
             sign, num, mods = m.group("sign", "num", "mods")
             antigens.append(
                 Antigen(
                     system=self._system,
-                    name=num,  # mapped to α later
-                    expressed=sign != "-",
+                    name=num,
+                    expressed=(sign != "-" and sign != "?"),
                     modifiers=frozenset(mods or ""),
                 )
             )
@@ -711,12 +724,10 @@ def compare_antigen_profiles(
     seen = set()
     for a in α_ants:
         counterpart = num_by_name.get(a.name)
-        #ic(111111111,a, counterpart)
         if not counterpart:
             if strict:
                 return False
             continue
-        #ic(222222222,a, counterpart, a.modifiers != counterpart.modifiers)
         seen.add(a.name)
         if (a.expressed != counterpart.expressed) or (
             a.modifiers != counterpart.modifiers

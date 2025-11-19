@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
-
+from icecream import ic
 @dataclass(slots=True, frozen=False)
 class Antigen(ABC):
     """Abstract base class representing an antigen.
@@ -496,6 +496,20 @@ class AlphaNumericAntigenVel(AlphaNumericAntigen):
         return self.given_name
 
 
+class AlphaNumericAntigenDi(AlphaNumericAntigen):
+    """An AlphaNumericAntigen subclass for Di blood group antigens."""
+
+    def _get_base_name(self) -> str:
+        """ Di has no weak but has names that have w, ie
+        Sw(a-) and SW1-
+
+        Returns:
+            str: The base name for the Vel antigen.
+        """
+        translation_table = str.maketrans("", "", "-+")
+        return self.given_name.translate(translation_table)
+
+
 class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for RHCE blood group antigens.
     neg = n, partial = p, weak = w, monoclonal = m, infered = i
@@ -539,7 +553,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         Returns:
             str: The base name for the RHCE antigen.
         """
-        translation_table = str.maketrans("", "", "-+_")
+        translation_table = str.maketrans("", "", "-+_?")
         return (
             self.given_name.translate(translation_table)
             .replace("partial", "")
@@ -558,6 +572,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
             .replace("trans", "")
             .replace("positive", "")
             .replace("in", "")
+            .replace("to", "")
         )
 
     def _set_weight(self) -> int:
@@ -626,13 +641,13 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         if not self.expressed:
             return f"{self.base_name}-"
         d = {
-            1: "+Robust",
+            1: "+robust",
             2: "+",
-            3: "+Partial",
-            4: "+Weak",
-            5: "+Weak_Partial",
-            6: "+Very_Weak",
-            7: "?Weak_to_neg", # '?' because it cant be both!
+            3: "+partial",
+            4: "+weak",
+            5: "+weak_partial",
+            6: "+very_weak",
+            7: "?unknown", # '?' because it cant be both!
             8: "-",
         }
         return f"{self.base_name}{d[self.weight]}"
@@ -706,7 +721,7 @@ class NumericAntigenRHCE(NumericAntigen):
         Returns:
             str: The base name of the NumericAntigen.
         """
-        translation_table = str.maketrans("", "", "-+wpimnrv")
+        translation_table = str.maketrans("", "", "-+wpimnrv?")
         return self.given_name.translate(translation_table)
 
     @property
@@ -720,7 +735,7 @@ class NumericAntigenRHCE(NumericAntigen):
         """
         if not self.expressed:
             return f"-{self.base_name}"
-        mod_d = {1: "r", 2: "", 3: "p", 4: "w", 5: "wp", 6: "v", 7: "n", 8: ""}
+        mod_d = {1: "r", 2: "", 3: "p", 4: "w", 5: "wp", 6: "v", 7: "u", 8: ""}
         expression_d = {1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "?", 8: "-"}
         return f"{expression_d[self.weight]}{self.base_name}{mod_d[self.weight]}"
 
@@ -750,6 +765,7 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
             self.given_name.translate(translation_table)
             .replace("partial", "")
             .replace("weak", "")
+            .replace("el", "")
         )
 
     def _set_weight(self) -> int:
@@ -760,7 +776,7 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
         2: Partial ("PARTIAL")
         3: Weak ("WEAK")
         4: Weak Partial ("PARTIAL" and "WEAK")
-        5: Very Weak ("VERY_WEAK")
+        5: Very Weak /elution/del/d+el ("EL")
         6: Not Expressed/Null ("-")
         """
         name_upper = self.given_name.upper()
@@ -772,7 +788,7 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
         # Check for specific characteristics
         is_partial = "PARTIAL" in name_upper
         is_weak = "WEAK" in name_upper  # Note: "VERY_WEAK" also contains "WEAK"
-        is_very_weak = "VERY_WEAK" in name_upper
+        is_very_weak = "EL" in name_upper
 
         # Case 1: It's "PARTIAL" and also some form of "WEAK"
         if is_partial:
@@ -797,16 +813,6 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
 
         return 1  # Normal
 
-    # @property
-    # def name(self) -> str:
-    #     """Return the name for the AlphaNumericAntigenRHD.
-
-    #     For RHD antigens, the given name is returned directly without modification.
-
-    #     Returns:
-    #         str: The original given name.
-    #     """
-    #     return self.given_name
 
 
 class NumericAntigenRHD(NumericAntigen):
@@ -828,7 +834,7 @@ class NumericAntigenRHD(NumericAntigen):
         2: Partial ('p')
         3: Weak ('w')
         4: Weak Partial ('p' and 'w')
-        5: Very Weak ('v')
+        5: Very Weak ('v') (el)
         6: Not Expressed/Null ('-')
         """
         name_lower = self.given_name.lower()  # Use lower for char checks
@@ -870,3 +876,18 @@ class NumericAntigenRHD(NumericAntigen):
         """
         translation_table = str.maketrans("", "", "-+wpmv")
         return self.given_name.translate(translation_table)
+    
+    @property
+    def name(self) -> str:
+        """Return the name with mod, if needed.
+
+        For RHD antigens, the given name based on modification.
+
+        Returns:
+            str: The name with expression and mod.
+        """
+        if not self.expressed:
+            return f"-{self.base_name}"
+        mod_d = {1: "", 2: "p", 3: "w", 4: "wp", 5: "v", 6: "n"}
+        expression_d = {1: "", 2: "", 3: "", 4: "", 5: "", 6: "-"}
+        return f"{expression_d[self.weight]}{self.base_name}{mod_d[self.weight]}"
