@@ -3,7 +3,6 @@ from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-from icecream import ic
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.co_existing import (
     mushed_vars,
@@ -14,7 +13,6 @@ from rbceq2.core_logic.data_procesing import (
     SingleVariantStrategy,
     SomeHomMultiVariantStrategy,
     add_CD_to_XG,
-    add_phasing,
     add_refs,
     combine_all,
     filter_vcf_metrics,
@@ -298,7 +296,6 @@ class TestGetGenotypes(unittest.TestCase):
 
         expected_genotypes = ["A/B", "C/D"]
         self.assertEqual(result_bg.genotypes, expected_genotypes)
-
 
 
 class TestGetFullyHomozygousAlleles(unittest.TestCase):
@@ -701,8 +698,6 @@ class TestMushedVars(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
-
-
 class TestRawResults(unittest.TestCase):
     def setUp(self):
         # Common Allele instances used in multiple tests
@@ -747,12 +742,17 @@ class TestRawResults(unittest.TestCase):
 
     def test_all_variants_present(self):
         db = self.create_mock_db([self.allele1, self.allele2])
-        vcf = MockVCF(input_vcf=None, lane_variants={}, unique_variants=set())
-
-        # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
+        # Added sample argument to MockVCF init to prevent VCF.__init__ error
+        vcf = MockVCF(
+            input_vcf=None,
+            lane_variants={},
+            unique_variants=set(),
+            sample="mock_sample",
+        )
         vcf.variants = {"var1": {}, "var2": {}}
 
-        results = raw_results(db, vcf, ['None'])
+        # CHANGED: Added {}, [] for var_map and matches
+        results = raw_results(db, vcf, ["None"], {}, [])
 
         self.assertIn("A", results)
         self.assertIn("B", results)
@@ -774,12 +774,14 @@ class TestRawResults(unittest.TestCase):
             sub_type="Sub1",
         )
         db = self.create_mock_db([allele])
-        vcf = MockVCF(input_vcf=None, lane_variants={}, unique_variants=set())
-
-        # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
+        # Added sample argument to MockVCF init
+        vcf = MockVCF(
+            input_vcf=None, lane_variants={}, unique_variants=set(), sample="s1"
+        )
         vcf.variants = {"var1": {}}
 
-        results = raw_results(db, vcf, ['1'])
+        # CHANGED: Added {}, [] for var_map and matches
+        results = raw_results(db, vcf, ["1"], {}, [])
 
         self.assertNotIn("A", results)
 
@@ -796,12 +798,17 @@ class TestRawResults(unittest.TestCase):
             sub_type="Sub3",
         )
         db = self.create_mock_db([allele])
-        vcf = MockVCF(input_vcf=None, lane_variants={}, unique_variants=set())
-
-        # vcf = VCF(input_vcf=None, lane_variants={}, unique_variants=set())
+        # Added sample argument to MockVCF init
+        vcf = MockVCF(
+            input_vcf=None,
+            lane_variants={},
+            unique_variants=set(),
+            sample="mock_sample",
+        )
         vcf.variants = {}
 
-        results = raw_results(db, vcf, ['1'])
+        # CHANGED: Added {}, [] for var_map and matches
+        results = raw_results(db, vcf, ["1"], {}, [])
 
         self.assertIn("A", results)
         self.assertEqual(len(results["A"]), 1)
@@ -2745,8 +2752,6 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
         self.assertIn(Pair(a2, hom3), normal_pairs)
         self.assertIn(Pair(hom3, hom3), normal_pairs)
 
-    
-
     @patch("rbceq2.core_logic.utils.get_non_refs", side_effect=mock_get_non_refs)
     @patch(
         "rbceq2.core_logic.data_procesing.chunk_geno_list_by_rank",
@@ -3289,14 +3294,14 @@ class TestAddRefs(unittest.TestCase):
         but not for RHCE (because it's in EXCLUDE).
         """
         res = {}
-        updated = add_refs(self.db, res, ['f'])
+        updated = add_refs(self.db, res, ["f"])
 
         # BG1, BG2 are created
         self.assertIn("BG1", updated)
         self.assertIn("BG2", updated)
 
         # RHCE is excluded; should NOT be present
-        #self.assertNotIn("RHCE", updated)
+        # self.assertNotIn("RHCE", updated)
 
         # Check the BG1 object is correct
         bg1_obj = updated["BG1"]
@@ -3337,7 +3342,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["BG1*REF/BG1*REF"],
         )
         res = {"BG1": existing_bg1}
-        updated = add_refs(self.db, res, ['3'])
+        updated = add_refs(self.db, res, ["3"])
 
         # BG1 remains as-is
         self.assertIs(updated["BG1"], existing_bg1)
@@ -3348,7 +3353,7 @@ class TestAddRefs(unittest.TestCase):
         self.assertEqual(updated["BG2"].sample, "ref")
 
         # Because RHCE is excluded and not in res, it won't be created
-        #self.assertNotIn("RHCE", updated)
+        # self.assertNotIn("RHCE", updated)
 
     def test_new_blood_group(self):
         """
@@ -3368,7 +3373,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["BG1*REF/BG1*REF"],
         )
         res = {"BG1": existing_bg1}
-        updated = add_refs(self.db, res, ['3'])
+        updated = add_refs(self.db, res, ["3"])
 
         # BG1 unchanged
         self.assertEqual(updated["BG1"].sample, "existing_sample")
@@ -3377,8 +3382,8 @@ class TestAddRefs(unittest.TestCase):
         self.assertIn("BG2", updated)
 
         # RHCE excluded => not added
-        #no longer excluded
-        #self.assertNotIn("RHCE", updated)
+        # no longer excluded
+        # self.assertNotIn("RHCE", updated)
 
     def test_exclude_and_existing(self):
         """
@@ -3399,7 +3404,7 @@ class TestAddRefs(unittest.TestCase):
             genotypes=["RHCE*REF/RHCE*REF"],
         )
         res = {"RHCE": existing_RHCE}
-        updated = add_refs(self.db, res, ['4'])
+        updated = add_refs(self.db, res, ["4"])
 
         # Check that RHCE remains exactly as is
         self.assertIs(updated["RHCE"], existing_RHCE)
@@ -3411,6 +3416,7 @@ class TestAddRefs(unittest.TestCase):
 
         # Now we expect RHCE to remain, because it was pre-existing
         self.assertIs(updated["RHCE"], existing_RHCE)
+
 
 if __name__ == "__main__":
     unittest.main()

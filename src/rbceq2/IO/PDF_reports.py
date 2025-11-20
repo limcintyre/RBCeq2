@@ -196,6 +196,7 @@ def _prepare_dataframes(
 #     }
 #     return custom_styles
 
+
 def _setup_styles() -> Dict[str, ParagraphStyle]:
     """Creates and returns a dictionary of ReportLab ParagraphStyle objects.
 
@@ -204,18 +205,24 @@ def _setup_styles() -> Dict[str, ParagraphStyle]:
         to their corresponding ParagraphStyle objects.
     """
     styles = getSampleStyleSheet()
-    body_style = ParagraphStyle(name='BodyTextSmall', parent=styles['BodyText'], fontSize=9)
+    body_style = ParagraphStyle(
+        name="BodyTextSmall", parent=styles["BodyText"], fontSize=9
+    )
 
     table_cell_style = ParagraphStyle(
         name="TableCell",
         parent=body_style,
-        fontSize=7,      
-        leading=9,      
+        fontSize=7,
+        leading=9,
     )
     # ****************************************************************
 
     footer_style = ParagraphStyle(
-        name='FooterStyle', parent=styles['Normal'], alignment=1, fontSize=7, textColor=colors.grey # Centered footer
+        name="FooterStyle",
+        parent=styles["Normal"],
+        alignment=1,
+        fontSize=7,
+        textColor=colors.grey,  # Centered footer
     )
 
     custom_styles = {
@@ -223,19 +230,30 @@ def _setup_styles() -> Dict[str, ParagraphStyle]:
         "heading": styles["h2"],
         "title": styles["h1"],
         "report_title": ParagraphStyle(
-            name="ReportTitle", parent=styles["h1"], alignment=1, fontSize=16 # Centered H1
+            name="ReportTitle",
+            parent=styles["h1"],
+            alignment=1,
+            fontSize=16,  # Centered H1
         ),
         "warning": ParagraphStyle(
-            name="Warning", parent=styles["Heading1"], textColor=colors.red, alignment=1, fontSize=14
+            name="Warning",
+            parent=styles["Heading1"],
+            textColor=colors.red,
+            alignment=1,
+            fontSize=14,
         ),
         "table_header": ParagraphStyle(
             # Keep header size reasonable or reduce slightly if needed too
-            name="TableHeader", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=8
+            name="TableHeader",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8,
         ),
-        "table_cell": table_cell_style, # Use the modified style
+        "table_cell": table_cell_style,  # Use the modified style
         "footer": footer_style,
     }
     return custom_styles
+
 
 def _add_page_footer(
     canvas: canvas.Canvas,

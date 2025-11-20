@@ -519,8 +519,23 @@ def cant_pair_with_ref_cuz_trumped(bg: BloodGroup) -> BloodGroup:
 
 @apply_to_dict_values
 def cant_not_include_null(bg: BloodGroup) -> BloodGroup:
-    """Filter out allele pairs where a theres no null, if there's
-    a null with < 2 HET variants
+    """Remove allele pairs without null alleles when a null with ≤1 HET variant exists.
+
+    Filters out non-null allele pairs when there exists at least one null allele
+    that has one or fewer heterozygous variants. This ensures that likely null
+    alleles (those with minimal heterozygous support) are prioritized in the
+    final allele configuration.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and variant information.
+
+    Returns:
+        The modified BloodGroup object with non-null pairs removed if applicable,
+        or the original object unchanged if no qualifying null alleles exist.
+
+    Note:
+        Only processes alleles in the NORMAL state. Pairs are removed via the
+        remove_pairs method with reason "cant_not_include_null" for tracking.
     """
     flattened_alleles = flatten_alleles(bg.alleles[AlleleState.NORMAL])
     null_alleles = [allele for allele in flattened_alleles if allele.null]
