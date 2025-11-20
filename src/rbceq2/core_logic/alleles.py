@@ -86,7 +86,19 @@ class Allele:
         )
 
     def __contains__(self, other: Allele) -> bool:
-        """Check if other.defining_variants are subset of self.defining_variants
+        """Check if 'other' is a PROPER subset of 'self'.
+
+        This is used for filtering redundant alleles.
+
+        Returns True if:
+        1. 'other' is NOT identical to 'self'
+        2. 'other' variants are a subset of 'self' variants
+        OR
+        3. 'other' is a reference allele and 'self' is a variant of the same subtype.
+
+        NOTE: Returns False if self == other. This is intentional to prevent
+        alleles from filtering themselves out in nested loops, despite not being
+        the pythonic standard behaviour where {1,2} would be 'in' {1,2}
 
         Args:
             other Allele: Another Allele object.

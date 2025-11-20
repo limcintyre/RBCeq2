@@ -526,15 +526,6 @@ class NumericParser:
             if not m:
                 raise ValueError(f"Bad numeric token: {tok}")
 
-            # sign, num, mods = m.group("sign", "num", "mods")
-            # antigens.append(
-            #     Antigen(
-            #         system=self._system,
-            #         name=num,  # mapped to α later
-            #         expressed=sign != "-",
-            #         modifiers=frozenset(mods or ""),
-            #     )
-            # )
             sign, num, mods = m.group("sign", "num", "mods")
             antigens.append(
                 Antigen(

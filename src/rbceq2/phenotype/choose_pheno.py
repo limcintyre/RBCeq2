@@ -626,8 +626,6 @@ def internal_anithetical_consistency_HET(
         return bg
 
     for pair, antigens in bg.phenotypes[ant_type].items():
-        # if bg.type == 'RHCE' and ant_type == PhenoType.numeric:
-        #     ic(pair, antigens)
         null = pair.allele1.null or pair.allele2.null
         already_checked = set()
         new_antigens = []

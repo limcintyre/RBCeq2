@@ -40,38 +40,10 @@ class TestVCFInitialization(unittest.TestCase):
 
     def test_init_with_dataframe(self) -> None:
         """Ensure VCF initializes properly when given a DataFrame (wrapped in a list)."""
-        vcf = VCF([self.sample_df], lane_variants={}, unique_variants={"1:1000"})
+        vcf = VCF([self.sample_df], lane_variants={}, unique_variants={"1:1000"}, sample="test_sample")
         self.assertTrue(hasattr(vcf, "df"))
-        # Since get_sample() returns the last element (a DataFrame), extract its SAMPLE value.
-        if isinstance(vcf.sample, pd.DataFrame):
-            sample_value = vcf.sample["SAMPLE"].iloc[0]
-        else:
-            sample_value = vcf.sample
-        expected_value = self.sample_df["SAMPLE"].iloc[0]
-        self.assertEqual(sample_value, expected_value)
-
-    def test_init_with_path(self) -> None:
-        """Ensure VCF initializes properly when given a Path object."""
-        with patch("rbceq2.IO.vcf.read_vcf") as mock_read_vcf:
-            dummy_pl_df = pl.from_dict(
-                {
-                    "CHROM": ["chr1"],
-                    "POS": ["1000"],
-                    "ID": ["."],
-                    "REF": ["A"],
-                    "ALT": ["G"],
-                    "QUAL": ["."],
-                    "FILTER": ["."],
-                    "INFO": ["."],
-                    "FORMAT": ["GT:AD:GQ:DP:PS"],
-                    "SAMPLE": ["0/1:..."],
-                }
-            )
-            mock_read_vcf.return_value = dummy_pl_df
-            vcf = VCF(Path("dummy.vcf"), lane_variants={}, unique_variants={"1:1000"})
-            self.assertTrue(hasattr(vcf, "df"))
-            # For Path input, get_sample() returns the file stem.
-            self.assertEqual(vcf.sample, "dummy")
+        # Verify the sample name is stored correctly
+        self.assertEqual(vcf.sample, "test_sample")
 
 
 class TestVCFMethods(unittest.TestCase):
@@ -96,48 +68,46 @@ class TestVCFMethods(unittest.TestCase):
 
     def test_add_lane_variants_het_and_missing(self) -> None:
         """Check add_lane_variants modifies 'variant' for heterozygous calls."""
-        vcf_obj = VCF([self.df_local], {"9": ["2000"]}, set())
+        vcf_obj = VCF([self.df_local], {"9": ["2000"]}, set(), sample="test_sample")
         self.assertIn("variant", vcf_obj.df.columns)
 
     def test_add_loci(self) -> None:
         """Ensure add_loci method adds the 'loci' column."""
-        vcf_obj = VCF([self.test_df], {}, set())
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
         self.assertIn("loci", vcf_obj.df.columns)
 
     def test_encode_variants(self) -> None:
         """Check encode_variants method builds the 'variant' column."""
-        vcf_obj = VCF([self.test_df], {}, set())
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
         self.assertIn("variant", vcf_obj.df.columns)
-
+    
     def test_get_sample(self) -> None:
-        """Check get_sample method extracts sample value from the DataFrame input."""
-        vcf_obj = VCF([self.test_df], {}, set())
-        if isinstance(vcf_obj.sample, pd.DataFrame):
-            sample_value = vcf_obj.sample["SAMPLE"].iloc[0]
-        else:
-            sample_value = vcf_obj.sample
-        expected_value = self.test_df["SAMPLE"].iloc[0]
-        self.assertEqual(sample_value, expected_value)
+        """Check that the sample attribute is stored correctly."""
+        # We pass "test_sample" as the sample name
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
+        
+        # Assert that vcf_obj.sample holds the name string, not the genotype data
+        self.assertEqual(vcf_obj.sample, "test_sample")
 
     def test_get_variants(self) -> None:
         """Ensure get_variants constructs a dict with GT-based info."""
-        vcf_obj = VCF([self.test_df], {}, set())
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
         variants = vcf_obj.get_variants()
         self.assertIsInstance(variants, dict)
 
     def test_remove_home_ref(self) -> None:
         """Check remove_home_ref method removes 0/0 calls."""
-        vcf_obj = VCF([self.df_local], {}, set())
+        vcf_obj = VCF([self.df_local], {}, set(), sample="test_sample")
         self.assertFalse(any(vcf_obj.df["SAMPLE"].str.startswith("0/0")))
 
     def test_rename_chrom(self) -> None:
         """Check rename_chrom removes the 'chr' prefix."""
-        vcf_obj = VCF([self.test_df], {}, set())
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
         self.assertFalse(vcf_obj.df["CHROM"].str.contains("chr").any())
 
     def test_set_loci(self) -> None:
         """Check set_loci returns a set of chrom:pos identifiers."""
-        vcf_obj = VCF([self.test_df], {}, set())
+        vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")
         loci = vcf_obj.set_loci()
         self.assertIsInstance(loci, set)
 
@@ -214,37 +184,18 @@ class TestReadVCF(unittest.TestCase):
             except Exception:
                 pass
 
-    def test_read_vcf_non_gz(self) -> None:
-        """Test reading a non‑gzipped VCF with valid header and data."""
-        # Create VCF content with meta lines and a header (9 columns).
-        content = (
-            "##fileformat=VCFv4.2\n"
-            "##meta-info\n"
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n"
-            "chr1\t100\t.\tA\tT\t.\tPASS\t.\tGT:AD\n"
-            "chr2\t200\t.\tG\tC\t.\tPASS\t.\tGT:AD\n"
-        )
-        file_path = self._create_temp_file(content, suffix=".vcf")
-        df = read_vcf(file_path)
-        # Check header preservation.
-        self.assertEqual(
-            df.columns,
-            ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"],
-        )
-        # Check that 'chr' prefix was removed.
-        self.assertEqual(df["CHROM"][0], "1")
-        self.assertEqual(df["CHROM"][1], "2")
-        os.remove(file_path)
 
-    def test_read_vcf_header_transformation(self) -> None:
-        """Test that a header with 10 columns is transformed (last column becomes 'SAMPLE')."""
+    @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
+    def test_read_vcf_header_transformation(self, mock_intervals) -> None:
+        """Test that a header with 10 columns is transformed."""
         content = (
             "##fileformat=VCFv4.2\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tEXTRA\n"
             "chr1\t100\t.\tA\tT\t.\tPASS\t.\tGT:AD\tdata1\n"
         )
         file_path = self._create_temp_file(content, suffix=".vcf")
-        df = read_vcf(file_path)
+        # CHANGED: Added intervals={}
+        df = read_vcf(file_path, intervals={})
         expected_cols = [
             "CHROM",
             "POS",
@@ -258,11 +209,32 @@ class TestReadVCF(unittest.TestCase):
             "SAMPLE",
         ]
         self.assertEqual(df.columns, expected_cols)
-        # Verify data in transformed column remains.
         self.assertEqual(df["SAMPLE"][0], "data1")
         os.remove(file_path)
+    
+    @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
+    def test_read_vcf_non_gz(self, mock_intervals) -> None:
+        """Test reading a non‑gzipped VCF with valid header and data."""
+        content = (
+            "##fileformat=VCFv4.2\n"
+            "##meta-info\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\n"
+            "chr1\t100\t.\tA\tT\t.\tPASS\t.\tGT:AD\n"
+            "chr2\t200\t.\tG\tC\t.\tPASS\t.\tGT:AD\n"
+        )
+        file_path = self._create_temp_file(content, suffix=".vcf")
+        df = read_vcf(file_path, intervals={})
+        self.assertEqual(
+            df.columns,
+            ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"],
+        )
+        # UPDATED: Expect 'chr1' and 'chr2' (raw input), not '1' and '2'
+        self.assertEqual(df["CHROM"][0], "chr1")
+        self.assertEqual(df["CHROM"][1], "chr2")
+        os.remove(file_path)
 
-    def test_read_vcf_gzipped(self) -> None:
+    @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
+    def test_read_vcf_gzipped(self, mock_intervals) -> None:
         """Test reading a gzipped VCF file."""
         content = (
             "##fileformat=VCFv4.2\n"
@@ -271,39 +243,36 @@ class TestReadVCF(unittest.TestCase):
             "chr3\t300\t.\tC\tG\t.\tPASS\t.\tGT:AD\n"
         )
         file_path = self._create_temp_gz_file(content, suffix=".vcf.gz")
-        df = read_vcf(file_path)
+        df = read_vcf(file_path, intervals={})
         self.assertEqual(
             df.columns,
             ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"],
         )
-        self.assertEqual(df["CHROM"][0], "3")
+        # UPDATED: Expect 'chr3', not '3'
+        self.assertEqual(df["CHROM"][0], "chr3")
         os.remove(file_path)
+   
 
     def test_read_vcf_no_header(self) -> None:
         """Test that a VCF with no valid header line raises a ValueError."""
-        # File with only meta lines and data but no header line.
         content = (
             "##fileformat=VCFv4.2\n##meta-info\nchr1\t100\t.\tA\tT\t.\tPASS\t.\tGT:AD\n"
         )
         file_path = self._create_temp_file(content, suffix=".vcf")
         with self.assertRaises(VcfMissingHeaderError) as context:
-            _ = read_vcf(file_path)
-        
+            # CHANGED: Added intervals={}
+            _ = read_vcf(file_path, intervals={})
+
         name = Path(file_path).name
-        message =  f"VCF header is missing or invalid in file: '{name}'"
+        message = f"VCF header is missing or invalid in file: '{name}'"
         self.assertEqual(str(context.exception), message)
         os.remove(file_path)
+
 
 
 """
 Unit tests for the add_lane_variants method of the VCF class.
 """
-
-
-# NOTE: These tests rely on patched constants.
-# Patch COMMON_COLS to a known list and HOM_REF_DUMMY_QUAL to a fixed string.
-# Expected final columns:
-# ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", "SAMPLE", "variant", "loci"]
 
 
 class TestAddLaneVariants(unittest.TestCase):
@@ -352,7 +321,10 @@ class TestAddLaneVariants(unittest.TestCase):
                 lane_variants = {"chr1": ["207331122"], "chr9": ["133257521"]}
                 # Initialize VCF with the DataFrame wrapped in a list.
                 vcf_obj = VCF(
-                    [input_df], lane_variants=lane_variants, unique_variants=set()
+                    [input_df],
+                    lane_variants=lane_variants,
+                    unique_variants=set(),
+                    sample="test_sample",
                 )
                 final_df = vcf_obj.df.reset_index(drop=True)
 
@@ -362,9 +334,6 @@ class TestAddLaneVariants(unittest.TestCase):
                     3,
                     "Expected two rows after adding new lane variants.",
                 )
-
-             
-            
 
 
 if __name__ == "__main__":

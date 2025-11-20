@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 import re
 
-os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
+os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
 from loguru import logger
 from collections import defaultdict
@@ -192,7 +192,7 @@ class VCF:
 
         """
         new_lanes = {}
-
+        new_rows = []
         for chrom, loci in self.lane_variants.items():
             chrom = chrom.replace("chr", "")
             for pos in loci:
@@ -256,20 +256,12 @@ class VCF:
                                 f"{lane_loci}_{lane}"
                             )
 
-                            # Append the new reference row to the dataframe
-                            self.df = pd.concat(
-                                [self.df, pd.DataFrame([ref_row])], ignore_index=True
-                            )
-                            # self.df.loc[self.df.loci == lane_loci, "variant"] = (
-                            #     self.df.loc[
-                            #         self.df.loci == lane_loci, "variant"
-                            #     ].values[0]
-                            #     + f",{lane_loci}_ref"
+                            # # Append the new reference row to the dataframe
+                            # quadratic complexity
+                            # self.df = pd.concat(
+                            #     [self.df, pd.DataFrame([ref_row])], ignore_index=True
                             # )
-                            # ic(22222,lane, lane_loci, (
-                            #     self.df.loc[
-                            #         self.df.loci == lane_loci
-                            #     ]))
+                            new_rows.append(ref_row)
                 else:
                     new_lanes[lane_loci] = (
                         [chrom, pos]
@@ -281,6 +273,8 @@ class VCF:
                             "loci",
                         ]
                     )
+        if new_rows:
+            self.df = pd.concat([self.df, pd.DataFrame(new_rows)], ignore_index=True)
         if new_lanes:
             new_lanes_df = pd.DataFrame.from_dict(new_lanes, orient="index")
             new_lanes_df.columns = self.df.columns
@@ -302,10 +296,8 @@ class VCF:
             mapped_metrics = dict(
                 zip(format.strip().split(":"), metrics.strip().split(":"))
             )
-            mapped_metrics["GT"] == mapped_metrics["GT"].replace("|", "/")
             if mapped_metrics["GT"] == "0/0":
                 continue
-
             if "," in variant:
                 for variant in variant.split(","):
                     vcf_variants[variant] = mapped_metrics

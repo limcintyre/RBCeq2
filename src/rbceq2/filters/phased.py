@@ -1104,10 +1104,10 @@ def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: 
 
 @apply_to_dict_values
 def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """Remove allele pairs when phasing identifies a higher-weight pair on opposite 
+    """Remove allele pairs when phasing identifies a higher-weight pair on opposite
     haplotypes.
-    
-    Handles cases where a homozygous variant exists but isn't in the top 2 ranked 
+
+    Handles cases where a homozygous variant exists but isn't in the top 2 ranked
     chunk,
     requiring SomeHomMultiVariantStrategy to defer filtering. When phasing information
     shows the two highest-weight alleles are on opposite haplotypes, other pairs can
@@ -1115,12 +1115,12 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     on different phases.
 
     Case where there's a hom but it isn't in the top 2 ranked chunk,
-    so SomeHomMultiVariantStrategy has to let it pass to here. 
+    so SomeHomMultiVariantStrategy has to let it pass to here.
 
     Args:
         bg: BloodGroup object containing allele pairs and phasing information.
         phased: Boolean indicating whether the sample variants are phased.
-    
+
     Returns:
         The modified BloodGroup object retaining only the lowest-weight phased pair
         if multiple phased pairs with different weights exist, or the original object
@@ -1225,20 +1225,20 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 @apply_to_dict_values
 def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Remove allele pairs where reference allele variants are absent from variant pool.
-    
+
     Eliminates pairs containing reference alleles that have defining variants not
     present in the sample's variant pool. This occurs when a reference variant is
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
-    
+
     Args:
         bg: BloodGroup object containing allele pairs and variant pool information.
         phased: Boolean indicating whether the sample variants are phased.
-    
+
     Returns:
         The modified BloodGroup object with impossible reference allele pairs removed,
         or the original object unchanged if not phased or no invalid pairs found.
-    
+
     Example
     need to rm ref as 1:25390874_ref not possible
     as 1:25390874_C_G: Homozygous
@@ -1310,24 +1310,24 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
 @apply_to_dict_values
 def ref_not_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Remove allele pairs containing reference alleles previously identified as unphased.
-    
+
     Eliminates pairs where the reference allele was already filtered out for being
     unphased but was subsequently re-added during allele pair generation. This
     prevents inconsistent phasing information from producing invalid genotype calls.
-    
+
     Args:
         bg: BloodGroup object containing allele pairs and filtering history.
         phased: Boolean indicating whether the sample variants are phased.
-    
+
     Returns:
         The modified BloodGroup object with pairs containing previously filtered
         unphased reference alleles removed, or the original object unchanged if
         not phased or no such pairs exist.
-    
+
     Example:
     need to rm ref due to not being phased
     ie
-    2025-11-12 09:09:21.312 | WARNING  | 
+    2025-11-12 09:09:21.312 | WARNING  |
     rbceq2.core_logic.alleles:remove_pairs:350 - all pairs removed!:
       HG00128.vcf RHCE filter_if_all_HET_vars_on_same_side_and_phased
     #Results:
@@ -1402,21 +1402,21 @@ def ref_not_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 @apply_to_dict_values
 def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Remove homozygous reference pairs when any defining variant is heterozygous.
-    
+
     Eliminates allele pairs where both alleles are reference but at least one
     defining variant is heterozygous in the sample. A homozygous reference genotype
     is incompatible with any heterozygous variants, as heterozygosity indicates
     the presence of at least one alternate allele.
-    
+
     Args:
         bg: BloodGroup object containing allele pairs and variant zygosity information.
         phased: Boolean indicating whether the sample variants are phased.
-    
+
     Returns:
         The modified BloodGroup object with impossible homozygous reference pairs
         removed, or the original object unchanged if not phased or no invalid
         pairs exist.
-    
+
     Example:
     2025-11-12 13:47:12.043 | DEBUG    | Sample: HG00365.vcf BG Name: RHCE
 
