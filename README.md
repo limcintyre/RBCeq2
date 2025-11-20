@@ -12,7 +12,7 @@
 > [!WARNING]
 > NOT FOR CLINICAL USE
 
-## Version v2.3.7
+## Version v2.4.0
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
 

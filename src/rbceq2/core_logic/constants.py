@@ -1,8 +1,8 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.3.7"
-DB_VERSION = "2.3.4"
+VERSION = "2.4.0"
+DB_VERSION = "2.4.0"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -21,7 +21,6 @@ class AlleleState:
     CO = "co_existing"
     NORMAL = "pairs"
     RAW = "raw"
-    # POS = "possible" #everything now a filter
     FILT = "filtered"
 
 
