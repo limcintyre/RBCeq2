@@ -220,10 +220,6 @@ class VCF:
                         alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
                         lane = LANE[f"chr{chrom}"][pos]
                         if f"{ref}_{alt}" == lane or lane == "no_ALT":
-                            # ic(1111,lane, lane_loci, (
-                            #     self.df.loc[
-                            #         self.df.loci == lane_loci
-                            #     ]))
                             original_row = (
                                 self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
                             )
@@ -250,17 +246,9 @@ class VCF:
                             sample_fields = ref_row["SAMPLE"].split(":")
                             sample_fields[0] = flipped_gt
                             ref_row["SAMPLE"] = ":".join(sample_fields)
-
-                            # Update the original row's variant (don't concatenate)
                             self.df.loc[self.df.loci == lane_loci, "variant"] = (
                                 f"{lane_loci}_{lane}"
                             )
-
-                            # # Append the new reference row to the dataframe
-                            # quadratic complexity
-                            # self.df = pd.concat(
-                            #     [self.df, pd.DataFrame([ref_row])], ignore_index=True
-                            # )
                             new_rows.append(ref_row)
                 else:
                     new_lanes[lane_loci] = (

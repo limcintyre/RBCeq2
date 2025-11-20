@@ -670,7 +670,7 @@ def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
             try:
                 assert variant in bg.variant_pool
             except AssertionError:
-                ic(bg.sample, allele, variant, bg.variant_pool)
+                ic('Error - report to devs plz',bg.sample, allele, variant, bg.variant_pool)
         if all(variant in bg.variant_pool for variant in allele.defining_variants):
             keepers.append(allele)
     bg.alleles[AlleleState.FILT] = keepers
@@ -1471,20 +1471,20 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
     return ranked
 
 
-@apply_to_dict_values
-def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
-    """TODO why not just use the CD99 vars??
-    adds CD to XG blood group.
+# @apply_to_dict_values
+# def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
+#     """TODO why not just use the CD99 vars??
+#     adds CD to XG blood group.
 
-    Args:
-        bg (BloodGroup): The BloodGroup object to be processed.
+#     Args:
+#         bg (BloodGroup): The BloodGroup object to be processed.
 
-    Returns:
-        BloodGroup: The processed BloodGroup object.
-    """
-    if bg.genotypes == ["XG*01/XG*01"]:
-        bg.genotypes = ["XG*01/XG*01", "CD99*01/CD99*01"]
-    return bg
+#     Returns:
+#         BloodGroup: The processed BloodGroup object.
+#     """
+#     if bg.genotypes == ["XG*01/XG*01"]:
+#         bg.genotypes = ["XG*01/XG*01", "CD99*01/CD99*01"]
+#     return bg
 
 
 def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGroup]:

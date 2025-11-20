@@ -67,7 +67,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     specification of output options and genomic references.
     """
     parser = argparse.ArgumentParser(
-        description="Calls ISBT defined alleles from VCF/s",
+        description="Calls ISBT defined alleles from VCF/s. NOT FOR CLINICAL USE",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         usage="rbceq2 --vcf example.vcf.gz --out example --reference_genome GRCh37",
     )
@@ -162,10 +162,10 @@ def parse_args(args: list[str]) -> argparse.Namespace:
 
 def main():
     ic("Running RBCeq2...")
-
+    ic('NOT FOR CLINICAL USE')
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "CD99", "ATP11C"]  # , "RHD", "RHCE"]
+    exclude = ["C4A", "C4B"]
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
@@ -396,7 +396,7 @@ def find_hits(
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
         dp.get_genotypes,
-        dp.add_CD_to_XG,
+        #dp.add_CD_to_XG,
     ]
     preprocessor = compose(*pipe)
     res = preprocessor(res)

@@ -446,7 +446,6 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             ):
                 antigens_with_ref_if_needed[ant_pos] = allele_antigens
             elif len(allele_antigens) == 2:
-                # ic(allele_antigens)
                 assert all(not allele.homozygous for allele in allele_antigens), (
                     "Expected both alleles to be heterozygous"
                 )
@@ -731,8 +730,6 @@ def internal_anithetical_consistency_HET(
                         )
 
     for pair, merged_pheno in new_phenos:
-        # if bg.type == 'RHCE' and ant_type == PhenoType.numeric:
-        #     ic(pair, merged_pheno)
         bg.phenotypes[ant_type][pair] = merged_pheno
 
     return bg
@@ -919,8 +916,7 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-    # if bg.type.startswith('RHD'):
-    #     ic(111,bg.phenotypes[ant_type])
+  
     return bg
 
 
@@ -1391,13 +1387,6 @@ def compare_numeric_ants_to_alphanumeric(
     }
     for pair_alpha, pheno_alpha in bg.phenotypes[PhenoType.alphanumeric].items():
         compare = True
-        # if bg.type.startswith('RHD'): #"RHCE":
-        #     ic(
-        #         bg.type,
-        #         pair_alpha,
-        #         pheno_alpha,
-        #         bg.phenotypes[PhenoType.numeric][pair_alpha],
-        #     )
         pheno_numeric = bg.phenotypes[PhenoType.numeric][pair_alpha]
         for skip in ["Vel+strong", "erythroid"]:
             if skip in pheno_alpha or skip in pheno_numeric:

@@ -276,21 +276,16 @@ def prep_co_putative_combos(
             for combo1 in combinations(flattened_alleles, i):
                 if len({a.sub_type for a in combo1}) > 1:
                     continue
-                # ic(333333, combo1, homs)
                 if all_hom_variants(homs, combo1):
                     continue
-                # ic(444444, combo1)
                 if sub_alleles(combo1, allele_relationship):
                     continue
-                # ic(555555, combo1)
                 if any(a.reference for a in combo1):
                     continue
-                # ic(666666, combo1)
                 ranked_combo1 = tuple(chunk_geno_list_by_rank(combo1)[0])
 
                 assert ranked_combo1 not in combos
                 combos.append(ranked_combo1)
-        # ic(8888888, combos)
         return combos
 
     if bg.type != "KN":
@@ -303,7 +298,7 @@ def prep_co_putative_combos(
     bg.misc["combos"] = make_allele_combos(
         unique_alleles, bg.misc["homs"], allele_relationships[bg.type]
     )
-    # ic(555555666666665,set(bg.alleles[AlleleState.FILT]))
+
     return bg
 
 
@@ -345,7 +340,6 @@ def add_co_existing_alleles(
     co_existing = []
     for combo1, combo2 in combinations_with_replacement(bg.misc["combos"], 2):
         # This includes pairs like (A, A), (A, B), (B, B), but not both (A, B) and (B, A)
-        # ic(combo1, combo2)
         mushed_combo1 = mushed_vars(combo1)
         tmp_pool2 = bg.variant_pool_numeric
         for variant_on_other_strand in mushed_vars(combo2):
@@ -353,7 +347,6 @@ def add_co_existing_alleles(
         co_existing = decide_if_co_existing(
             tmp_pool2, combo1, combo2, mushed_combo1, co_existing
         )
-        # TODO else - record why combo failed in bg
     if co_existing:
         bg.alleles[AlleleState.CO] = co_existing
     else:
