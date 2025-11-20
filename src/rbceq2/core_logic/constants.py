@@ -21,7 +21,6 @@ class AlleleState:
     CO = "co_existing"
     NORMAL = "pairs"
     RAW = "raw"
-    # POS = "possible" #everything now a filter
     FILT = "filtered"
 
 
@@ -215,7 +214,7 @@ ANTITHETICAL = {
             "1": ("2",),
             "2": ("1",),
         },
-        BgName.GYPB: {  # are these actaully antithetical?
+        BgName.GYPB: { 
             "3": ("4",),
             "4": ("3",),
         },
