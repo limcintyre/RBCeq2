@@ -7,10 +7,8 @@ from rbceq2.core_logic.utils import Zygosity, apply_to_dict_values
 from rbceq2.filters.shared_filter_functionality import (
     flatten_alleles,
     identify_unphased,
-    check_var
+    check_var,
 )
-
-from icecream import ic
 
 
 @apply_to_dict_values
@@ -28,71 +26,71 @@ def filter_co_existing_with_normal(bg: BloodGroup) -> BloodGroup:
 
     Returns:
         BloodGroup: The updated BloodGroup after filtering co-existing pairs.
-    
+
     Example:
 
-    KN*01.07/KN*01.07 was removed by ensure_HET_SNP_used, co that is carried over to the 
+    KN*01.07/KN*01.07 was removed by ensure_HET_SNP_used, co that is carried over to the
     co_existing set
     #Results:
     Genotypes count: 1
     Genotypes: KN*01.06/KN*01.07
-    Phenotypes (numeric): 
+    Phenotypes (numeric):
     KN:1,-2,3,-4,5,6,7,8,-9,10,11,-12,13
     Phenotypes (alphanumeric):
     Kn(a+b-),McC(a+b+),Sl1-,Yk(a+),Vil+,Sl3+,KCAM-,KDAS+,DACY+,YCAD-,KNMB+
 
     #Data:
-    Vars: 
+    Vars:
     1:207782916_A_T : Homozygous
     1:207782769_ref : Homozygous
     1:207782856_A_G : Heterozygous
     1:207782931_A_G : Homozygous
     1:207782889_A_G : Homozygous
 
-    Raw: 
-    Allele 
-    genotype: KN*01 
-    defining_variants: 
+    Raw:
+    Allele
+    genotype: KN*01
+    defining_variants:
             1:207782916_A_T
-            1:207782769_ref 
-    weight_geno: 1000 
-    phenotype: KN:1,-2 or Kn(a+),Kn(b-) 
-    reference: True 
+            1:207782769_ref
+    weight_geno: 1000
+    phenotype: KN:1,-2 or Kn(a+),Kn(b-)
+    reference: True
 
-    Allele 
-    genotype: KN*01.06 
-    defining_variants: 
+    Allele
+    genotype: KN*01.06
+    defining_variants:
             1:207782889_A_G
             1:207782856_A_G
-            1:207782931_A_G 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-3,-4,6,7,-9,10 
-    reference: False 
+            1:207782931_A_G
+    weight_geno: 1000
+    phenotype: KN:1,-2,-3,-4,6,7,-9,10
+    reference: False
 
-    Allele 
-    genotype: KN*01.07 
-    defining_variants: 
+    Allele
+    genotype: KN*01.07
+    defining_variants:
             1:207782889_A_G
-            1:207782931_A_G 
-    weight_geno: 1000 
+            1:207782931_A_G
+    weight_geno: 1000
     phenotype: KN:1,-2,-4,7,-9,10
-    reference: False 
+    reference: False
 
-    Allele 
-    genotype: KN*01.10 
-    defining_variants: 
-            1:207782931_A_G 
-    weight_geno: 1000 
+    Allele
+    genotype: KN*01.10
+    defining_variants:
+            1:207782931_A_G
+    weight_geno: 1000
     phenotype: KN:1,-2,-9,10
-    reference: False 
+    reference: False
 
     #Filters applied:
 
-    ensure_HET_SNP_used: 
-    Pair(Genotype: KN*01.07/KN*01.07 
+    ensure_HET_SNP_used:
+    Pair(Genotype: KN*01.07/KN*01.07
     Pair(Genotype: KN*01.07/KN*01.10
 
-    filter_co_existing_with_normal: 
+    filter_co_existing_with_normal:
     Pair(Genotype: KN*01.07/KN*01.07
     """
     if bg.alleles[AlleleState.CO] is None:
@@ -129,6 +127,7 @@ def parse_bio_info2(pairs: list[Pair]) -> list[list[frozenset[str]]]:
 
     return [pair.comparable for pair in pairs]
 
+
 @apply_to_dict_values
 def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
     """Filter co-existing allele pairs that are subsets of larger allele combinations.
@@ -142,7 +141,7 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 
     Returns:
         BloodGroup: The updated BloodGroup after filtering co-existing allele pairs.
-        
+
     Example:
     ----------
     KN*01.06/KN*01.07+KN*01.10
@@ -189,22 +188,24 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
                 different_alleles = [
                     allele
                     for allele in bg.alleles[AlleleState.RAW]
-                    if allele.genotype in flat_other_alleles.difference(flat_alleles_to_check)
+                    if allele.genotype
+                    in flat_other_alleles.difference(flat_alleles_to_check)
                 ]
                 alleles_with_1_HET_var = [
                     allele
                     for allele in different_alleles
                     if [
-                        bg.variant_pool.get(variant) for variant in allele.defining_variants
+                        bg.variant_pool.get(variant)
+                        for variant in allele.defining_variants
                     ].count(Zygosity.HET)
                     == 1
                 ]
                 if alleles_with_1_HET_var and not pair_to_check.same_subtype:
                     continue
-                
+
                 # If the checks pass, we've found a superset, so this pair should be removed.
                 return True
-        
+
         return False
 
     if bg.alleles[AlleleState.CO] is None:
@@ -212,8 +213,10 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 
     to_remove = []
     all_co_pairs = bg.alleles[AlleleState.CO]
-    all_co_pairs_without_ref = [pair for pair in all_co_pairs if not pair.contains_reference]
-    
+    all_co_pairs_without_ref = [
+        pair for pair in all_co_pairs if not pair.contains_reference
+    ]
+
     for pair in all_co_pairs:
         if pair.contains_reference:
             if compare_to_all(pair, all_co_pairs):
@@ -226,7 +229,8 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 
     return bg
 
-#this was replaced by the above (AI generated) version after unit tests detected a logic flaw:
+
+# this was replaced by the above (AI generated) version after unit tests detected a logic flaw:
 # You are absolutely correct. Thank you for providing the class definitions. This context is critical, and you've pinpointed the exact area of complexity that explains the behavior. My previous analysis was incomplete because it was missing this context.
 # The issue is a fascinating and subtle conflict between two different ways of defining a "subset" relationship:
 # The Scientific Definition (Allele.__contains__): The Allele class defines the in operator based on defining_variants. allele_A in allele_B is True only if allele_A's variants are a proper subset of allele_B's variants. This is the scientifically correct and intuitive way to determine if one allele is a simpler version of another.
@@ -243,9 +247,9 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 # The Suggested Code Change
 # The best way to fix the function is to make its internal logic behave like a proper subset check, respecting its design of working with the flattened genotype strings. We can achieve this by comparing the size of the flattened allele sets. A pair is only a subset if its total set of allele components is a proper subset of the other's.
 # Here is the corrected version of the filter_co_existing_subsets function. This version fixes the flawed logic, and with this change, your original unit test will pass as expected.
-# E2e tests seem fine with it but I'll keep this here for a few iterations just in case 
+# E2e tests seem fine with it but I'll keep this here for a few iterations just in case
 
-# @apply_to_dict_values  
+# @apply_to_dict_values
 # def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 #     """Filter co-existing allele pairs that are subsets of larger allele combinations.
 
@@ -372,98 +376,97 @@ def filter_coexisting_pairs_on_antithetical_zygosity(
     ----------
     list[str]:
         A list of called genotypes based on processed data.
-    
+
     Example:
-    
+
     Genotypes count: 4
-    Genotypes: 
+    Genotypes:
     KN*01.-05+KN*01.10/KN*02
     KN*01.-05/KN*02.10
-    KN*01.10/KN*02  
+    KN*01.10/KN*02
     KN*01/KN*02.10
     # note, the last two options are the case where 1:207760773_C_T is with
     # 1:207782769_G_A, RBCeq2 considers this possible, albiet unlikely
     # use of phased data will resolve this
 
     Phenotypes (numeric): KN:1,2,3,4,5,-6,-7,8,9,10,11,-12,13
-    Phenotypes (alphanumeric): 
+    Phenotypes (alphanumeric):
     Kn(a+b+),McC(a+b-),Sl1+,Yk(a+),Vil-,Sl3+,KCAM+,KDAS+,DACY+,YCAD-,KNMB+
 
     #Data:
-    Vars: 
+    Vars:
     1:207782916_A_T : Homozygous
     1:207782769_ref : Heterozygous
     1:207760773_C_T : Heterozygous
     1:207782931_A_G : Heterozygous
     1:207782769_G_A : Heterozygous
 
-    Raw: 
-    Allele 
-    genotype: KN*01 
-    defining_variants: 
+    Raw:
+    Allele
+    genotype: KN*01
+    defining_variants:
             1:207782769_ref
             1:207782916_A_T #HOM
-    weight_geno: 1000 
-    phenotype: KN:1,-2 or Kn(a+),Kn(b-) 
-    reference: True 
+    weight_geno: 1000
+    phenotype: KN:1,-2 or Kn(a+),Kn(b-)
+    reference: True
 
-    Allele 
-    genotype: KN*01.-05 
-    defining_variants: 
-            1:207760773_C_T 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-) 
-    reference: False 
+    Allele
+    genotype: KN*01.-05
+    defining_variants:
+            1:207760773_C_T
+    weight_geno: 1000
+    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-)
+    reference: False
 
-    Allele 
-    genotype: KN*01.10 
-    defining_variants: 
-            1:207782931_A_G 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-9,10 or Kn(a+),Kn(b-),KCAM-,KDAS+ 
-    reference: False 
-
-    Allele 
-    genotype: KN*02 
-    defining_variants: 
-            1:207782769_G_A 
-    weight_geno: 1000 
-    phenotype: KN:-1,2 or Kn(a-),Kn(b+) 
-    reference: False 
-
-    Allele 
-    genotype: KN*02.10 
-    defining_variants: 
+    Allele
+    genotype: KN*01.10
+    defining_variants:
             1:207782931_A_G
-            1:207782769_G_A 
-    weight_geno: 1000 
-    phenotype: KN:-1,2,-9,10 or Kn(a-),Kn(b+),KCAM-,KDAS+ 
-    reference: False 
+    weight_geno: 1000
+    phenotype: KN:1,-2,-9,10 or Kn(a+),Kn(b-),KCAM-,KDAS+
+    reference: False
+
+    Allele
+    genotype: KN*02
+    defining_variants:
+            1:207782769_G_A
+    weight_geno: 1000
+    phenotype: KN:-1,2 or Kn(a-),Kn(b+)
+    reference: False
+
+    Allele
+    genotype: KN*02.10
+    defining_variants:
+            1:207782931_A_G
+            1:207782769_G_A
+    weight_geno: 1000
+    phenotype: KN:-1,2,-9,10 or Kn(a-),Kn(b+),KCAM-,KDAS+
+    reference: False
 
     #Filters applied:
 
-    filter_pairs_on_antithetical_zygosity: 
-    Pair(Genotype: KN*01.-05/KN*01.10 
-    Pair(Genotype: KN*01/KN*01.-05 
+    filter_pairs_on_antithetical_zygosity:
+    Pair(Genotype: KN*01.-05/KN*01.10
+    Pair(Genotype: KN*01/KN*01.-05
     Pair(Genotype: KN*01/KN*01.10
 
-    filter_co_pairs_on_antithetical_zygosity: 
-    Pair(Genotype: KN*01.-05/KN*01.10 
+    filter_co_pairs_on_antithetical_zygosity:
+    Pair(Genotype: KN*01.-05/KN*01.10
     Pair(Genotype: KN*01/KN*01.-05+KN*01.10 #the point of this filter
-    Pair(Genotype: KN*01/KN*01.-05 
+    Pair(Genotype: KN*01/KN*01.-05
     Pair(Genotype: KN*01/KN*01.10
 
     """
-    
+
     if bg.alleles[AlleleState.CO] is None:
         return bg
     if bg.type not in antitheticals:
         return bg
-    
+
     to_remove = []
     flattened_sub_types = {
-        allele.sub_type
-        for allele in flatten_alleles(bg.alleles[AlleleState.NORMAL])
+        allele.sub_type for allele in flatten_alleles(bg.alleles[AlleleState.NORMAL])
     }
     if len(flattened_sub_types) > 1:
         for pair in bg.alleles[AlleleState.CO]:
@@ -474,11 +477,10 @@ def filter_coexisting_pairs_on_antithetical_zygosity(
                 to_remove.append(pair)
     if to_remove:
         bg.remove_pairs(
-        to_remove, "filter_co_pairs_on_antithetical_zygosity", AlleleState.CO
-    )
+            to_remove, "filter_co_pairs_on_antithetical_zygosity", AlleleState.CO
+        )
 
     return bg
-
 
 
 @apply_to_dict_values
@@ -509,7 +511,7 @@ def ensure_co_existing_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
         could form existing alleles when added.
 
     Genotypes count: 5
-    Genotypes: 
+    Genotypes:
     KN*01.-05+KN*01.10/KN*02
     KN*01.-05/KN*02##### not possible, 207782931_A_G must be on one side
     KN*01.-05/KN*02.10
@@ -521,55 +523,55 @@ def ensure_co_existing_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     Kn(a+b+),McC(a+b-),Sl1+,Yk(a+),Vil-,Sl3+,KCAM+,KDAS-,DACY+,YCAD-,KNMB+
 
     #Data:
-    Vars: 
+    Vars:
     1:207782916_A_T : Homozygous
     1:207782769_ref : Heterozygous
     1:207760773_C_T : Heterozygous
     1:207782931_A_G : Heterozygous
     1:207782769_G_A : Heterozygous
-  
-    Raw: 
-    Allele 
-    genotype: KN*01 
-    defining_variants: 
+
+    Raw:
+    Allele
+    genotype: KN*01
+    defining_variants:
             1:207782916_A_T
-            1:207782769_ref 
-    weight_geno: 1000 
-    phenotype: KN:1,-2 or Kn(a+),Kn(b-) 
-    reference: True 
+            1:207782769_ref
+    weight_geno: 1000
+    phenotype: KN:1,-2 or Kn(a+),Kn(b-)
+    reference: True
 
-    Allele 
-    genotype: KN*01.-05 
-    defining_variants: 
-            1:207760773_C_T 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-) 
-    reference: False 
+    Allele
+    genotype: KN*01.-05
+    defining_variants:
+            1:207760773_C_T
+    weight_geno: 1000
+    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-)
+    reference: False
 
-    Allele 
-    genotype: KN*01.10 
-    defining_variants: 
-            1:207782931_A_G 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-9,10 or Kn(a+),Kn(b-),KCAM-,KDAS+ 
-    reference: False 
+    Allele
+    genotype: KN*01.10
+    defining_variants:
+            1:207782931_A_G
+    weight_geno: 1000
+    phenotype: KN:1,-2,-9,10 or Kn(a+),Kn(b-),KCAM-,KDAS+
+    reference: False
 
-    Allele 
-    genotype: KN*02 
-    defining_variants: 
-            1:207782769_G_A 
-    weight_geno: 1000 
-    phenotype: KN:-1,2 or Kn(a-),Kn(b+) 
-    reference: False 
-
-    Allele 
-    genotype: KN*02.10 
-    defining_variants: 
+    Allele
+    genotype: KN*02
+    defining_variants:
             1:207782769_G_A
-            1:207782931_A_G 
-    weight_geno: 1000 
-    phenotype: KN:-1,2,-9,10 or Kn(a-),Kn(b+),KCAM-,KDAS+ 
-    reference: False 
+    weight_geno: 1000
+    phenotype: KN:-1,2 or Kn(a-),Kn(b+)
+    reference: False
+
+    Allele
+    genotype: KN*02.10
+    defining_variants:
+            1:207782769_G_A
+            1:207782931_A_G
+    weight_geno: 1000
+    phenotype: KN:-1,2,-9,10 or Kn(a-),Kn(b+),KCAM-,KDAS+
+    reference: False
 
 
     """
@@ -591,7 +593,7 @@ def ensure_co_existing_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
 
 @apply_to_dict_values
 def remove_unphased_co(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """Remove unphased alleles from the BloodGroup's bg.alleles[AlleleState.CO] 
+    """Remove unphased alleles from the BloodGroup's bg.alleles[AlleleState.CO]
     state if phased flag is set.
 
     This function iterates through the alleles in the FILT state and checks their
@@ -607,32 +609,32 @@ def remove_unphased_co(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     Returns:
         BloodGroup: The updated BloodGroup with improperly phased alleles removed.
-    
+
     Example:
-            
+
     #Results:
     Genotypes count: 1
     Genotypes: KN*01.-05/KN*01.06
     Phenotypes (numeric): KN:1,-2,3,4,5,6,7,8,9,10,11,-12,13
-    Phenotypes (alphanumeric): 
+    Phenotypes (alphanumeric):
     Kn(a+b-),McC(a+b+),Sl1+,Yk(a+),Vil+,Sl3+,KCAM+,KDAS+,DACY+,YCAD-,KNMB+
 
     #Data:
-    Vars: 
+    Vars:
     1:207609424_ref : Homozygous
     1:207609571_A_T : Homozygous
     1:207587428_C_T : Heterozygous
     1:207609544_A_G : Heterozygous
     1:207609586_A_G : Heterozygous
     1:207609511_A_G : Heterozygous
-    Vars_phase: 
+    Vars_phase:
     1:207609424_ref : 1/1
     1:207609571_A_T : 1/1
     1:207587428_C_T : 1|0
     1:207609544_A_G : 0|1
     1:207609586_A_G : 0|1
     1:207609511_A_G : 0|1
-    Vars_phase_set: 
+    Vars_phase_set:
     1:207609424_ref : .
     1:207609571_A_T : .
     1:207587428_C_T : 202971590
@@ -640,58 +642,58 @@ def remove_unphased_co(bg: BloodGroup, phased: bool) -> BloodGroup:
     1:207609586_A_G : 202971590
     1:207609511_A_G : 202971590
 
-    Raw: 
-    Allele 
-    genotype: KN*01 
-    defining_variants: 
+    Raw:
+    Allele
+    genotype: KN*01
+    defining_variants:
             1:207609571_A_T
-            1:207609424_ref 
-    weight_geno: 1000 
-    phenotype: KN:1,-2 or Kn(a+),Kn(b-) 
-    reference: True 
+            1:207609424_ref
+    weight_geno: 1000
+    phenotype: KN:1,-2 or Kn(a+),Kn(b-)
+    reference: True
 
-    Allele 
-    genotype: KN*01.-05 
-    defining_variants: 
+    Allele
+    genotype: KN*01.-05
+    defining_variants:
             1:207587428_C_T 1|0
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-) 
-    reference: False 
+    weight_geno: 1000
+    phenotype: KN:1,-2,-5 or Kn(a+),Kn(b-),Yk(a-)
+    reference: False
 
-    Allele 
-    genotype: KN*01.06 
-    defining_variants: 
+    Allele
+    genotype: KN*01.06
+    defining_variants:
             1:207609586_A_G
             1:207609511_A_G
-            1:207609544_A_G 
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-3,-4,6,7,-9,10 or 
-    Kn(a+),Kn(b-),Sl1-,McC(a-),McC(b+),Vil+,KCAM-,KDAS+ 
-    reference: False 
+            1:207609544_A_G
+    weight_geno: 1000
+    phenotype: KN:1,-2,-3,-4,6,7,-9,10 or
+    Kn(a+),Kn(b-),Sl1-,McC(a-),McC(b+),Vil+,KCAM-,KDAS+
+    reference: False
 
-    Allele 
-    genotype: KN*01.07 
-    defining_variants: 
+    Allele
+    genotype: KN*01.07
+    defining_variants:
             1:207609586_A_G
-            1:207609544_A_G 
-    weight_geno: 1000 
+            1:207609544_A_G
+    weight_geno: 1000
     phenotype: KN:1,-2,-4,7,-9,10 or
-    Kn(a+),Kn(b-),Sl1-,Vil+,KCAM-,KDAS+ 
-    reference: False 
+    Kn(a+),Kn(b-),Sl1-,Vil+,KCAM-,KDAS+
+    reference: False
 
-    Allele 
-    genotype: KN*01.10 
-    defining_variants: 
+    Allele
+    genotype: KN*01.10
+    defining_variants:
             1:207609586_A_G 0|1
-    weight_geno: 1000 
-    phenotype: KN:1,-2,-9,10 or 
-    Kn(a+),Kn(b-),KCAM-,KDAS+ 
-    reference: False 
+    weight_geno: 1000
+    phenotype: KN:1,-2,-9,10 or
+    Kn(a+),Kn(b-),KCAM-,KDAS+
+    reference: False
 
     #Filters applied:
 
-    2025-07-24 11:42:24.409 | DEBUG    | 
-    remove_unphased_co: 
+    2025-07-24 11:42:24.409 | DEBUG    |
+    remove_unphased_co:
     Pair(Genotype: KN*01/KN*01.-05+KN*01.06
     Pair(Genotype: KN*01/KN*01.-05+KN*01.07
     Pair(Genotype: KN*01/KN*01.-05+KN*01.10

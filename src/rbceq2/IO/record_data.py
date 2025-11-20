@@ -10,6 +10,8 @@ import argparse
 from rbceq2.core_logic.constants import DB_VERSION, VERSION, AlleleState
 from rbceq2.IO.validation import validate_vcf
 
+from rbceq2.core_logic.utils import collapse_variant
+
 
 def configure_logging(args: argparse.Namespace) -> str:
     """
@@ -31,8 +33,7 @@ def configure_logging(args: argparse.Namespace) -> str:
         compression="zip",
     )
 
-    
-    logger.info("="*20 + " SESSION START " + "="*20)
+    logger.info("=" * 20 + " SESSION START " + "=" * 20)
     logger.info("NOT FOR CLINICAL USE")
     logger.info(f"RBCeq2 Version: {VERSION}")
     logger.info(f"RBCeq2 database Version: {DB_VERSION}")
@@ -46,12 +47,10 @@ def configure_logging(args: argparse.Namespace) -> str:
         max_key_len = max(len(key) for key in args_dict.keys())
         for key, value in args_dict.items():
             logger.info(f"  {key:<{max_key_len}} : {value}")
-            
 
-    logger.info("="*20 + " LOGGING STARTED " + "="*20)
+    logger.info("=" * 20 + " LOGGING STARTED " + "=" * 20)
 
     return UUID
-
 
 
 def record_filtered_data(results: tuple[Any]) -> None:
@@ -72,10 +71,16 @@ def record_filtered_data(results: tuple[Any]) -> None:
               alphanumeric phenotypes.
             - res: A dict mapping blood group names to BloodGroup objects.
     """
+
     def format_vars(pool):
-        return '\n' + '\n'.join([' : '.join([k, v]) for k, v in pool.items()])
-    
-    sample, genos, numeric_phenos, alphanumeric_phenos, res = results
+        return "\n" + "\n".join(
+            [" : ".join([collapse_variant(k), v]) for k, v in pool.items()]
+        )
+
+    sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results
+
+    logger.debug("\n### Blood group allele info ###:\n")
+
     for bg_name, bg_data in res.items():
         if bg_data.filtered_out:
             logger.debug(
@@ -90,16 +95,25 @@ def record_filtered_data(results: tuple[Any]) -> None:
                 f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"
                 f"Vars_phase_set: {format_vars(bg_data.variant_pool_phase_set)}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
-                f"\n#Filters applied:\n"
             )
+
+            for variant_db, variant_vcf in var_map.items():
+                if variant_db in bg_data.variant_pool:
+                    logger.debug(
+                        f"BIG VARIANT fuzzy matching map:\n"
+                        f"\tDatabase_variant: {collapse_variant(variant_db)}\n"
+                        f"\tVCF_variant: {collapse_variant(variant_vcf)}\n"
+                    )
+
+            logger.debug("### Filters applied ###:\n")
             no_filters = True
             for k, v in bg_data.filtered_out.items():
                 if v:
                     logger.debug(f"\n{k}: {'\n'.join(map(str, v))}\n")
                     no_filters = False
             if no_filters:
-                logger.debug('No filters were applied\n')
-            logger.debug('\n______\n')
+                logger.debug("No filters were applied\n")
+            logger.debug("\n__________________________________________\n")
 
 
 def check_VCF(VCF_file):
@@ -138,19 +152,19 @@ def save_df(df: pd.DataFrame, name: str, UUID: str) -> None:
     df.index.name = f"UUID: {UUID}"
     df.to_csv(name, sep="\t")
 
-def stamps(start: pd.Timestamp) -> str:
 
+def stamps(start: pd.Timestamp) -> str:
     delta = pd.Timestamp.now() - start
     total_seconds = delta.total_seconds()
 
     # Calculate minutes and remaining seconds
-    minutes = int(total_seconds // 60) # Get whole minutes
-    remaining_seconds = total_seconds % 60 # Get the remainder seconds
+    minutes = int(total_seconds // 60)  # Get whole minutes
+    remaining_seconds = total_seconds % 60  # Get the remainder seconds
 
     # Format the output string conditionally (optional, but nice)
     if minutes > 0:
         time_str = f"{minutes} minutes and {remaining_seconds:.2f} seconds"
     else:
-        time_str = f"{remaining_seconds:.2f} seconds" # Or just total_seconds:.2f
-    
-    return time_str 
+        time_str = f"{remaining_seconds:.2f} seconds"  # Or just total_seconds:.2f
+
+    return time_str

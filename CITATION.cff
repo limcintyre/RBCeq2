@@ -5,13 +5,13 @@ authors:
     given-names: Liam
     orcid: "https://orcid.org/0000-0002-3143-5192"
     affiliation: "Australian Red Cross Lifeblood"
-  - family-names: Sandra
-    given-names: Sowah
-    orcid: "https://orcid.org/0000-0003-3339-3763"
-    affiliation: "Australian Red Cross Lifeblood"
   - family-names: Perros
     given-names: Alexis
     orcid: "https://orcid.org/0000-0001-5596-2934"
+    affiliation: "Australian Red Cross Lifeblood"
+  - family-names: Sowah
+    given-names: Sandra
+    orcid: "https://orcid.org/0000-0003-3339-3763"
     affiliation: "Australian Red Cross Lifeblood"
   - family-names: Hyland
     given-names: Catherine

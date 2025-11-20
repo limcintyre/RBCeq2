@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from loguru import logger
 
-from rbceq2.core_logic.utils import Zygosity  # , chunk_list_by_rank
+from rbceq2.core_logic.utils import Zygosity, collapse_variant
 from rbceq2.core_logic.constants import AlleleState
+from frozendict import frozendict
 
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
-from icecream import ic
+
 
 @dataclass(slots=False, frozen=True)
 class Allele:
@@ -57,7 +58,7 @@ class Allele:
     weight_geno: int = 1
     reference: bool = False
     sub_type: str = ""
-    # phases: dict[str, dict[str,str]] | None = None
+    big_variants: frozendict[str, str] = field(default_factory=frozendict)
     number_of_defining_variants: int = field(init=False)
 
     def __post_init__(self: Allele) -> None:
@@ -69,8 +70,35 @@ class Allele:
             self, "number_of_defining_variants", len(self.defining_variants)
         )
 
+    def with_big_variants(self, new: dict[str, str]) -> "Allele":
+        """Return a new Allele with updated big_variants."""
+        return Allele(
+            genotype=self.genotype,
+            phenotype=self.phenotype,
+            genotype_alt=self.genotype_alt,
+            phenotype_alt=self.phenotype_alt,
+            defining_variants=self.defining_variants,
+            null=self.null,
+            weight_geno=self.weight_geno,
+            reference=self.reference,
+            sub_type=self.sub_type,
+            big_variants=frozendict(new),
+        )
+
     def __contains__(self, other: Allele) -> bool:
-        """Check if other.defining_variants are subset of self.defining_variants
+        """Check if 'other' is a PROPER subset of 'self'.
+
+        This is used for filtering redundant alleles.
+
+        Returns True if:
+        1. 'other' is NOT identical to 'self'
+        2. 'other' variants are a subset of 'self' variants
+        OR
+        3. 'other' is a reference allele and 'self' is a variant of the same subtype.
+
+        NOTE: Returns False if self == other. This is intentional to prevent
+        alleles from filtering themselves out in nested loops, despite not being
+        the pythonic standard behaviour where {1,2} would be 'in' {1,2}
 
         Args:
             other Allele: Another Allele object.
@@ -79,10 +107,10 @@ class Allele:
             bool: True if all variants in other defining_variants, False otherwise.
         """
         if self.__eq__(other):
-            return False #if compared to self
+            return False  # if compared to self
         if other.reference and self.sub_type == other.sub_type:
-            return True # ref is always 'in' in any child allele
-            #especially necesary for KN and any BGs with no SNV for ref
+            return True  # ref is always 'in' in any child allele
+            # especially necesary for KN and any BGs with no SNV for ref
         if self.number_of_defining_variants > other.number_of_defining_variants:
             return other.defining_variants.issubset(self.defining_variants)
         return False
@@ -130,15 +158,14 @@ class Allele:
     def _format_allele(self) -> str:
         """Generate a string representation of the allele."""
         sep_var = "\n\t\t"
+
         return (
             f"Allele \n "
             f"genotype: {self.genotype} \n "
-            f"defining_variants: {sep_var}{sep_var.join(self.defining_variants)} \n "
+            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in self.defining_variants])} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
-            # f"weight_pheno: {self.weight_pheno} \n "
             f"reference: {self.reference} \n"
-            # f"phases: {self.phases} \n"
         )
 
     def __str__(self) -> str:
@@ -179,13 +206,13 @@ class Allele:
         Example:
             KN*01 -> KN
         """
-        bg =  (
+        bg = (
             self.genotype.split("*")[0]
             if self.genotype != "."
             else self.genotype_alt.split("*")[0]
         )
-        if 'KLF' in bg.upper():
-            bg = 'KLF' #most are KLF1, but need to all be the same
+        if "KLF" in bg.upper():
+            bg = "KLF"  # most are KLF1, but need to all be the same
         return bg
 
 
@@ -253,7 +280,12 @@ class BloodGroup:
         default_factory=lambda: defaultdict(list)
     )
     len_dict: dict[str, int] = field(
-        default_factory=lambda: {Zygosity.HOM: 2, Zygosity.HET: 1, Zygosity.REF: 2}
+        default_factory=lambda: {
+            Zygosity.HOM: 2,
+            Zygosity.HET: 1,
+            Zygosity.REF: 2,
+            Zygosity.HEM: 1,
+        }
     )
     misc: dict[Any, Any] = None  # TODO - pheno separately??
 
@@ -298,30 +330,6 @@ class BloodGroup:
         """
         return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
 
-    # @property
-    # def phase_set_ids(self) -> set[str]:
-    #     """Extract unique phase set IDs from raw alleles.
-
-    #     Returns:
-    #         Set[str]: A set of unique phase set IDs.
-
-    #     Raises:
-    #         ValueError: If there are no raw alleles to extract phase sets from.
-    #     """
-    #     if AlleleState.FILT in self.alleles:
-    #         return set().union(*[set(a.phases) for a in self.alleles[AlleleState.FILT]])
-    #     else:
-    #         raise ValueError("No raw alleles to get phase set ids from")
-
-    # @property
-    # def number_of_phase_set_ids(self) -> int:
-    #     """Count the number of unique phase set IDs.
-
-    #     Returns:
-    #         int: The number of unique phase set IDs.
-    #     """
-    #     return len(self.phase_set_ids)
-
     @property
     def number_of_putative_alleles(self) -> int:
         """Count the number of putative alleles classified as 'raw'.
@@ -351,7 +359,9 @@ class BloodGroup:
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
         if not self.alleles[allele_type]:
-            logger.warning(f'all pairs removed!: {self.sample} {self.type} {filter_name}')
+            logger.warning(
+                f"all pairs removed (reverting to reference allele, if possible): {self.sample} {self.type} {filter_name}"
+            )
 
     def remove_alleles(
         self, to_remove: list[str], filter_name: str, allele_type: str = "raw"
@@ -366,7 +376,10 @@ class BloodGroup:
             self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
         if not self.alleles[allele_type]:
-            logger.warning(f'all alleles removed!: {self.sample} {self.type} {filter_name}')
+            logger.warning(
+                f"all alleles removed (will revert to reference): {self.sample} {self.type} {filter_name}"
+            )
+
 
 @dataclass(slots=True, frozen=True)
 class Pair:
@@ -483,10 +496,10 @@ class Pair:
 
     @property
     def all_reference(self) -> bool:
-        """Check if the pair contains a reference allele.
+        """Check if both alleles in the pair are the reference allele.
 
         Returns:
-            bool: True if the pair contains a reference allele, False otherwise.
+            bool: True if the pair contains 2 reference alleles, False otherwise.
         """
         return all(allele.reference for allele in self.alleles)
 

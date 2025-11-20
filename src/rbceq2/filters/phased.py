@@ -277,25 +277,6 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
 
     # If an allele is HOM and it's 'in' every other properly phased allele
     # AND the there's at least 1 of those on each side, it can't exist
-    def find_phase(allele: Allele) -> set[str | None]:
-        """find phase"""
-        return set(
-            [
-                bg.variant_pool_phase.get(variant)
-                for variant in allele.defining_variants
-                if bg.variant_pool_phase.get(variant) not in ["1/1", "0/1", "1/0"]
-            ]
-        )
-
-    def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
-        """check if alleles phase sets are the same, if not can't be phased"""
-        phase_sets = [
-            phase_dict.get(variant, "None") for variant in allele.defining_variants
-        ]
-        return (
-            len(set([phase_set for phase_set in phase_sets if phase_set.isdigit()]))
-            == 1
-        )
 
     if not phased:
         return bg
@@ -303,39 +284,353 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
         if not proceed(bg, allele_state):
             continue
         to_remove = []
-        pair_with_unphased_HETs = False
+        pairs_with_HET = []
         for pair in bg.alleles[allele_state]:
+            if all_hom(bg.variant_pool, pair.allele1) or all_hom(
+                bg.variant_pool, pair.allele2
+            ):
+                continue
             if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
                 continue  # TODO - next refactor this type of functionality
             # should move into a new PhasedAllele class
             if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
                 continue
-            phase1 = find_phase(pair.allele1)
-            phase2 = find_phase(pair.allele2)
-            assert len(phase1) < 2
-            assert len(phase2) < 2
+            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
 
             if phase1 == {None} or phase2 == {None}:
                 continue
             if phase1 == {"unknown"} or phase2 == {"unknown"}:
                 continue
             if len(phase1) == 1 and len(phase2) == 1:
-                assert phase1.union(phase2) == {"1|0", "0|1"}
-                pair_with_unphased_HETs = True
-                break
-        if pair_with_unphased_HETs:
-            flattened_alleles = flatten_alleles(bg.alleles[allele_state])
-            for pair in bg.alleles[allele_state]:
-                for allele in pair:
-                    if all_hom(bg.variant_pool, allele) and any(
-                        allele in flat_allele for flat_allele in flattened_alleles
-                    ):
-                        to_remove.append(pair)
+                pairs_with_HET.append(pair)
+
+        if pairs_with_HET:
+            for pair_with_HET in pairs_with_HET:
+                flattened_alleles = flatten_alleles([pair_with_HET])
+                for pair in bg.alleles[allele_state]:
+                    for allele in pair:
+                        if all_hom(bg.variant_pool, allele) and all(
+                            allele in flat_allele for flat_allele in flattened_alleles
+                        ):
+                            to_remove.append(pair)
 
         if to_remove:
             bg.remove_pairs(
                 to_remove,
                 "filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased",
+                allele_state,
+            )
+
+    return bg
+
+
+@apply_to_dict_values
+def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """
+    Example
+    025-10-21 13:35:31.854 Sample: NA18913.vcf BG Name: ABO
+
+    #Results:
+    Genotypes count: 4
+    Genotypes:
+    ABO*O.01.83/ABO*O.01.83 #no - handled in
+        filter_on_in_relationship_if_all_HOM_and_phased
+    ABO*O.01.24/ABO*O.01.44
+    ABO*O.01.24/ABO*O.01.83
+    ABO*O.01.44/ABO*O.01.83 #no - because; ABO*O.01.83 and ABO*O.01.44 can be on the
+    same side (neither is in the other) but ABO*O.01.83 and ABO*O.01.24 can't be on
+    the same side and this ABO*O.01.44/ABO*O.01.83 means that they are on the same side
+    because ABO*O.01.44 is 0|1 and ABO*O.01.24 is 1|0
+
+    Phenotypes (numeric):
+    Phenotypes (alphanumeric): O
+
+    #Data:
+    Vars:
+    9:133257521_ref : Homozygous
+    9:133257486_T_C : Homozygous
+    9:133256074_G_A : Heterozygous
+    9:133261367_C_A : Homozygous
+    9:133259833_G_A : Homozygous
+    9:133256028_C_T : Heterozygous
+    9:133259834_C_T : Homozygous
+    9:133256205_G_C : Heterozygous
+    9:133255935_G_T : Heterozygous
+    9:133255801_C_T : Heterozygous
+    9:133255928_C_G : Heterozygous
+    9:133255902_C_T : Heterozygous
+    9:133256085_A_T : Heterozygous
+    9:133255960_G_A : Heterozygous
+    Vars_phase:
+    9:133257521_ref : 1/1
+    9:133257486_T_C : 1/1
+    9:133256074_G_A : 1|0
+    9:133261367_C_A : 1/1
+    9:133259833_G_A : 1/1
+    9:133256028_C_T : 1|0
+    9:133259834_C_T : 1/1
+    9:133256205_G_C : 1|0
+    9:133255935_G_T : 1|0
+    9:133255801_C_T : 1|0
+    9:133255928_C_G : 1|0
+    9:133255902_C_T : 0|1
+    9:133256085_A_T : 0|1
+    9:133255960_G_A : 0|1
+    Vars_phase_set:  (all 133104364)
+
+    Allele
+    genotype: ABO*O.01.83 (in ABO*O.01.24)
+    defining_variants:
+            9:133257486_T_C 1/1
+            9:133257521_ref 1/1
+            9:133261367_C_A 1/1
+            9:133259834_C_T 1/1
+    weight_geno: 1000
+    phenotype: . or O
+    reference: False
+
+    Allele
+    genotype: ABO*O.01.24
+    defining_variants:
+            9:133255928_C_G 1|0
+            9:133257521_ref 1/1
+            9:133255935_G_T 1|0
+            9:133256074_G_A 1|0
+            9:133257486_T_C 1/1
+            9:133255801_C_T 1|0
+            9:133261367_C_A 1/1
+            9:133259833_G_A 1/1
+            9:133256028_C_T 1|0
+            9:133259834_C_T 1/1
+            9:133256205_G_C 1|0
+    weight_geno: 1000
+    phenotype: . or O
+    reference: False
+
+    Allele
+    genotype: ABO*O.01.44
+    defining_variants:
+            9:133257521_ref 1/1
+            9:133257486_T_C 1/1
+            9:133255960_G_A 0|1
+            9:133256085_A_T 0|1
+            9:133255902_C_T 0|1
+    weight_geno: 1000
+    phenotype: . or O
+    reference: False
+    """
+
+    if not phased:
+        return bg
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if not proceed(bg, allele_state):
+            continue
+        to_remove = []
+        fully_phased_pairs = []
+        for pair in bg.alleles[allele_state]:
+            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
+                continue  # TODO - next refactor this type of functionality
+            # should move into a new PhasedAllele class
+            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
+                continue
+            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
+            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
+            if phase1 == {None} or phase2 == {None}:
+                continue
+            if phase1 == {"unknown"} or phase2 == {"unknown"}:
+                continue
+            fully_phased_pairs.append(pair)
+        if fully_phased_pairs:
+            flattened_alleles = flatten_alleles(fully_phased_pairs)
+            for pair in fully_phased_pairs:
+                if all_hom(bg.variant_pool, pair.allele1) or all_hom(
+                    bg.variant_pool, pair.allele2
+                ):
+                    if all_hom(bg.variant_pool, pair.allele1):
+                        homs_partner_allele = pair.allele2
+                        hom_allele = pair.allele1
+                    else:
+                        homs_partner_allele = pair.allele1
+                        hom_allele = pair.allele2
+                    phase_of_homs_partner = find_phase(
+                        bg.variant_pool_phase, homs_partner_allele
+                    )
+                    for flat_allele in flattened_alleles:
+                        if flat_allele in pair.alleles:
+                            continue
+                        phase_of_flat_allele = find_phase(
+                            bg.variant_pool_phase, flat_allele
+                        )
+                        if (
+                            phase_of_flat_allele != phase_of_homs_partner
+                            and hom_allele in flat_allele
+                        ):
+                            to_remove.append(pair)
+        if to_remove:
+            bg.remove_pairs(
+                to_remove,
+                "filter_on_in_relationship_when_HOM_cant_be_on_one_side",
+                allele_state,
+            )
+
+    return bg
+
+
+def find_phase(variant_pool_phase: dict[str, str], allele: Allele) -> set[str | None]:
+    """Extract phasing information for an allele's defining variants.
+
+    Collects the phase assignments for all defining variants of an allele,
+    excluding heterozygous unphased variants (0/1 or 1/0). This helps determine
+    which haplotype (phase group) the allele belongs to.
+
+    Args:
+        variant_pool_phase: Dictionary mapping variant identifiers to their
+            phase/genotype strings (e.g., "1|0", "0|1", "0/1").
+        allele: Allele object containing the defining variants to check.
+
+    Returns:
+        Set of phase strings found for the allele's variants, excluding
+        heterozygous unphased calls. May contain None for variants not in
+        the phase pool.
+
+    Example:
+        >>> phase_pool = {"var1": "1|0", "var2": "0|1", "var3": "0/1"}
+        >>> allele = Allele(defining_variants=["var1", "var2", "var3"])
+        >>> find_phase(phase_pool, allele)
+        {'1|0', '0|1'}
+    """
+    return set(
+        [
+            variant_pool_phase.get(variant)
+            for variant in allele.defining_variants
+            if variant_pool_phase.get(variant) not in ["0/1", "1/0"]
+        ]
+    )
+
+
+def allele_phased(allele: Allele, phase_dict: dict[str, str]) -> bool:
+    """Check if an allele's variants belong to a consistent phase set.
+
+    Determines whether all defining variants of an allele are consistently phased
+    by verifying they belong to the same phase set. Alleles with all homozygous
+    variants (indicated by '.') are considered phased by definition.
+
+    Args:
+        allele: Allele object containing defining variants to check for phasing.
+        phase_dict: Dictionary mapping variant identifiers to their phase set
+            identifiers (numeric strings) or '.' for homozygous variants.
+
+    Returns:
+        True if all variants belong to the same phase set or are all homozygous,
+        False if variants belong to different phase sets (indicating inconsistent
+        phasing that prevents reliable allele determination).
+
+    Example:
+        >>> phase_dict = {"var1": "12345", "var2": "12345", "var3": "."}
+        >>> allele = Allele(defining_variants=["var1", "var2"])
+        >>> allele_phased(allele, phase_dict)
+        True
+    """
+    phase_sets = set(
+        [phase_dict.get(variant, "None") for variant in allele.defining_variants]
+    )
+    if phase_sets == set("."):
+        return True  # all hom
+    return len([phase_set for phase_set in phase_sets if phase_set.isdigit()]) == 1
+
+
+@apply_to_dict_values
+def filter_on_in_relationship_if_all_HOM_and_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Filter out allele pairs inconsistent with variant phasing when all variants are phased.
+
+    Removes allele pairs that violate phase relationships when all defining variants
+    are either homozygous or phased heterozygous. This prevents invalid combinations
+    like pairing alleles that should be on opposite haplotypes.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and variant information.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object with phase-inconsistent pairs removed,
+        or the original object unchanged if phasing information is unavailable
+        or variants are not fully phased.
+
+    Example:
+    2025-10-21 13:35:31.854 | DEBUG    | Sample: NA18913.vcf BG Name: ABO
+    Genotypes: ABO*O.01.24/ABO*O.01.44
+    #Results:
+    Genotypes count: 4
+    Genotypes:
+    ABO*O.01.83/ABO*O.01.83 #no
+    ABO*O.01.24/ABO*O.01.44
+    ABO*O.01.24/ABO*O.01.83
+    ABO*O.01.44/ABO*O.01.83 #no - but dif filter needed
+    Phenotypes (numeric):
+    Phenotypes (alphanumeric): O
+
+    #Data:
+    Vars:
+    9:133257521_ref : Homozygous
+    9:133257486_T_C : Homozygous
+    9:133256074_G_A : Heterozygous
+    9:133261367_C_A : Homozygous
+    9:133259833_G_A : Homozygous
+    9:133256028_C_T : Heterozygous
+    9:133259834_C_T : Homozygous
+    9:133256205_G_C : Heterozygous
+    9:133255935_G_T : Heterozygous
+    9:133255801_C_T : Heterozygous
+    9:133255928_C_G : Heterozygous
+    9:133255902_C_T : Heterozygous
+    9:133256085_A_T : Heterozygous
+    9:133255960_G_A : Heterozygous
+    Vars_phase:
+    9:133257521_ref : 1/1
+    9:133257486_T_C : 1/1
+    9:133256074_G_A : 1|0
+    9:133261367_C_A : 1/1
+    9:133259833_G_A : 1/1
+    9:133256028_C_T : 1|0
+    9:133259834_C_T : 1/1
+    9:133256205_G_C : 1|0
+    9:133255935_G_T : 1|0
+    9:133255801_C_T : 1|0
+    9:133255928_C_G : 1|0
+    9:133255902_C_T : 0|1
+    9:133256085_A_T : 0|1
+    9:133255960_G_A : 0|1
+    Vars_phase_set:  (all 133104364)
+    """
+
+    if not phased:
+        return bg
+    for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
+        if not proceed(bg, allele_state):
+            continue
+        if len(bg.alleles[allele_state]) < 2:
+            continue
+        to_remove = []
+        flattened_alleles = flatten_alleles(bg.alleles[allele_state])
+        for pair in bg.alleles[allele_state]:
+            if (
+                pair.allele1 == pair.allele2
+                and all_hom(bg.variant_pool, pair.allele1)
+                and any(
+                    pair.allele1 in flat_allele for flat_allele in flattened_alleles
+                )
+            ):
+                to_remove.append(pair)
+
+        if to_remove:
+            bg.remove_pairs(
+                to_remove,
+                "filter_on_in_relationship_if_all_HOM_and_phased",
                 allele_state,
             )
 
@@ -545,8 +840,10 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
     """
+
     if not phased:
         return bg
+
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
@@ -559,13 +856,15 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             for allele in alleles
             if check_phase(bg.variant_pool_phase_set, allele, ".")
         ]
+
         alleles_with_variants_in_same_phase = [
             allele
             for allele in alleles_with_variants_in_same_phase_set
             if check_phase(bg.variant_pool_phase, allele, "1/1")
         ]
+
         # split by phase
-        l1, l2 = [], []
+        l1, l2, l3 = [], [], []  # 1|0, 0|1, or 1 (hemi)
         for allele in sorted(
             alleles_with_variants_in_same_phase,
             key=lambda allele: len(allele.defining_variants),
@@ -583,11 +882,15 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
                 l1.append(allele)
             elif phase == "0|1":
                 l2.append(allele)
+            elif phase == "1":
+                l3.append(allele)
             else:
                 assert phase in "unknown" or "/" in phase
         # figure out what to remove
+
         alleles_to_remove = iterate_over_list(l1)
         alleles_to_remove += iterate_over_list(l2)
+        alleles_to_remove += iterate_over_list(l3)
         to_remove = []
         for pair in bg.alleles[allele_state]:
             if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
@@ -602,8 +905,23 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
 def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) -> bool:
-    """
-    True if all same phase set and or HOM
+    """Check if an allele's heterozygous variants belong to a single phase set.
+
+    Verifies that all non-homozygous defining variants of an allele belong to the
+    same phase set, which is necessary for determining if variants are on the same
+    haplotype. Homozygous variants are excluded from this check as they don't
+    provide phasing information.
+
+    Args:
+        variant_pool: Dictionary mapping variant identifiers to their phase set IDs.
+        current_allele: Allele object containing defining variants to check.
+        hom: String identifier representing homozygous variants (e.g., "." or "1/1")
+            to exclude from phase checking.
+
+    Returns:
+        True if all heterozygous variants belong to exactly one phase set (indicating
+        consistent phasing), False if variants belong to multiple phase sets or no
+        heterozygous variants are found.
     """
 
     phase_sets = [
@@ -616,8 +934,25 @@ def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) 
 
 
 def iterate_over_list(allele_list: list[Allele]) -> list[Allele]:
+    """Identify alleles that are subsets of other alleles in the list.
+
+    Finds all alleles whose defining variants are completely contained within
+    another allele's defining variants. This helps identify redundant or less
+    specific allele calls that should be removed in favor of more complete
+    allele definitions.
+
+    Args:
+        allele_list: List of Allele objects to compare against each other.
+
+    Returns:
+        List of alleles that are subsets of at least one other allele in the
+        input list. An allele may appear multiple times if it's a subset of
+        multiple other alleles.
+
+    Note:
+        Uses the 'in' operator which should be defined in the Allele class
+        to check subset relationships between alleles.
     """
-    Identifies if any alleles in the list are in any other allele in the list"""
     alleles_to_remove: list[Allele] = []
     for allele in allele_list:
         for allele2 in allele_list:
@@ -628,9 +963,21 @@ def iterate_over_list(allele_list: list[Allele]) -> list[Allele]:
 
 @apply_to_dict_values
 def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """
-    ref is often added by NoHomMultiVariantStrategy when all HETs variants
-    need to remove if properly phased
+    """Remove reference allele pairs when phased heterozygous variants support non-reference pairs.
+
+    Eliminates reference allele pairs that are artifacts of NoHomMultiVariantStrategy
+    when all variants are heterozygous. If proper phasing information confirms that
+    two non-reference alleles are on opposite haplotypes, the reference-containing
+    pairs can be safely removed as they represent incomplete interpretations.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and phasing information.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object with reference-containing pairs removed if
+        a phased non-reference pair exists, or the original object unchanged if
+        not phased or no valid phased pairs exist.
 
     Example:
     2025-09-08 10:22:21.891 | DEBUG    | Sample: HG02737.vcf BG Name: ABCC4
@@ -696,6 +1043,28 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
 def allele_phase(variant_pool, allele):
+    """Extract the set of phase assignments for an allele's defining variants.
+
+    Retrieves all phase information (e.g., "1|0", "0|1") for variants that define
+    the given allele. This allows determination of which haplotype(s) the allele's
+    variants belong to.
+
+    Args:
+        variant_pool: Dictionary mapping variant identifiers to their phase strings.
+        allele: Allele object containing the defining variants to check.
+
+    Returns:
+        Set of phase strings for the allele's defining variants. An allele with
+        variants on a single haplotype should return a single phase value, while
+        variants on different haplotypes or unphased variants may return multiple
+        values.
+
+    Example:
+        >>> phase_pool = {"var1": "1|0", "var2": "1|0", "var3": "0|1"}
+        >>> allele = Allele(defining_variants=["var1", "var2"])
+        >>> allele_phase(phase_pool, allele)
+        {'1|0'}
+    """
     return set(
         [
             phase
@@ -706,6 +1075,28 @@ def allele_phase(variant_pool, allele):
 
 
 def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
+    """Check if a pair of alleles can be phased using available phasing information.
+
+    Determines whether both alleles in a pair have consistent phase set assignments
+    and phase information, excluding homozygous variants. Both alleles must have
+    their heterozygous variants in a single phase set and a single phase to be
+    considered phaseable.
+
+    Args:
+        same_phase_set: Callable that checks if an allele's variants belong to one
+            phase set, excluding a specified homozygous indicator.
+        same_phase: Callable that checks if an allele's variants have consistent
+            phase values, excluding a specified homozygous genotype.
+        pair: Pair object containing two alleles to check for phasing consistency.
+
+    Returns:
+        True if both alleles have consistent phase set and phase assignments for
+        their heterozygous variants, False otherwise.
+
+    Note:
+        Uses "." to represent homozygous variants in phase sets and "1/1" to
+        represent homozygous genotypes in phase values.
+    """
     return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
         same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
     )
@@ -713,12 +1104,32 @@ def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: 
 
 @apply_to_dict_values
 def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """
-    Case where there's a hom but it isn't in the top 2 ranked chunk,
-    so SomeHomMultiVariantStrategy has to let it pass to here. in this
-    example the 2 highest weights are in in opposite phase.
-    no example where they're in phase, yet
+    """Remove allele pairs when phasing identifies a higher-weight pair on opposite
+    haplotypes.
 
+    Handles cases where a homozygous variant exists but isn't in the top 2 ranked
+    chunk,
+    requiring SomeHomMultiVariantStrategy to defer filtering. When phasing information
+    shows the two highest-weight alleles are on opposite haplotypes, other pairs can
+    be eliminated. Selects the pair with the lowest combined weight that has alleles
+    on different phases.
+
+    Case where there's a hom but it isn't in the top 2 ranked chunk,
+    so SomeHomMultiVariantStrategy has to let it pass to here.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and phasing information.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object retaining only the lowest-weight phased pair
+        if multiple phased pairs with different weights exist, or the original object
+        unchanged if not phased, only one phased pair exists, or all pairs have equal
+        weight.
+
+    Example:
+        in this example the 2 highest weights are in in opposite phase.
+    no example where they're in phase, yet
     2025-09-17 08:08:58.947 | DEBUG | Sample: HG03437.vcf BG Name: FUT2
 
     #Results:
@@ -813,7 +1224,22 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 @apply_to_dict_values
 def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """
+    """Remove allele pairs where reference allele variants are absent from variant pool.
+
+    Eliminates pairs containing reference alleles that have defining variants not
+    present in the sample's variant pool. This occurs when a reference variant is
+    impossible because the alternate allele is homozygous. Skips alleles defined
+    only by absence markers (variants ending in '.') and specific known insertions.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and variant pool information.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object with impossible reference allele pairs removed,
+        or the original object unchanged if not phased or no invalid pairs found.
+
+    Example
     need to rm ref as 1:25390874_ref not possible
     as 1:25390874_C_G: Homozygous
 
@@ -853,7 +1279,7 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 defining_variants:
                         1:25420739_G_C
                         1:25408711_ref
-                        1:25390874_ref
+                        1:25390874_ref #not possible as 25390874_C_G HOM
                 weight_geno: 1000
                 phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+
                 reference: True
@@ -873,12 +1299,176 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
                     continue
                 if variant not in bg.variant_pool:
-                    # ic(variant)
                     to_remove.append(pair)
                     break
     if to_remove:
-        # ic(1,bg.sample, bg.type,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
         bg.remove_pairs(to_remove, "no_defining_variant")
-        # ic(2,to_remove, bg.alleles[AlleleState.NORMAL], bg.variant_pool)
+
+    return bg
+
+
+@apply_to_dict_values
+def ref_not_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """Remove allele pairs containing reference alleles previously identified as unphased.
+
+    Eliminates pairs where the reference allele was already filtered out for being
+    unphased but was subsequently re-added during allele pair generation. This
+    prevents inconsistent phasing information from producing invalid genotype calls.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and filtering history.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object with pairs containing previously filtered
+        unphased reference alleles removed, or the original object unchanged if
+        not phased or no such pairs exist.
+
+    Example:
+    need to rm ref due to not being phased
+    ie
+    2025-11-12 09:09:21.312 | WARNING  |
+    rbceq2.core_logic.alleles:remove_pairs:350 - all pairs removed!:
+      HG00128.vcf RHCE filter_if_all_HET_vars_on_same_side_and_phased
+    #Results:
+    Genotypes count: 1
+    Genotypes:
+    Phenotypes (numeric):
+    Phenotypes (alphanumeric):
+
+    #Data:
+    Vars:
+    1:25390874_ref : Heterozygous
+    1:25420739_G_C : Heterozygous
+    1:25408711_ref : Heterozygous
+    1:25420739_ref : Heterozygous
+    1:25408711_G_A : Heterozygous
+    1:25390874_C_G : Heterozygous
+    Vars_phase:
+    1:25390874_ref : 0|1
+    1:25420739_G_C : 1|0
+    1:25408711_ref : 1|0
+    1:25420739_ref : 0|1
+    1:25408711_G_A : 0|1
+    1:25390874_C_G : 1|0
+    Vars_phase_set:
+    1:25390874_ref : 25214110
+    1:25420739_G_C : 25214110
+    1:25408711_ref : 25214110
+    1:25420739_ref : 25214110
+    1:25408711_G_A : 25214110
+    1:25390874_C_G : 25214110
+
+    Raw:
+    Allele
+    genotype: RHCE*01
+    defining_variants:
+            1:25390874_ref 0|1
+            1:25408711_ref 1|0
+            1:25420739_G_C 1|0
+    weight_geno: 1000
+    phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+
+    reference: True
+
+    Allele
+    genotype: RHCE*03
+    defining_variants:
+            1:25408711_ref 1|0
+            1:25420739_G_C 1|0
+            1:25390874_C_G 1|0
+    weight_geno: 1000
+    phenotype: RH:-2,3,4,-5,27 or C-,E+,c+,e-,cE+
+    reference: False
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        for allele in pair.alleles:
+            if not allele.reference:
+                continue
+            if allele in bg.filtered_out["remove_unphased"]:
+                to_remove.append(pair)
+                # refs get added back in even if they've been previoulsy
+                # identified as unphased, its a bit clunky ...
+    if to_remove:
+        bg.remove_pairs(to_remove, "ref_not_phased")
+
+    return bg
+
+
+@apply_to_dict_values
+def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
+    """Remove homozygous reference pairs when any defining variant is heterozygous.
+
+    Eliminates allele pairs where both alleles are reference but at least one
+    defining variant is heterozygous in the sample. A homozygous reference genotype
+    is incompatible with any heterozygous variants, as heterozygosity indicates
+    the presence of at least one alternate allele.
+
+    Args:
+        bg: BloodGroup object containing allele pairs and variant zygosity information.
+        phased: Boolean indicating whether the sample variants are phased.
+
+    Returns:
+        The modified BloodGroup object with impossible homozygous reference pairs
+        removed, or the original object unchanged if not phased or no invalid
+        pairs exist.
+
+    Example:
+    2025-11-12 13:47:12.043 | DEBUG    | Sample: HG00365.vcf BG Name: RHCE
+
+    #Results:
+    Genotypes count: 1
+    Genotypes:
+    Phenotypes (numeric):
+    Phenotypes (alphanumeric):
+
+    #Data:
+    Vars:
+    1:25408711_ref : Heterozygous
+    1:25390874_ref : Homozygous
+    1:25420739_G_C : Heterozygous
+    1:25420739_ref : Heterozygous
+    1:25408711_G_A : Heterozygous
+    Vars_phase:
+    1:25408711_ref : 0|1
+    1:25390874_ref : 1/1
+    1:25420739_G_C : 0|1
+    1:25420739_ref : 1|0
+    1:25408711_G_A : 1|0
+    Vars_phase_set:
+    1:25408711_ref : 25211850
+    1:25390874_ref : .
+    1:25420739_G_C : 25211850
+    1:25420739_ref : 25211850
+    1:25408711_G_A : 25211850
+
+    Raw:
+    Allele
+    genotype: RHCE*01
+    defining_variants:
+            1:25408711_ref : 0|1
+            1:25420739_G_C : 0|1
+            1:25390874_ref : 1/1
+    weight_geno: 1000
+    phenotype: RH:-2,-3,4,5,6 or C-,E-,c+,e+,f+
+    reference: True
+    """
+
+    if not phased:
+        return bg
+    to_remove = []
+
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if pair.all_reference and any(
+            bg.variant_pool.get(variant) == Zygosity.HET
+            for variant in pair.allele1.defining_variants
+        ):
+            to_remove.append(pair)
+    if to_remove:
+        bg.remove_pairs(to_remove, "cant_be_hom_ref_due_to_HET_SNP")
 
     return bg

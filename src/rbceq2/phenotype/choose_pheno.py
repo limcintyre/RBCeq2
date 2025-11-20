@@ -5,15 +5,23 @@ from collections import Counter, defaultdict
 from functools import partial
 from itertools import product
 from typing import TYPE_CHECKING
-from venv import logger
+from loguru import logger
 
-from rbceq2.core_logic.constants import ANTITHETICAL, AlleleState, BgName, PhenoType
+
+from rbceq2.core_logic.constants import (
+    ANTITHETICAL,
+    AlleleState,
+    BgName,
+    PhenoType,
+    RHD_ANT_MAP,
+)
 from rbceq2.core_logic.data_procesing import apply_to_dict_values
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
 )
 from icecream import ic
-
+from typing import Mapping
+from rbceq2.db.db import compare_antigen_profiles
 from rbceq2.core_logic.alleles import Allele
 
 from . import antigens as an
@@ -164,10 +172,12 @@ def choose_class_type(bg_type, ant_type):
             BgName.ABO: an.AlphaNumericAntigenABO,
             BgName.RHCE: an.AlphaNumericAntigenRHCE,
             BgName.RHD: an.AlphaNumericAntigenRHD,
+            BgName.DI: an.AlphaNumericAntigenDi
         },
         PhenoType.numeric: {
             BgName.RHCE: an.NumericAntigenRHCE,
             BgName.VEL: an.NumericAntigenVel,
+            BgName.RHD: an.NumericAntigenRHD,
         },
     }
     return (
@@ -262,7 +272,7 @@ def add_ref_phenos(bg: BloodGroup, df: pd.DataFrame) -> BloodGroup:
     df_ref = df.loc[(df["Reference_genotype"] == "Yes") & (df["type"] == bg.type)]
 
     try:
-        assert df_ref.shape == (1, 20)
+        assert df_ref.shape == (1, 19)
     except AssertionError:
         ic(df_ref.shape, df_ref)
     bg.misc = {}
@@ -436,7 +446,6 @@ def get_phenotypes1(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             ):
                 antigens_with_ref_if_needed[ant_pos] = allele_antigens
             elif len(allele_antigens) == 2:
-                # ic(allele_antigens)
                 assert all(not allele.homozygous for allele in allele_antigens), (
                     "Expected both alleles to be heterozygous"
                 )
@@ -689,6 +698,7 @@ def internal_anithetical_consistency_HET(
             "GYPB*24",
             "RHCE*01.34",
             "RHCE*01.35",
+            "GYPA*11",
         ]
         # Di11/12 and 15/16 17/18 antithetical and same in ref so, yes, sudo null
         # (or more accurately, ref is third [unamed] ant)
@@ -707,7 +717,7 @@ def internal_anithetical_consistency_HET(
                     try:
                         assert final_no_expressed == 2
                     except AssertionError:
-                        ic(
+                        logger.warning(
                             "Expressed antigens != 2! plz report to devs",
                             bg.sample,
                             new_antigens,
@@ -843,7 +853,7 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     Returns:
         BloodGroup: The updated (or unmodified) blood group.
     """
-    if bg.type in ["FUT1", "FUT2", "FUT3", "ABO", "RHCE"]:
+    if bg.type in ["FUT1", "FUT2", "FUT3", "ABO", "RHCE", "RHD"]:
         return bg
     no_of_positions_required = number_of_primary_antitheticals.get(bg.type, 2)
     if no_of_positions_required == 0:
@@ -851,7 +861,6 @@ def include_first_antithetical_pair(bg: BloodGroup, ant_type: PhenoType) -> Bloo
     new_phenos = []
     ref = bg.misc[f"ref_{str(ant_type)}"]
     if ref is not None:
-        # reference = ref.copy()
         reference = copy.deepcopy(ref)
     else:
         return bg
@@ -907,7 +916,7 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-
+  
     return bg
 
 
@@ -932,16 +941,9 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     Raises:
         IndexError: If neither RAW nor POS allele lists contain any alleles.
     """
-    try:
-        allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
-    except IndexError:
-        ic(
-            bg.type,
-            bg.alleles[AlleleState.NORMAL],
-            bg.alleles[AlleleState.NORMAL][0].allele1,
-        )
-        allele_name = bg.alleles[AlleleState.FILT][0].phenotype.split(":")[0]
-        logger.warning(f"Why doesnt this have RAW???? {bg.alleles}")
+
+    allele_name = bg.alleles[AlleleState.RAW][0].phenotype.split(":")[0]
+
     for pair, merged_pheno in bg.phenotypes[ant_type].items():
         ants = [ant.name for ant in merged_pheno]
         as_str = ",".join(sorted(ants)) if bg.type == "ABO" else ",".join(ants)
@@ -949,7 +951,7 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
         bg.phenotypes[ant_type][pair] = pheno
-
+    
     return bg
 
 
@@ -968,7 +970,6 @@ def combine_anitheticals(bg: BloodGroup) -> BloodGroup:
                 than one string starting with the same prefix (substring before '(').
                 - The second list contains all other strings.
         Example:
-        Write a function that takes a list of strs:
 
         Ie
         Example1 = ['Kn(a+)','Kn(b-)','McC(a+)','Sl1+', 'Yk(a+)','McC(b-)', 'Vil-',
@@ -1256,6 +1257,66 @@ def modify_MNS(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
 
 
 @apply_to_dict_values
+def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
+    """Annotate RHD partial/weak phenotypes with specific variant types.
+
+    Modifies RHD phenotype annotations by adding variant-specific labels to
+    partial and weak D antigens. For example, 'D+partial' becomes
+    'D+partial(DAU0.01)' based on the underlying genotype.
+
+    Args:
+        bg: BloodGroup object containing phenotype and genotype information.
+        ant_type: Phenotype representation type (e.g., verbose, short).
+
+    Returns:
+        The modified BloodGroup object with annotated RHD phenotypes. Returns
+        the original object unchanged if not RHD type or if ant_type is numeric.
+
+    Example:
+    'D+partial' -> 'D+partial(DAU0.01)'
+    """
+
+    if bg.type != "RHD":
+        return bg
+    if ant_type == PhenoType.numeric:
+        return bg
+
+    for pair, pheno in bg.phenotypes[ant_type].items():
+        # Start with all antigens from the original phenotype
+        pheno_parts = pheno.split(",")
+        new_pheno = []
+
+        for ant in pheno_parts:
+            modified = False
+            # Check each allele to see if it should annotate this antigen
+            for allele in pair:
+                if (
+                    ant in allele.phenotype_alt.split(",")
+                    and allele.genotype in RHD_ANT_MAP
+                ):
+                    genotype_label = RHD_ANT_MAP[allele.genotype]
+                    if "partial" in ant:
+                        new_pheno.append(
+                            ant.replace("partial", f"partial({genotype_label})")
+                        )
+                        modified = True
+                        break
+                    elif "weak" in ant:
+                        new_pheno.append(ant.replace("weak", f"weak({genotype_label})"))
+                        modified = True
+                        break
+
+            # If not modified, keep original
+            if not modified:
+                new_pheno.append(ant)
+        if new_pheno:
+            updated_pheno = ",".join(new_pheno)
+            bg.phenotypes[ant_type][pair] = updated_pheno
+
+    return bg
+
+
+@apply_to_dict_values
 def re_order_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
     """Reorder KEL phenotypes so that K+ and K- appear first.
 
@@ -1295,6 +1356,52 @@ def re_order_KEL(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         if not pheno.upper().startswith(big_k):
             pheno = sorter(pheno)
         bg.phenotypes[ant_type][pair] = pheno
+
+    return bg
+
+
+@apply_to_dict_values
+def compare_numeric_ants_to_alphanumeric(
+    bg: BloodGroup, mapping: Mapping[str, Mapping[str, str]]
+) -> BloodGroup:
+    """sanity checker
+    Args:
+        bg (BloodGroup): The BloodGroup object containing phenotype mappings.
+        ant_type (PhenoType): The phenotype type (e.g., numeric or alphanumeric) to be
+            processed.
+
+    Returns:
+        BloodGroup: The updated BloodGroup with re-ordered KEL phenotypes.
+    """
+    if (
+        bg.phenotypes.get(PhenoType.alphanumeric) == {}
+        or bg.phenotypes.get(PhenoType.numeric) == {}
+    ):
+        return bg
+ 
+    bg_name_map = {
+        "GBGT1": "FORS",
+        "ABCC4": "PEL",
+        "PIGG": "EMM",
+        "GCNT2": "I",
+    }
+    for pair_alpha, pheno_alpha in bg.phenotypes[PhenoType.alphanumeric].items():
+        compare = True
+        pheno_numeric = bg.phenotypes[PhenoType.numeric][pair_alpha]
+        for skip in ["Vel+strong", "erythroid"]:
+            if skip in pheno_alpha or skip in pheno_numeric:
+                compare = False
+        if not compare:
+            continue
+        if not compare_antigen_profiles(
+            pheno_numeric,
+            pheno_alpha,
+            mapping,
+            bg_name_map.get(bg.type, bg.type),
+        ):
+            logger.warning(
+                f"WARNING: Modifiers dont match for sample {bg.sample}:\n{pair_alpha}\n{pheno_numeric}\n{pheno_alpha}\n plz report"
+            )
 
     return bg
 

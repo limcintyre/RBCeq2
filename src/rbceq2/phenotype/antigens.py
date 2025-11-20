@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from icecream import ic
-
-
 @dataclass(slots=True, frozen=False)
 class Antigen(ABC):
     """Abstract base class representing an antigen.
@@ -221,7 +219,7 @@ class NumericAntigen(Antigen):
         elif "-" in self.given_name:
             return 3
         else:
-            raise ValueError('weight')
+            raise ValueError("weight")
 
     @property
     def name(self) -> str:
@@ -279,7 +277,7 @@ class AlphaNumericAntigen(Antigen):
         elif "-" in self.given_name:
             return 3
         else:
-            raise ValueError('weight')
+            raise ValueError("weight")
 
     @property
     def name(self) -> str:
@@ -292,7 +290,7 @@ class AlphaNumericAntigen(Antigen):
         Returns:
             str: The formatted name of the AlphaNumericAntigen.
         """
-        if any(
+        if any(  # this needs to be revisited now that all BGs are done TODO
             special_case in self.given_name.lower()
             for special_case in ["common", "partial", "altered", "var"]
         ):
@@ -406,7 +404,6 @@ class AlphaNumericAntigenMNS(AlphaNumericAntigen):
 
 
 class NumericAntigenVel(NumericAntigen):
-
     def _set_weight(self) -> int:
         """Set the weight for the AlphaNumericAntigenVel based on its given name.
 
@@ -419,18 +416,15 @@ class NumericAntigenVel(NumericAntigen):
         """
         if "s" in self.given_name:
             return 1
-        elif (
-            "+w" not in self.given_name
-            and "-" not in self.given_name
-        ):
+        elif "+w" not in self.given_name and "-" not in self.given_name:
             return 2
         elif "+w" in self.given_name:
             return 3
         elif "-" in self.given_name:
             return 4
         else:
-            raise ValueError('Vel weight')
-        
+            raise ValueError("Vel weight")
+
     def _get_base_name(self) -> str:
         """Extract the base name from the given name by removing certain characters.
 
@@ -442,7 +436,8 @@ class NumericAntigenVel(NumericAntigen):
         """
         translation_table = str.maketrans("", "", "-+ws")
         return self.given_name.translate(translation_table)
-    
+
+
 class AlphaNumericAntigenVel(AlphaNumericAntigen):
     """An AlphaNumericAntigen subclass for Vel blood group antigens."""
 
@@ -487,7 +482,7 @@ class AlphaNumericAntigenVel(AlphaNumericAntigen):
         elif "-" in self.given_name:
             return 4
         else:
-            raise ValueError('vel weight')
+            raise ValueError("vel weight")
 
     @property
     def name(self) -> str:
@@ -499,6 +494,20 @@ class AlphaNumericAntigenVel(AlphaNumericAntigen):
             str: The original given name.
         """
         return self.given_name
+
+
+class AlphaNumericAntigenDi(AlphaNumericAntigen):
+    """An AlphaNumericAntigen subclass for Di blood group antigens."""
+
+    def _get_base_name(self) -> str:
+        """ Di has no weak but has names that have w, ie
+        Sw(a-) and SW1-
+
+        Returns:
+            str: The base name for the Vel antigen.
+        """
+        translation_table = str.maketrans("", "", "-+")
+        return self.given_name.translate(translation_table)
 
 
 class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
@@ -520,42 +529,9 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         Returns:
             bool: True if 'weak' is present in the given name, False otherwise.
         """
-        return "weak" in self.given_name.lower() or "very_weak" in self.given_name.lower()
-
-    # def _is_partial(self):
-    #     """Determine if the AlphaNumericAntigen is weak based on its given name.
-
-    #     Returns:
-    #         bool: True if 'partial' is present in the given name, False otherwise.
-    #     """
-    #     return "partial" in self.given_name.lower()
-
-    # def _is_negative(self):
-    #     """Determine if the AlphaNumericAntigen is negative based on its given name.
-
-    #     Returns:
-    #         bool: True if 'negative' or 'neg' is present in the given name, False otherwise.
-    #     """
-    #     return "negative" in self.given_name.lower() or "neg" in self.given_name.lower()
-
-    # def _is_monoclonal(self):
-    #     """Determine if the AlphaNumericAntigen is monoclonal based on its given name.
-
-    #     Returns:
-    #         bool: True if 'monoclonal' is present in the given name, False otherwise.
-    #     """
-    #     return "monoclonal" in self.given_name.lower()
-
-    # def _is_infered(self):
-    #     """Determine if the AlphaNumericAntigen is infered based on its given name.
-
-    #     Returns:
-    #         bool: True if 'infered' is present in the given name, False otherwise.
-    #     """
-    #     return "infered" in self.given_name.lower()
-
-    #is robust
-    #these are just for repr??
+        return (
+            "weak" in self.given_name.lower() or "very_weak" in self.given_name.lower()
+        )
 
     def _get_base_name(self) -> str:
         """Extract the base name for the AlphaNumericAntigenRHCE by removing specific
@@ -577,7 +553,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         Returns:
             str: The base name for the RHCE antigen.
         """
-        translation_table = str.maketrans("", "", "-+_")
+        translation_table = str.maketrans("", "", "-+_?")
         return (
             self.given_name.translate(translation_table)
             .replace("partial", "")
@@ -596,6 +572,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
             .replace("trans", "")
             .replace("positive", "")
             .replace("in", "")
+            .replace("to", "")
         )
 
     def _set_weight(self) -> int:
@@ -603,7 +580,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         Set the weight for the AlphaNumericAntigenRHCE based on its given name.
         Lower weight = stronger/more expressed.
         1: Robust ("ROBUST")
-        2: Normal/Strong (no other specific flags)
+        2: Normal (no other specific flags)
         3: Partial ("PARTIAL")
         4: Weak ("WEAK")
         5: Weak Partial ("PARTIAL" and "WEAK")
@@ -614,16 +591,16 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         name_upper = self.given_name.upper()
 
         # Highest priority: "NEG"
-        if "NEG" in name_upper: # This catches "WEAK TO NEG", "PARTIAL NEG", etc.
+        if "NEG" in name_upper:  # This catches "WEAK TO NEG", "PARTIAL NEG", etc.
             return 7
         # Second highest priority: "-" for not expressed/null
-        if "-" in self.given_name: # Check the original string for the '-' character
+        if "-" in self.given_name:  # Check the original string for the '-' character
             return 8
 
         # Check for specific characteristics
         is_robust = "ROBUST" in name_upper
         is_partial = "PARTIAL" in name_upper
-        is_weak = "WEAK" in name_upper # Note: "VERY_WEAK" also contains "WEAK"
+        is_weak = "WEAK" in name_upper  # Note: "VERY_WEAK" also contains "WEAK"
         is_very_weak = "VERY_WEAK" in name_upper
 
         if is_robust:
@@ -631,45 +608,59 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
 
         # Case 1: It's "PARTIAL" and also some form of "WEAK"
         if is_partial:
-            if is_weak: # And not is_very_weak (because that implies "VERY_WEAK")
+            if is_weak:  # And not is_very_weak (because that implies "VERY_WEAK")
                 return 5  # Weak Partial
-            else: # Just Partial, not weak
-                return 3 # Partial
+            else:  # Just Partial, not weak
+                return 3  # Partial
 
         # Case 2: Not "PARTIAL" or "PARTIAL" was handled
-        if is_very_weak: # This will catch "VERY_WEAK" and "PARTIAL VERY_WEAK" if not handled above
-            return 6      # Very Weak
+        if (
+            is_very_weak
+        ):  # This will catch "VERY_WEAK" and "PARTIAL VERY_WEAK" if not handled above
+            return 6  # Very Weak
 
-        if is_weak:   # And not is_very_weak (because that would have been caught)
-            return 4      # Weak
+        if is_weak:  # And not is_very_weak (because that would have been caught)
+            return 4  # Weak
 
-        if is_partial: # This means it's "PARTIAL" alone (no weak, no very_weak, no robust)
-            return 3      # Partial
-            
-        return 2 # Normal / Strong
-    
-   
+        if (
+            is_partial
+        ):  # This means it's "PARTIAL" alone (no weak, no very_weak, no robust)
+            return 3  # Partial
+
+        return 2  # Normal / Strong
 
     @property
     def name(self) -> str:
-        """Return the name for the AlphaNumericAntigenVel.
+        """Return the name with mod, if needed.
 
         For RHCE antigens, the given name is returned directly without modification.
 
         Returns:
             str: The original given name.
         """
-        return self.given_name
+        if not self.expressed:
+            return f"{self.base_name}-"
+        d = {
+            1: "+robust",
+            2: "+",
+            3: "+partial",
+            4: "+weak",
+            5: "+weak_partial",
+            6: "+very_weak",
+            7: "?unknown", # '?' because it cant be both!
+            8: "-",
+        }
+        return f"{self.base_name}{d[self.weight]}"
+
 
 class NumericAntigenRHCE(NumericAntigen):
-
     def _is_weak(self) -> bool:
         """Determine if the NumericAntigen (RHCE) is weak.
         Considers 'w' (weak) or 'v' (very weak).
         """
         name_lower = self.given_name.lower()
-        return 'w' in name_lower or 'v' in name_lower
-    
+        return "w" in name_lower or "v" in name_lower
+
     def _set_weight(self) -> int:
         """
         Set the weight of the NumericAntigenRHCE based on its given name.
@@ -686,44 +677,41 @@ class NumericAntigenRHCE(NumericAntigen):
         7: Negative ('n', including if combined with w, v, p)
         8: Not Expressed/Null ('-')
         """
-        name_lower = self.given_name.lower() # Use lower for char checks
+        name_lower = self.given_name.lower()  # Use lower for char checks
 
         # Highest priority: 'n' for negative
-        if 'n' in name_lower:
+        if "n" in name_lower:
             return 7
         # Second highest priority: '-' for not expressed/null
-        if '-' in self.given_name: # check original string for '-'
+        if "-" in self.given_name:  # check original string for '-'
             return 8
 
         # Check for specific characteristic flags
-        is_robust = 'r' in name_lower
-        is_partial = 'p' in name_lower
-        is_weak = 'w' in name_lower
-        is_very_weak = 'v' in name_lower
+        is_robust = "r" in name_lower
+        is_partial = "p" in name_lower
+        is_weak = "w" in name_lower
+        is_very_weak = "v" in name_lower
 
         if is_robust:
             return 1
 
         if is_partial:
-            if is_weak: # 'p' and 'w' are present
+            if is_weak:  # 'p' and 'w' are present
                 return 5  # Weak Partial
-            else: # Just 'p'
-                return 3 # Partial
+            else:  # Just 'p'
+                return 3  # Partial
 
-        if is_very_weak: # 'v' is present (could be 'v' alone or 'vp')
-            return 6      # Very Weak
+        if is_very_weak:  # 'v' is present (could be 'v' alone or 'vp')
+            return 6  # Very Weak
 
-        if is_weak:   # 'w' is present (could be 'w' alone, 'pw' was handled)
-            return 4      # Weak
-        
-        if is_partial: # 'p' is present alone (other 'p' combos handled)
-            return 3      # Partial
+        if is_weak:  # 'w' is present (could be 'w' alone, 'pw' was handled)
+            return 4  # Weak
 
-        return 2 # Normal / Strong
-    
+        if is_partial:  # 'p' is present alone (other 'p' combos handled)
+            return 3  # Partial
 
+        return 2  # Normal / Strong
 
-        
     def _get_base_name(self) -> str:
         """Extract the base name from the given name by removing certain characters.
 
@@ -733,14 +721,27 @@ class NumericAntigenRHCE(NumericAntigen):
         Returns:
             str: The base name of the NumericAntigen.
         """
-        translation_table = str.maketrans("", "", "-+wpimnrv")
+        translation_table = str.maketrans("", "", "-+wpimnrv?")
         return self.given_name.translate(translation_table)
-    
+
+    @property
+    def name(self) -> str:
+        """Return the name with mod, if needed.
+
+        For RHCE antigens, the given name based on modification.
+
+        Returns:
+            str: The original given name.
+        """
+        if not self.expressed:
+            return f"-{self.base_name}"
+        mod_d = {1: "r", 2: "", 3: "p", 4: "w", 5: "wp", 6: "v", 7: "u", 8: ""}
+        expression_d = {1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "?", 8: "-"}
+        return f"{expression_d[self.weight]}{self.base_name}{mod_d[self.weight]}"
+
 
 class AlphaNumericAntigenRHD(AlphaNumericAntigen):
-    """An AlphaNumericAntigen subclass for RHD blood group antigens.
-    
-    """
+    """An AlphaNumericAntigen subclass for RHD blood group antigens."""
 
     def _is_weak(self) -> bool:
         """Determine if the AlphaNumericAntigen is weak based on its given name.
@@ -750,35 +751,143 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
         """
         return "weak" in self.given_name.lower()
 
-
     def _get_base_name(self) -> str:
-        """Extract the base name for the AlphaNumericAntigenRHD
+        """Extract the base name for the AlphaNumericAntigenRHCE by removing specific
+        characters and substrings:
+            partial
+            weak
 
         Returns:
-            str: D
+            str: The base name for the RHCE antigen.
         """
-        return 'D'
+        translation_table = str.maketrans("", "", "-+_")
+        return (
+            self.given_name.translate(translation_table)
+            .replace("partial", "")
+            .replace("weak", "")
+            .replace("el", "")
+        )
 
     def _set_weight(self) -> int:
-        """Set the weight for the AlphaNumericAntigenRHD based on its given name.
-
         """
-        if '-' in self.given_name:
-            return 4 #null
-        elif 'Del' in self.given_name or 'WEAK' in self.given_name.upper():
-            return 3 #very weak
-        elif 'Type' in self.given_name or 'WEAK' in self.given_name.upper():
-            return 2 #weak
-        else:
-            return 1
+        Set the weight for the AlphaNumericAntigenRHCE based on its given name.
+        Lower weight = stronger/more expressed.
+        1: Normal/Strong (no other specific flags)
+        2: Partial ("PARTIAL")
+        3: Weak ("WEAK")
+        4: Weak Partial ("PARTIAL" and "WEAK")
+        5: Very Weak /elution/del/d+el ("EL")
+        6: Not Expressed/Null ("-")
+        """
+        name_upper = self.given_name.upper()
 
-    @property
-    def name(self) -> str:
-        """Return the name for the AlphaNumericAntigenRHD.
+        # highest priority: "-" for not expressed/null
+        if "-" in self.given_name:  # Check the original string for the '-' character
+            return 6
 
-        For RHD antigens, the given name is returned directly without modification.
+        # Check for specific characteristics
+        is_partial = "PARTIAL" in name_upper
+        is_weak = "WEAK" in name_upper  # Note: "VERY_WEAK" also contains "WEAK"
+        is_very_weak = "EL" in name_upper
+
+        # Case 1: It's "PARTIAL" and also some form of "WEAK"
+        if is_partial:
+            if is_weak:  # And not is_very_weak (because that implies "VERY_WEAK")
+                return 4  # Weak Partial
+            else:  # Just Partial, not weak
+                return 2  # Partial
+
+        # Case 2: Not "PARTIAL" or "PARTIAL" was handled
+        if (
+            is_very_weak
+        ):  # This will catch "VERY_WEAK" and "PARTIAL VERY_WEAK" if not handled above
+            return 5  # Very Weak
+
+        if is_weak:  # And not is_very_weak (because that would have been caught)
+            return 3  # Weak
+
+        if (
+            is_partial
+        ):  # This means it's "PARTIAL" alone (no weak, no very_weak, no robust)
+            return 2  # Partial
+
+        return 1  # Normal
+
+
+
+class NumericAntigenRHD(NumericAntigen):
+    def _is_weak(self) -> bool:
+        """Determine if the NumericAntigen (RHCE) is weak.
+        Considers 'w' (weak) or 'v' (very weak).
+        """
+        name_lower = self.given_name.lower()
+        return "w" in name_lower or "v" in name_lower
+
+    def _set_weight(self) -> int:
+        """
+        Set the weight of the NumericAntigenRHCE based on its given name.
+        Lower weight = stronger/more expressed.
+        Suffixes: r (robust), p (partial), w (weak), v (very_weak), n (negative).
+                  '-' for not expressed/null.
+
+        1: Normal
+        2: Partial ('p')
+        3: Weak ('w')
+        4: Weak Partial ('p' and 'w')
+        5: Very Weak ('v') (el)
+        6: Not Expressed/Null ('-')
+        """
+        name_lower = self.given_name.lower()  # Use lower for char checks
+
+        # highest priority: '-' for not expressed/null
+        if "-" in self.given_name:  # check original string for '-'
+            return 6
+
+        # Check for specific characteristic flags
+        is_partial = "p" in name_lower
+        is_weak = "w" in name_lower
+        is_very_weak = "v" in name_lower
+
+        if is_partial:
+            if is_weak:  # 'p' and 'w' are present
+                return 4  # Weak Partial
+            else:  # Just 'p'
+                return 2  # Partial
+
+        if is_very_weak:  # 'v' is present (could be 'v' alone or 'vp')
+            return 5  # Very Weak
+
+        if is_weak:  # 'w' is present (could be 'w' alone, 'pw' was handled)
+            return 3  # Weak
+
+        if is_partial:  # 'p' is present alone (other 'p' combos handled)
+            return 2  # Partial
+
+        return 1  # Normal
+
+    def _get_base_name(self) -> str:
+        """Extract the base name from the given name by removing certain characters.
+
+        Characters removed include '-', '+', and 'w' etc.
+        neg = n, partial = p, weak = w, very_weak = v, robust = r
 
         Returns:
-            str: The original given name.
+            str: The base name of the NumericAntigen.
         """
-        return self.given_name
+        translation_table = str.maketrans("", "", "-+wpmv")
+        return self.given_name.translate(translation_table)
+    
+    @property
+    def name(self) -> str:
+        """Return the name with mod, if needed.
+
+        For RHD antigens, the given name based on modification.
+
+        Returns:
+            str: The name with expression and mod.
+        """
+        if not self.expressed:
+            return f"-{self.base_name}"
+        mod_d = {1: "", 2: "p", 3: "w", 4: "wp", 5: "v", 6: "n"}
+        expression_d = {1: "", 2: "", 3: "", 4: "", 5: "", 6: "-"}
+        return f"{expression_d[self.weight]}{self.base_name}{mod_d[self.weight]}"

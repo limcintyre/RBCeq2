@@ -7,11 +7,11 @@ from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Callable
-
+import os
 import pandas as pd
 from icecream import ic
 from loguru import logger
-
+from typing import Mapping
 
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
@@ -21,7 +21,12 @@ import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
 from rbceq2.core_logic.utils import compose, get_allele_relationships
-from rbceq2.db.db import Db, prepare_db, DbDataConsistencyChecker
+from rbceq2.db.db import (
+    Db,
+    prepare_db,
+    DbDataConsistencyChecker,
+    build_antigen_map_for_checks,
+)
 from rbceq2.IO.PDF_reports import generate_all_reports
 from rbceq2.IO.record_data import (
     check_VCF,
@@ -37,6 +42,14 @@ from rbceq2.IO.vcf import (
     read_vcf,
     check_if_multi_sample_vcf,
     split_vcf_to_dfs,
+    build_intervals,
+)
+
+from rbceq2.core_logic.large_variants import (
+    SnifflesVcfSvReader,
+    load_db_defs,
+    SvMatcher,
+    select_best_per_vcf,
 )
 
 
@@ -54,7 +67,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     specification of output options and genomic references.
     """
     parser = argparse.ArgumentParser(
-        description="Calls ISBT defined alleles from VCF/s",
+        description="Calls ISBT defined alleles from VCF/s. NOT FOR CLINICAL USE",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         usage="rbceq2 --vcf example.vcf.gz --out example --reference_genome GRCh37",
     )
@@ -107,12 +120,6 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Use phase information",
         default=False,
     )
-    # parser.add_argument(
-    #     "--microarray",
-    #     action="store_true",
-    #     help="Input is from a microarray.",
-    #     default=False,
-    # )
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -137,24 +144,30 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         help="Generate results for HPA",
         default=False,
     )
-    # parser.add_argument(
-    #     "--RH",
-    #     action="store_true",
-    #     help="Generate results for RHD and RHCE. WARNING! Based on SNV and small indel only - completely wrong sometimes!",
-    #     default=False,
-    # )
+    parser.add_argument(
+        "--min_size",
+        type=int,
+        help=("Minimum size indel/SV to apply fuzzy matching to"),
+        default=10,
+    )
+    parser.add_argument(
+        "--RH",
+        action="store_true",
+        help="Generate results for RHD and RHCE. WARNING! Long read only!",
+        default=False,
+    )
 
     return parser.parse_args(args)
 
 
 def main():
     ic("Running RBCeq2...")
-    
+    ic('NOT FOR CLINICAL USE')
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ["C4A", "C4B", "ATP11C", "CD99", "RHD", "RHCE"]
-    # if not args.RH:
-    #     exclude += ["RHD", "RHCE"]
+    exclude = ["C4A", "C4B"]
+    if not args.RH:
+        exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
     # Configure logging
@@ -169,9 +182,7 @@ def main():
     logger.info("Database DataFrame prepared.")
 
     # 2. Run consistency checks on the prepared DataFrame
-    DbDataConsistencyChecker.run_all_checks(
-        df=db_df, ref_genome_name=args.reference_genome
-    )
+    DbDataConsistencyChecker.run_all_checks(df=db_df)
     # If any check fails, an exception will be raised here, and the program will halt.
 
     # 3. If all checks pass, proceed to create the Db object
@@ -195,7 +206,8 @@ def main():
             log_validation(result_valid, file_name)
         actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
         if actually_multi_vcf:
-            multi_vcf = read_vcf(args.vcf)
+            intervals = build_intervals(db_df, args.reference_genome)
+            multi_vcf = read_vcf(str(args.vcf), intervals)
             logger.info("Multi sample VCF passed")
             filtered_multi_vcf = filter_VCF_to_BG_variants(
                 multi_vcf, db.unique_variants
@@ -207,6 +219,7 @@ def main():
         else:
             logger.info("1 single sample VCF passed")
             vcfs = [args.vcf]
+    mapping = build_antigen_map_for_checks(db_df)
 
     all_alleles = defaultdict(list)
     for a in db.make_alleles():
@@ -222,10 +235,11 @@ def main():
             args=args,
             allele_relationships=allele_relationships,
             excluded=exclude,
+            ant_mapping=mapping,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
-                sample, genos, numeric_phenos, alphanumeric_phenos, res = results
+                sample, genos, numeric_phenos, alphanumeric_phenos, _, _ = results
                 dfs_geno[sample] = genos
                 dfs_pheno_numeric[sample] = numeric_phenos
                 dfs_pheno_alphanumeric[sample] = alphanumeric_phenos
@@ -234,6 +248,7 @@ def main():
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
+    df_geno = df_geno.replace("", "Undetermined/Undetermined")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
@@ -244,7 +259,9 @@ def main():
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    print(f"{len(dfs_geno)} VCFs processed in {time_str}")
+    print(
+        f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
+    )
 
 
 def find_hits(
@@ -253,35 +270,52 @@ def find_hits(
     args: argparse.Namespace,
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
+    ant_mapping: Mapping[str, Mapping[str, str]],
 ) -> pd.DataFrame | None:
-    vcf = VCF(vcf, db.lane_variants, db.unique_variants)
+    intervals = build_intervals(db.df, args.reference_genome)
+    if isinstance(vcf, Path):
+        vcf_filtered_by_500kb_padded_bed = read_vcf(str(vcf), intervals)
+        vcf = VCF(
+            vcf_filtered_by_500kb_padded_bed,
+            db.lane_variants,
+            db.unique_variants,
+            vcf.stem,
+        )
+    else:
+        vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
+    reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
+    events = list(reader.events())
 
-    res = dp.raw_results(db, vcf, excluded)
+    db_defs = load_db_defs(db.df)
+    matcher = SvMatcher()
+    matches = matcher.match(db_defs, events)
+    best = select_best_per_vcf(matches, tie_tol=1e-9)
+    var_map = {}
+
+    if best:
+        for match in best:
+            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+                zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
+            )
+            var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+    res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
         partial(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        partial(
-            dp.remove_alleles_with_low_read_depth,
-            variant_metrics=vcf.variants,
-            min_read_depth=1,
-            microarray=False,
-        ),
-        partial(
-            dp.remove_alleles_with_low_base_quality,
-            variant_metrics=vcf.variants,
-            min_base_quality=1,
-            microarray=False,
-        ),
         partial(dp.make_variant_pool, vcf=vcf),
+        partial(dp.modify_variant_pool_if_large_indel),
+        partial(dp.modify_allele_pool_if_large_indel),
         partial(
             dp.add_phasing,
             phased=args.phased,
             variant_metrics=vcf.variants,
             phase_sets=vcf.phase_sets,
         ),
+        partial(dp.modify_phase_of_large_indel, phased=args.phased),
+        partial(dp.modify_variant_phase_pool_if_large_indel),
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
@@ -299,6 +333,14 @@ def find_hits(
         ),
         partial(
             filt_phase.no_defining_variant,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.ref_not_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.cant_be_hom_ref_due_to_HET_SNP,
             phased=args.phased,
         ),
         co.homs,
@@ -338,6 +380,14 @@ def find_hits(
             filt_phase.filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
             phased=args.phased,
         ),
+        partial(
+            filt_phase.filter_on_in_relationship_if_all_HOM_and_phased,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.filter_on_in_relationship_when_HOM_cant_be_on_one_side,
+            phased=args.phased,
+        ),
         partial(filt_phase.rm_ref_if_2x_HET_phased, phased=args.phased),
         partial(filt_phase.low_weight_hom, phased=args.phased),
         filt_co.ensure_co_existing_HET_SNP_used,
@@ -345,9 +395,8 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        # partial(filt_co.filter_impossible_coexisting_alleles_phased, phased=args.phased),
         dp.get_genotypes,
-        dp.add_CD_to_XG,
+        #dp.add_CD_to_XG,
     ]
     preprocessor = compose(*pipe)
     res = preprocessor(res)
@@ -363,7 +412,6 @@ def find_hits(
         res["FUT2"].genotypes.append(allele_pair)
 
     formated_called_genos = {k: ",".join(bg.genotypes) for k, bg in res.items()}
-
     pipe2: list[Callable] = [
         partial(ph.add_ref_phenos, df=db.df),
         partial(ph.instantiate_antigens, ant_type=PhenoType.numeric),
@@ -387,6 +435,7 @@ def find_hits(
         partial(ph.phenos_to_str, ant_type=PhenoType.numeric),
         partial(ph.phenos_to_str, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_FY, ant_type=PhenoType.numeric),
+        partial(ph.compare_numeric_ants_to_alphanumeric, mapping=ant_mapping),
         ph.combine_anitheticals,
         partial(ph.modify_FY, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_KEL, ant_type=PhenoType.alphanumeric),
@@ -394,6 +443,9 @@ def find_hits(
         partial(ph.re_order_KEL, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_MNS, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_FY2, ant_type=PhenoType.alphanumeric),
+        partial(ph.modify_RHD, ant_type=PhenoType.numeric),
+        partial(ph.modify_RHD, ant_type=PhenoType.alphanumeric),
+        
     ]
 
     preprocessor2 = compose(*pipe2)
@@ -416,6 +468,7 @@ def find_hits(
         formated_called_numeric_phenos,
         formated_called_alphanumeric_phenos,
         res,
+        var_map,
     )
 
 

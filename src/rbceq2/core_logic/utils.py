@@ -5,9 +5,43 @@ from functools import partial, reduce
 from itertools import zip_longest
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Any, Callable
+from typing import Literal
 
 if TYPE_CHECKING:
     from src.core_logic.alleles import Allele, BloodGroup
+
+
+def collapse_variant(variant: str) -> str:
+    """Collapse a long variant into chrom:pos_type_len form.
+
+    Args:
+        variant (str): Variant string in chrom:pos_ref_alt format,
+            e.g. "2:126690214_GTCT..._G".
+
+    Returns:
+        str: Collapsed variant string, e.g. "2:126690214_del_1234".
+    """
+    if variant.endswith(("_ref", ":.", ":na")):
+        return variant
+    chrom_pos, ref, alt = variant.split("_", 2)
+    chrom, pos = chrom_pos.split(":")
+
+    ref_len = len(ref)
+    alt_len = len(alt)
+    if ref_len < 22 and alt_len < 22:
+        return variant
+
+    if ref_len > alt_len:
+        vtype: Literal["del", "ins"] = "del"
+        length = ref_len - alt_len
+    elif alt_len > ref_len:
+        vtype = "ins"
+        length = alt_len - ref_len
+    else:
+        vtype = "sub"
+        length = ref_len  # substitution size
+
+    return f"{chrom}:{pos}_{vtype}_{length}"
 
 
 class BeyondLogicError(Exception):
@@ -52,6 +86,7 @@ class Zygosity:
     HOM = "Homozygous"  # hom alt
     HET = "Heterozygous"
     REF = "Reference"  # hom ref
+    HEM = "Hemizygous"  # ie with big del
 
 
 Preprocessor = Callable[[dict[str, "BloodGroup"]], dict[str, "BloodGroup"]]

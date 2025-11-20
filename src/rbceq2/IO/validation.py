@@ -11,7 +11,9 @@ import gzip
 from dataclasses import dataclass
 
 # Precompute a set of disallowed control characters (allowed: tab, newline, carriage return)
-SUSPICIOUS_CHARS = {chr(c) for c in list(range(0, 9)) + list(range(11, 13)) + list(range(14, 32))}
+SUSPICIOUS_CHARS = {
+    chr(c) for c in list(range(0, 9)) + list(range(11, 13)) + list(range(14, 32))
+}
 
 
 @dataclass
@@ -26,6 +28,7 @@ class VCFValidationResult:
     errors (list[str]):
         List of error messages encountered during validation.
     """
+
     is_valid: bool
     errors: list[str]
 
@@ -33,11 +36,11 @@ class VCFValidationResult:
 def open_vcf_file(file_path: str, mode: str = "rt"):
     """
     Open a VCF file that may be plain text or gzip compressed.
-    
+
     Args:
         file_path (str): Path to the VCF file.
         mode (str, optional): File open mode. Defaults to "rt".
-    
+
     Returns:
         A file object.
     """
@@ -50,16 +53,17 @@ class VCFValidator:
     """
     A class for validating VCF files in a single pass.
     """
+
     MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB file size limit
 
     @staticmethod
     def validate_file(file_path: str) -> VCFValidationResult:
         """
         Validate the VCF file for correct format and malicious content in a single pass.
-        
+
         Args:
             file_path (str): Path to the VCF file.
-        
+
         Returns:
             VCFValidationResult: Result of validation.
         """
@@ -91,7 +95,11 @@ class VCFValidator:
                     if not found_fileformat and line.startswith("##fileformat=VCF"):
                         found_fileformat = True
                     # Find header line: first line starting with '#' but not '##'.
-                    if header_line is None and line.startswith("#") and not line.startswith("##"):
+                    if (
+                        header_line is None
+                        and line.startswith("#")
+                        and not line.startswith("##")
+                    ):
                         header_line = line.strip()
         except UnicodeDecodeError:
             return VCFValidationResult(False, ["File is not valid UTF-8 text."])
@@ -108,10 +116,21 @@ class VCFValidator:
             if len(columns) < 8:
                 errors.append("Header line has insufficient columns.")
             else:
-                required = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
+                required = [
+                    "#CHROM",
+                    "POS",
+                    "ID",
+                    "REF",
+                    "ALT",
+                    "QUAL",
+                    "FILTER",
+                    "INFO",
+                ]
                 for i, col in enumerate(required):
                     if columns[i] != col:
-                        errors.append(f"Header column {i + 1} expected '{col}', found '{columns[i]}'.")
+                        errors.append(
+                            f"Header column {i + 1} expected '{col}', found '{columns[i]}'."
+                        )
                         break
 
         # Remove duplicate errors.
@@ -122,10 +141,10 @@ class VCFValidator:
 def validate_vcf(file_path: str) -> VCFValidationResult:
     """
     Validate a VCF file for proper format and absence of malicious content.
-    
+
     Args:
         file_path (str): Path to the VCF file.
-    
+
     Returns:
         VCFValidationResult: Combined result of format and security checks.
     """

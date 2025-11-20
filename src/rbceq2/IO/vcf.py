@@ -2,16 +2,16 @@ import gzip
 import io
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 import pandas as pd
 import re
 
-os.environ["POLARS_MAX_THREADS"] = "7"  # Must be set before polars import
+os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
 from loguru import logger
-
+from collections import defaultdict
 from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
+from rbceq2.IO.encoders import VariantEncoderFactory
 
 
 @dataclass(slots=True, frozen=False)
@@ -27,10 +27,10 @@ class VCF:
             A set of unique variant identifiers.
     """
 
-    input_vcf: Path | pd.DataFrame | None
+    input_vcf: pl.DataFrame | pd.DataFrame
     lane_variants: dict[str, Any]
     unique_variants: set[str]
-    sample: str = field(init=False)
+    sample: str  # field(init=False)
     df: pd.DataFrame = field(init=False)
     loci: set[str] = field(init=False)
     variants: dict[str, str] = field(init=False)
@@ -39,7 +39,7 @@ class VCF:
     def __post_init__(self):
         """Handle initialization after data class creation."""
         object.__setattr__(self, "df", self.handle_single_or_multi())
-        object.__setattr__(self, "sample", self.get_sample())
+        # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
         self.remove_home_ref()
         self.encode_variants()
@@ -105,9 +105,9 @@ class VCF:
         Returns:
             pd.DataFrame: The DataFrame representation of the VCF data.
         """
-        if isinstance(self.input_vcf, Path):
-            vcf = read_vcf(self.input_vcf)
-            return filter_VCF_to_BG_variants(vcf, self.unique_variants)
+
+        if isinstance(self.input_vcf, pl.DataFrame):
+            return filter_VCF_to_BG_variants(self.input_vcf, self.unique_variants)
         else:
             return self.input_vcf[0]
 
@@ -120,35 +120,43 @@ class VCF:
         self.df = self.df[~self.df["SAMPLE"].str.startswith("0/0")].copy(deep=True)
 
     def encode_variants(self) -> None:
-        """Encode variants into a unified format in the DataFrame."""
-
-        def join_vars(chrom: str, pos: str, ref: str, alts: str) -> bool:
-            return ",".join([f"{chrom}:{pos}_{ref}_{alt}" for alt in alts.split(",")])
+        """Encode variants into a unified format using the encoder factory."""
+        factory = VariantEncoderFactory()
 
         self.df["variant"] = self.df.apply(
-            lambda x: join_vars(
-                x["CHROM"],
-                x["POS"],
-                x["REF"],
-                x["ALT"],
-            ),
-            axis=1,
+            lambda row: factory.encode_variant(row), axis=1
         )
+
+    # def encode_variants(self) -> None:
+    #     """Encode variants into a unified format in the DataFrame."""
+
+    #     def join_vars(chrom: str, pos: str, ref: str, alts: str) -> bool:
+    #         return ",".join([f"{chrom}:{pos}_{ref}_{alt}" for alt in alts.split(",")])
+
+    #     self.df["variant"] = self.df.apply(
+    #         lambda x: join_vars(
+    #             x["CHROM"],
+    #             x["POS"],
+    #             x["REF"],
+    #             x["ALT"],
+    #         ),
+    #         axis=1,
+    #     )
 
     def add_loci(self) -> None:
         """Add loci identifiers to the DataFrame."""
         self.df["loci"] = self.df.CHROM + ":" + self.df.POS
 
-    def get_sample(self) -> str:
-        """Determine the sample name from the VCF path or DataFrame.
+    # def get_sample(self) -> str:
+    #     """Determine the sample name from the VCF path or DataFrame.
 
-        Returns:
-            str: The sample name.
-        """
-        if isinstance(self.input_vcf, Path):
-            return self.input_vcf.stem
-        else:
-            return self.input_vcf[-1]
+    #     Returns:
+    #         str: The sample name.
+    #     """
+    #     if isinstance(self.input_vcf, Path):
+    #         return self.input_vcf.stem
+    #     else:
+    #         return self.input_vcf[-1]
 
     def set_loci(self) -> set[str]:
         """Create a set of loci identifiers from the DataFrame.
@@ -183,9 +191,8 @@ class VCF:
         1  159175354   G   A  ... 1:159175354_G_A,1:159175354_ref  1:159175354
 
         """
-
         new_lanes = {}
-
+        new_rows = []
         for chrom, loci in self.lane_variants.items():
             chrom = chrom.replace("chr", "")
             for pos in loci:
@@ -213,12 +220,36 @@ class VCF:
                         alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
                         lane = LANE[f"chr{chrom}"][pos]
                         if f"{ref}_{alt}" == lane or lane == "no_ALT":
-                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
-                                self.df.loc[
-                                    self.df.loci == lane_loci, "variant"
-                                ].values[0]
-                                + f",{lane_loci}_ref"
+                            original_row = (
+                                self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
                             )
+
+                            # Create the reference variant row
+                            ref_row = original_row.copy()
+                            ref_row["variant"] = f"{lane_loci}_ref"
+                            ref_row["ALT"] = original_row[
+                                "REF"
+                            ]  # ALT becomes the original REF
+
+                            # Flip the genotype in FORMAT column
+                            gt_field = ref_row["SAMPLE"].split(":")[0]
+                            if "|" in gt_field:
+                                # Phased: flip 0|1 to 1|0 or 1|0 to 0|1
+                                flipped_gt = "|".join(reversed(gt_field.split("|")))
+                            elif "/" in gt_field:
+                                # Unphased: flip 0/1 to 1/0 or 1/0 to 0/1
+                                flipped_gt = "/".join(reversed(gt_field.split("/")))
+                            else:
+                                raise ValueError("GT formated wrong")
+
+                            # Replace the GT field in SAMPLE
+                            sample_fields = ref_row["SAMPLE"].split(":")
+                            sample_fields[0] = flipped_gt
+                            ref_row["SAMPLE"] = ":".join(sample_fields)
+                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
+                                f"{lane_loci}_{lane}"
+                            )
+                            new_rows.append(ref_row)
                 else:
                     new_lanes[lane_loci] = (
                         [chrom, pos]
@@ -230,6 +261,8 @@ class VCF:
                             "loci",
                         ]
                     )
+        if new_rows:
+            self.df = pd.concat([self.df, pd.DataFrame(new_rows)], ignore_index=True)
         if new_lanes:
             new_lanes_df = pd.DataFrame.from_dict(new_lanes, orient="index")
             new_lanes_df.columns = self.df.columns
@@ -251,10 +284,8 @@ class VCF:
             mapped_metrics = dict(
                 zip(format.strip().split(":"), metrics.strip().split(":"))
             )
-            mapped_metrics["GT"] == mapped_metrics["GT"].replace("|", "/")
             if mapped_metrics["GT"] == "0/0":
                 continue
-
             if "," in variant:
                 for variant in variant.split(","):
                     vcf_variants[variant] = mapped_metrics
@@ -377,17 +408,29 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
         pd.DataFrame: A Pandas DataFrame containing only the filtered variants from
             the original DataFrame, with the temporary 'LOCI' column removed.
     """
+    # TODO maybe best to switch to tabix?
+    # although fuzzy mtaching won't work with tabix...
+    df = df.with_columns(
+        df["CHROM"].str.replace("chr", "", literal=True).alias("CHROM")
+    )
     df = df.with_columns(
         pl.concat_str(pl.col("CHROM"), pl.lit(":"), pl.col("POS")).alias("LOCI")
     )
+    large_vars = set(
+        df.filter((df["REF"].str.len_chars() > 50) | (df["ALT"].str.len_chars() > 50))[
+            "LOCI"
+        ]
+    )
+    massive_vars = set(
+        df.filter((df["ALT"].str.contains("<")) | (df["ALT"].str.contains(">")))["LOCI"]
+    )
     neighbours = find_phased_neighbors(df)
-    merged_set = neighbours | unique_variants
+    merged_set = neighbours | unique_variants | large_vars | massive_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:  # empty
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)
     else:
         pandas_df = filtered_df.to_pandas(use_pyarrow_extension_array=False)
-
     del pandas_df["LOCI"]
 
     return pandas_df
@@ -458,8 +501,77 @@ class VcfNoDataError(Exception):
         return super().__str__()
 
 
-def read_vcf(file_path: str) -> pl.DataFrame:
-    """Read a VCF file using polars while preserving the header and sample names.
+@dataclass(frozen=True, slots=True)
+class Interval:
+    start: int
+    end: int
+
+
+def parse_positions(db_col: str) -> list[int]:
+    """Extract numeric positions from a database column entry string."""
+    if pd.isna(db_col):
+        return []
+    positions = []
+    for tok in str(db_col).split(","):
+        if "_" in tok:
+            pos = tok.split("_", 1)[0]
+            if pos.isdigit():
+                positions.append(int(pos))
+    return positions
+
+
+def build_intervals(
+    db: pd.DataFrame, genome: str, flank: int = 500_000
+) -> dict[str, list[Interval]]:
+    """Construct per-chrom intervals ±flank from database DataFrame.
+
+    Args:
+        db (pd.DataFrame): DataFrame with at least 'Chrom' and genome columns.
+        genome (str): Column to use ('GRCh37' or 'GRCh38').
+        flank (int): Window size on either side of each variant.
+
+    Returns:
+        dict[str, list[Interval]]: Per-chromosome merged intervals.
+    """
+    intervals = defaultdict(list)
+
+    for row in db.itertuples(index=False):
+        chrom = getattr(row, "Chrom").removeprefix("chr")
+        genome_col = getattr(row, genome)
+        for pos in parse_positions(genome_col):
+            intervals[chrom].append(Interval(max(0, pos - flank), pos + flank))
+
+    # merge overlapping intervals per chromosome
+    merged = {}
+    for chrom, ivals in intervals.items():
+        ivals.sort(key=lambda x: x.start)
+        merged_list: list[Interval] = []
+        for iv in ivals:
+            if not merged_list or iv.start > merged_list[-1].end:
+                merged_list.append(iv)
+            else:
+                merged_list[-1] = Interval(
+                    merged_list[-1].start, max(merged_list[-1].end, iv.end)
+                )
+        merged[chrom] = merged_list
+    return merged
+
+
+def variant_in_intervals(
+    chrom: str, pos: int, intervals: dict[str, list[Interval]]
+) -> bool:
+    """Check if a variant lies in any interval for that chrom."""
+    if chrom not in intervals:
+        return False
+    for iv in intervals[chrom]:
+        if iv.start <= pos <= iv.end:
+            return True
+    return False
+
+
+def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFrame:
+    """Stream a VCF, keep only relevant lines, return as Polars DataFrame.
+    read a VCF file using polars while preserving the header and sample names.
 
     This function manually extracts the header (line starting with "#CHROM")
     and skips meta-information lines (starting with "##"). It then constructs a
@@ -469,49 +581,52 @@ def read_vcf(file_path: str) -> pl.DataFrame:
         file_path (str): Path to the VCF file (can be gzipped).
 
     Returns:
-        pl.DataFrame: DataFrame containing the VCF data.
-    """
+        pl.DataFrame: DataFrame containing the VCF data."""
 
+    open_func = gzip.open if vcf_path.endswith(".gz") else open
     header = None
-    # Use gzip.open if file is gzipped, else standard open.
-    open_func = gzip.open if str(file_path).endswith(".gz") else open
-    with open_func(file_path, "rt") as f:
-        # Find header line starting with "#CHROM"
-        for line in f:
+    rows: list[str] = []
+    with open_func(vcf_path, "rt") as f:
+        for line in f:  # TODO Pool
             if line.startswith("##"):
                 continue
-            if line.startswith("#"):
+            if line.startswith("#CHROM"):
                 header = line.lstrip("#").strip().split("\t")
                 if len(header) == 10:
                     header[-1] = "SAMPLE"  # for single sample
-                break
+                continue
 
-        if header is None:
-            raise VcfMissingHeaderError(filename=file_path)
+            # parse variant
+            fields = line.split("\t")
+            try:
+                chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
+            except:
+                raise
+            if variant_in_intervals(chrom, pos, intervals):
+                rows.append(line)
 
-        header_line = "\t".join(header) + "\n"
-        data = f.read()
-
-    csv_content = header_line + data
+    if header is None:
+        raise VcfMissingHeaderError(filename=vcf_path)
+    header_line = "\t".join(header) + "\n"
+    csv_content = header_line + "".join(rows)
     try:
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
-            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+            schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
         )
     except pl.exceptions.ComputeError:
-        logger.warning(
-            f"VCF {file_path} is not formatted correctly. Attempting to read in an error prone way!"
-        )
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
-            schema_overrides=dict.fromkeys(["CHROM", "POS", "QUAL"], str),
+            schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
             truncate_ragged_lines=True,
         )
-    if df.is_empty():
-        raise VcfNoDataError(filename=file_path)
-    df = df.with_columns(df["CHROM"].str.replace("chr", "", literal=True))
+    except MemoryError:
+        message = "VCF is too big, plz trim ie bcftools view -R regions.bed ..."
+        print(message)
+        logger.error(message)
+        raise
 
     return df
 
