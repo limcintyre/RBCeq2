@@ -18,11 +18,11 @@ RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and
 
 At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result. Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups. 
 
-The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). Further, it supported the use of long read derived VCFs (i.e. addition of large indels and phased data). However, these features were not as polished. This release (v2.3.1) includes major improvements to the phasing logic – see section 7 of the docs and the change log for details. 
+The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). v2.3.0 focussed on phasing. V2.4.0 (current) focuses on large variants and the RH region, using long read sequencing data.
 
 ## Bugs
 
-This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened). We will endeavor to fix any black and white bugs ASAP. Most of these will be rare variants that are encoded wrong in our database. We value any and all feedback and feature requests.
+This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened).
 
 ## Documentation
 
@@ -56,4 +56,5 @@ options:
   --validate            Enable VCF validation. Doubles run time. Might help you identify input issues (default: False)
   --PDFs                Generate a per sample PDF report (default: False)
   --HPAs                Generate results for HPA (default: False)
+  --RH                  Generate results for RHD and RHCE. WARNING! Long read only! (default: False)
 ```
