@@ -55,4 +55,5 @@ options:
   --validate            Enable VCF validation. Doubles run time. Might help you identify input issues (default: False)
   --PDFs                Generate a per sample PDF report (default: False)
   --HPAs                Generate results for HPA (default: False)
+  --RH                  Generate results for RHD and RHCE. WARNING! Long read only! (default: False)
 ```

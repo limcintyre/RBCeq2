@@ -7,7 +7,7 @@ import pandas as pd
 from loguru import logger
 import argparse
 
-from rbceq2.core_logic.constants import DB_VERSION, VERSION, AlleleState
+from rbceq2.core_logic.constants import DB_VERSION, VERSION, AlleleState, GENOMIC_TO_TRANSCRIPT_GRCh37, GENOMIC_TO_TRANSCRIPT_GRCh38
 from rbceq2.IO.validation import validate_vcf
 
 from rbceq2.core_logic.utils import collapse_variant
@@ -53,7 +53,7 @@ def configure_logging(args: argparse.Namespace) -> str:
     return UUID
 
 
-def record_filtered_data(results: tuple[Any]) -> None:
+def record_filtered_data(results: tuple[Any], ref: str) -> None:
     """Record filtered data by logging debug information for each blood group.
 
     This function unpacks the results tuple into sample identifier, numeric and
@@ -73,8 +73,9 @@ def record_filtered_data(results: tuple[Any]) -> None:
     """
 
     def format_vars(pool):
+        transcripts = GENOMIC_TO_TRANSCRIPT_GRCh37 if ref == 'GRCh37' else GENOMIC_TO_TRANSCRIPT_GRCh38
         return "\n" + "\n".join(
-            [" : ".join([collapse_variant(k), v]) for k, v in pool.items()]
+            [" : ".join([collapse_variant(k), transcripts.get(k, '(None)'), v]) for k, v in pool.items()]
         )
 
     sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results
