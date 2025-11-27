@@ -2,7 +2,7 @@ from enum import Enum, auto
 
 # Define version
 VERSION = "2.4.1"
-DB_VERSION = "2.4.0"
+DB_VERSION = "2.4.1"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -31,6 +31,24 @@ class PhenoType(Enum):
 
 TWO = 2
 
+"""A4GALT = P1PK
+  ABCB6 = LAN
+  ABCC4 = PEL
+  ABCG2 = JR
+  CD99 is under XG
+  CTL2 = SLC44A2
+  FUT1 = H
+  FUT2 = H
+  FUT3 = LE
+  GBGT1 = FORS
+  GCNT2 = I
+  GYPA is under MNS
+  GYPB is under MNS
+  HPA - exclude all HPAs
+  KLF = KLF1
+  PIGG = EMM
+  RHCE is under RH
+  RHD is under RH"""
 
 class BgName(Enum):
     CROM = auto()
