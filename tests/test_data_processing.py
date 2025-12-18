@@ -12,7 +12,6 @@ from rbceq2.core_logic.data_procesing import (
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
     SomeHomMultiVariantStrategy,
-    add_CD_to_XG,
     add_refs,
     combine_all,
     filter_vcf_metrics,
@@ -3161,49 +3160,6 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
 
 
 ########################
-
-
-class TestAddCDToXG(unittest.TestCase):
-    def test_add_CD_to_XG_positive(self):
-        # Test case where CD should be added.
-        input_dict = {
-            "sample1": BloodGroup(
-                type="XG", alleles={}, sample="sample1", genotypes=["XG*01/XG*01"]
-            ),
-        }
-        expected_dict = {
-            "sample1": BloodGroup(
-                type="XG",
-                alleles={},
-                sample="sample1",
-                genotypes=["XG*01/XG*01", "CD99*01/CD99*01"],
-            ),
-        }
-        result_dict = add_CD_to_XG(input_dict)
-        self.assertEqual(result_dict, expected_dict)
-
-    def test_add_CD_to_XG_negative(self):
-        # Test case where CD should not be added.
-        input_dict = {
-            "sample2": BloodGroup(
-                type="XG", alleles={}, sample="sample2", genotypes=["XG*02/XG*01"]
-            ),
-        }
-        expected_dict = {
-            "sample2": BloodGroup(
-                type="XG", alleles={}, sample="sample2", genotypes=["XG*02/XG*01"]
-            ),
-        }
-        result_dict = add_CD_to_XG(input_dict)
-        self.assertEqual(result_dict, expected_dict)
-
-    def test_add_CD_to_XG_empty(self):
-        # Test case where input is an empty dictionary
-        input_dict = {}
-        expected_dict = {}
-        result_dict = add_CD_to_XG(input_dict)
-        self.assertEqual(result_dict, expected_dict)
-
 
 ################################################################################
 # MockDb: avoids reading a file
