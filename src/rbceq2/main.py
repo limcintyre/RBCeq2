@@ -243,7 +243,7 @@ def main():
                 dfs_geno[sample] = genos
                 dfs_pheno_numeric[sample] = numeric_phenos
                 dfs_pheno_alphanumeric[sample] = alphanumeric_phenos
-                record_filtered_data(results)
+                record_filtered_data(results, args.reference_genome)
                 sep = "##############"
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 

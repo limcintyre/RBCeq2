@@ -21,7 +21,6 @@ At the highest level RBCeq2 finds all possible alleles, then filters out those t
 The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). v2.3.0 focussed on phasing. V2.4.0 (current) focuses on large variants and the RH region, using long read sequencing data.
 
 ## Bugs
-
 This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened).
 
 ## Documentation
