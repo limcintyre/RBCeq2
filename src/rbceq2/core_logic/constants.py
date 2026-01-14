@@ -72,6 +72,7 @@ class BgName(Enum):
     ABO = auto()
     GYPA = auto()
     GYPB = auto()
+    GYP = auto() #hybrids
     CD59 = auto()
     IN = auto()
     RAPH = auto()

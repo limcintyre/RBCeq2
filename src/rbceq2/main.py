@@ -46,7 +46,7 @@ from rbceq2.IO.vcf import (
 )
 
 from rbceq2.core_logic.large_variants import (
-    SnifflesVcfSvReader,
+    SvReader,
     load_db_defs,
     SvMatcher,
     select_best_per_vcf,
@@ -283,7 +283,7 @@ def find_hits(
         )
     else:
         vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
-    reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
+    reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
 
     db_defs = load_db_defs(db.df)
@@ -298,6 +298,7 @@ def find_hits(
                 zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
             var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+
     res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 

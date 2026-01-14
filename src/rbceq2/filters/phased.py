@@ -15,7 +15,7 @@ from rbceq2.filters.shared_filter_functionality import (
     proceed,
 )
 from rbceq2.core_logic.alleles import Allele
-
+from icecream import ic
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -1290,12 +1290,15 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     to_remove = []
 
     for pair in bg.alleles[AlleleState.NORMAL]:
+        all_defining_vars_for_pair = list(pair.allele1.defining_variants) + list(pair.allele2.defining_variants)
         for allele in pair.alleles:
             if not allele.reference:
                 continue
             if all(variant.endswith(".") for variant in allele.defining_variants):
                 continue
             for variant in allele.defining_variants:
+                if variant not in all_defining_vars_for_pair:
+                    continue
                 if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
                     continue
                 if variant not in bg.variant_pool:
