@@ -127,36 +127,10 @@ class VCF:
             lambda row: factory.encode_variant(row), axis=1
         )
 
-    # def encode_variants(self) -> None:
-    #     """Encode variants into a unified format in the DataFrame."""
-
-    #     def join_vars(chrom: str, pos: str, ref: str, alts: str) -> bool:
-    #         return ",".join([f"{chrom}:{pos}_{ref}_{alt}" for alt in alts.split(",")])
-
-    #     self.df["variant"] = self.df.apply(
-    #         lambda x: join_vars(
-    #             x["CHROM"],
-    #             x["POS"],
-    #             x["REF"],
-    #             x["ALT"],
-    #         ),
-    #         axis=1,
-    #     )
-
     def add_loci(self) -> None:
         """Add loci identifiers to the DataFrame."""
         self.df["loci"] = self.df.CHROM + ":" + self.df.POS
 
-    # def get_sample(self) -> str:
-    #     """Determine the sample name from the VCF path or DataFrame.
-
-    #     Returns:
-    #         str: The sample name.
-    #     """
-    #     if isinstance(self.input_vcf, Path):
-    #         return self.input_vcf.stem
-    #     else:
-    #         return self.input_vcf[-1]
 
     def set_loci(self) -> set[str]:
         """Create a set of loci identifiers from the DataFrame.

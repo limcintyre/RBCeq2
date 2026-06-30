@@ -1,8 +1,8 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.4.1"
-DB_VERSION = "2.4.1"
+VERSION = "2.4.2"
+DB_VERSION = "2.4.3"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -72,6 +72,7 @@ class BgName(Enum):
     ABO = auto()
     GYPA = auto()
     GYPB = auto()
+    GYP = auto() #hybrids
     CD59 = auto()
     IN = auto()
     RAPH = auto()

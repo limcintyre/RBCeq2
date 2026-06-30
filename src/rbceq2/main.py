@@ -12,6 +12,7 @@ import pandas as pd
 from icecream import ic
 from loguru import logger
 from typing import Mapping
+import sys
 
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
@@ -46,7 +47,7 @@ from rbceq2.IO.vcf import (
 )
 
 from rbceq2.core_logic.large_variants import (
-    SnifflesVcfSvReader,
+    SvReader,
     load_db_defs,
     SvMatcher,
     select_best_per_vcf,
@@ -259,9 +260,13 @@ def main():
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
-    print(
-        f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
-    )
+    if sys.stdout.encoding and sys.stdout.encoding.lower().startswith('utf'):
+        print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
+    else: #windows can't handle emojis
+        print(f"\nComplete! {len(dfs_geno)} VCFs processed in {time_str}. \nResults saved successfully.")
+    # print(
+    #     f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
+    # )
 
 
 def find_hits(
@@ -283,7 +288,7 @@ def find_hits(
         )
     else:
         vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
-    reader = SnifflesVcfSvReader(df=vcf.df, min_size=args.min_size)
+    reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
 
     db_defs = load_db_defs(db.df)
@@ -298,6 +303,7 @@ def find_hits(
                 zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
             var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+
     res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 

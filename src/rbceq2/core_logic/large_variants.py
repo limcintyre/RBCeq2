@@ -656,13 +656,42 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
             return True
     return False
 
+def _get_svlen_from_info(info: dict[str, str]) -> int:
+    """Extract SVLEN from INFO dict, handling multi-allelic and missing cases.
+
+    Args:
+        info: Parsed INFO dictionary.
+
+    Returns:
+        int: SVLEN value (may be negative for DEL), or 0 if not present/parseable.
+    """
+    if "SVLEN" not in info:
+        return 0
+    svlen_str = info["SVLEN"]
+    # Handle multi-allelic: take first value
+    first_val = svlen_str.split(",")[0]
+    # Handle negative values (common for DEL)
+    if first_val.lstrip("-").isdigit():
+        return int(first_val)
+    return 0
 
 @dataclass(slots=True, frozen=True)
-class SnifflesVcfSvReader:
-    """Portable, minimal structural variant reader for VCF.
+class SvReader:
+    """Generic structural variant reader for VCF DataFrames.
+
+    Works with VCFs from any SV caller that uses standard VCF fields:
+    - SVTYPE (in INFO)
+    - SVLEN (in INFO, optional)
+    - END (in INFO, optional)
+    - CIPOS/CIEND (in INFO, optional)
+
+    Supported callers include:
+    - Long-read: Sniffles2, SVIM, CuteSV, NanoVar, pbsv
+    - Short-read: Manta, LUMPY, DELLY, GRIDSS, CNVnator, GATK-gCNV, DRAGEN
 
     Attributes:
-        df (df): df of to VCF file.
+        df (pd.DataFrame): DataFrame containing VCF data with 'variant' column
+            (created by encoders.py).
         min_size (int): Minimum size threshold for emitting events.
     """
 
@@ -670,65 +699,82 @@ class SnifflesVcfSvReader:
     min_size: int = 10
 
     def events(self) -> Iterator[SvEvent]:
-        """Iterate over structural variant events in a VCF.
-        6
-                Returns:
-                    Iterator[SvEvent]: Yielded SV events.
+        """Iterate over structural variant events in the VCF DataFrame.
+
+        Yields:
+            SvEvent: Parsed structural variant events meeting size threshold.
+
+        Note:
+            - Requires 'variant' column (from encoders.py)
+            - Expects CHROM without 'chr' prefix
+            - Handles BND pairs via MATEID caching
         """
         bnd_cache: dict[str, SvEvent] = {}
+
         for row in self.df.itertuples(index=True, name="Row"):
-            assert not row.CHROM.startswith("chr")
+            # Validate chromosome format
+            chrom = str(row.CHROM)
+            if chrom.startswith("chr"):
+                chrom = chrom[3:]
+
             info = _parse_info(row.INFO)
             pos = int(row.POS)
             end = int(info.get("END", row.POS))
-            alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
+            alt = str(row.ALT)
+            alt_is_symbolic = alt.startswith("<") and alt.endswith(">")
 
+            # Determine SV type
             svtype = info.get("SVTYPE")
-            svlen = (
-                int(info["SVLEN"])
-                if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit()
-                else 0
-            )
+            svlen = _get_svlen_from_info(info)
 
-            if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
-                first_alt = row.ALT.split(",")[0]
+            # Infer type from large indels if SVTYPE not present
+            if svtype is None and _is_large_indel(row.REF, alt, self.min_size):
+                first_alt = alt.split(",")[0]
                 delta = len(first_alt) - len(row.REF)
-                inferred_type = (
-                    "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
-                )
-                svtype = inferred_type
+                svtype = "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
                 svlen = delta
                 end = pos + max(len(row.REF), 1)
 
+            # Extract type from symbolic ALT if still not determined
             if svtype is None and alt_is_symbolic:
-                token = row.ALT.strip("<>")
+                token = alt.strip("<>")
                 svtype = token.split(":")[0].upper()
 
+            # Skip non-SV records
             if svtype is None:
                 continue
 
+            # Parse confidence intervals
             cipos = _parse_ci(info.get("CIPOS"))
             ciend = _parse_ci(info.get("CIEND"))
 
+            # Get variant encoding (from encoders.py)
+            variant_str = getattr(row, "variant", f"{chrom}:{pos}_{svtype}")
+
+            # Get sample format fields if available
+            sample_fmt = getattr(row, "FORMAT", ".")
+            sample_value = getattr(row, "SAMPLE", ".")
+
             event = SvEvent(
-                chrom=row.CHROM,
+                chrom=chrom,
                 pos=pos,
                 end=end,
                 svtype=svtype,
                 svlen=svlen,
-                alt=row.ALT,
-                id=row.ID,
-                qual=row.QUAL,
+                alt=alt,
+                id=str(row.ID),
+                qual=str(row.QUAL),
                 info=info,
-                variant=row.variant,
+                variant=variant_str,
                 cipos=cipos,
                 ciend=ciend,
-                sample_fmt=row.FORMAT,
-                sample_value=row.SAMPLE,
+                sample_fmt=str(sample_fmt),
+                sample_value=str(sample_value),
             )
 
+            # Handle BND pairs
             if svtype == "BND":
-                mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
+                mate_id = info.get("MATEID") or info.get("MATE") or ""
                 if mate_id:
                     if mate_id in bnd_cache:
                         yield bnd_cache.pop(mate_id)
@@ -740,6 +786,91 @@ class SnifflesVcfSvReader:
             else:
                 if event.size >= self.min_size:
                     yield event
+
+
+# @dataclass(slots=True, frozen=True)
+# class SnifflesVcfSvReader:
+#     """Portable, minimal structural variant reader for VCF.
+
+#     Attributes:
+#         df (df): df of to VCF file.
+#         min_size (int): Minimum size threshold for emitting events.
+#     """
+
+#     df: pd.DataFrame
+#     min_size: int = 10
+
+#     def events(self) -> Iterator[SvEvent]:
+#         """Iterate over structural variant events in a VCF.
+#         6
+#                 Returns:
+#                     Iterator[SvEvent]: Yielded SV events.
+#         """
+#         bnd_cache: dict[str, SvEvent] = {}
+#         for row in self.df.itertuples(index=True, name="Row"):
+#             assert not row.CHROM.startswith("chr")
+#             info = _parse_info(row.INFO)
+#             pos = int(row.POS)
+#             end = int(info.get("END", row.POS))
+#             alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
+
+#             svtype = info.get("SVTYPE")
+#             svlen = (
+#                 int(info["SVLEN"])
+#                 if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit()
+#                 else 0
+#             )
+
+#             if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
+#                 first_alt = row.ALT.split(",")[0]
+#                 delta = len(first_alt) - len(row.REF)
+#                 inferred_type = (
+#                     "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
+#                 )
+#                 svtype = inferred_type
+#                 svlen = delta
+#                 end = pos + max(len(row.REF), 1)
+
+#             if svtype is None and alt_is_symbolic:
+#                 token = row.ALT.strip("<>")
+#                 svtype = token.split(":")[0].upper()
+
+#             if svtype is None:
+#                 continue
+
+#             cipos = _parse_ci(info.get("CIPOS"))
+#             ciend = _parse_ci(info.get("CIEND"))
+
+#             event = SvEvent(
+#                 chrom=row.CHROM,
+#                 pos=pos,
+#                 end=end,
+#                 svtype=svtype,
+#                 svlen=svlen,
+#                 alt=row.ALT,
+#                 id=row.ID,
+#                 qual=row.QUAL,
+#                 info=info,
+#                 variant=row.variant,
+#                 cipos=cipos,
+#                 ciend=ciend,
+#                 sample_fmt=row.FORMAT,
+#                 sample_value=row.SAMPLE,
+#             )
+
+#             if svtype == "BND":
+#                 mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
+#                 if mate_id:
+#                     if mate_id in bnd_cache:
+#                         yield bnd_cache.pop(mate_id)
+#                         yield event
+#                     else:
+#                         bnd_cache[event.id] = event
+#                 else:
+#                     yield event
+#             else:
+#                 if event.size >= self.min_size:
+#                     yield event
 
 
 def select_best_per_vcf(
