@@ -660,6 +660,7 @@ def build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
 
         for n, a in zip(num_tokens, α_tokens, strict=True):
             mapping[system][n] = a
+    
     return mapping
 
 
@@ -695,6 +696,10 @@ def compare_antigen_profiles(
         new_sys = 'MNS'
     elif system == 'GYPB':
         new_sys = 'MNS'
+    elif system == 'C4B':
+        new_sys = 'CH'
+    elif system == 'C4A':
+        new_sys = 'CH'
     else:
         new_sys = system
 
