@@ -374,7 +374,7 @@ class AlphaNumericAntigenXG(AlphaNumericAntigen):
             appended.
         """
         return (
-            self.given_name.replace("(", "").replace(")", "").replace("+", "")
+            self.given_name.replace("(", "").replace(")", "")
         )
 
 

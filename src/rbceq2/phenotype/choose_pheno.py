@@ -718,8 +718,7 @@ def internal_anithetical_consistency_HET(
                         assert final_no_expressed == 2
                     except AssertionError:
                         logger.warning(
-                            "Expressed antigens != 2! plz report to devs",
-                            bg.sample,
+                            f"Expressed antigens != 2! plz report to devs with these details; sample= {bg.sample} BG = {bg.type} no_expressed {final_no_expressed}", 
                             new_antigens,
                             pair.allele1,
                             pair.allele2,
@@ -728,6 +727,7 @@ def internal_anithetical_consistency_HET(
                             final_no_expressed,
                             null,
                         )
+                                                
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
