@@ -166,7 +166,7 @@ def main():
     ic('NOT FOR CLINICAL USE')
     start = pd.Timestamp.now()
     args = parse_args(sys.argv[1:])
-    exclude = ['C4A', 'C4B'] #TODO
+    exclude = []
     if not args.RH:
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
