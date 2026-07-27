@@ -1,7 +1,7 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 DB_VERSION = "2.5.0"
 
 
