@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 import pandas as pd
 import re
-
+from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
 from loguru import logger

@@ -12,20 +12,29 @@
 > [!WARNING]
 > NOT FOR CLINICAL USE
 
-## Version v2.4.2
+## Version v2.4.3
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
 
-At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result. Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups.
+At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result (use --debug to see this in detail). Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups.
 
 The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). v2.3.0 focussed on phasing. V2.4.* (current) focuses on large variants and the RH region, using long read sequencing data.
 
+## Database v2.5.0
+
+Our database is a TSV (db.tsv). It is a mirror of the official ISBT database. We will use the ISBT API directly once their databse is finished and polished. At the time of writing their antigen states and modifiers are not finished. There are also a few intentional differences, the main one being adjancent SNVs being merged into a single variant in the official ISBT database. 
+
 ## Bugs
-This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened).
+
+This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened). The RH region is the most likely to produce eroneous allele calls. Please work with us by raising issue here on git.
+
+## QC
+
+RBCeq2 does not QC your data. You can choose to use all variants in the VCF or just those that have a PASS in the filter column.
 
 ## Documentation
 
-Documentation can be downloaded from the release page, you will need to be signed in to github to access it.
+Documentation in the form of a PDF can be downloaded from the release page, you will need to be signed in to github to access it. We will convert this into a website at some point.
 
 ## How To
 
