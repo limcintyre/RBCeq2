@@ -85,7 +85,7 @@ class BeyondLogicError(Exception):
 class Zygosity:
     HOM = "Homozygous"  # hom alt
     HET = "Heterozygous"
-    REF = "Reference"  # hom ref
+    #REF = "Reference"  # hom ref
     HEM = "Hemizygous"  # ie with big del
 
 

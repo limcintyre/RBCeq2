@@ -283,7 +283,7 @@ class BloodGroup:
         default_factory=lambda: {
             Zygosity.HOM: 2,
             Zygosity.HET: 1,
-            Zygosity.REF: 2,
+            #Zygosity.REF: 2,
             Zygosity.HEM: 1,
         }
     )

@@ -26,9 +26,22 @@ Lifeblood.
    and DB disagree, fix the DB.
 5. **Be explicit over terse.** Verbose unambiguous output is preferred to concise ambiguous
    output. This applies to allele definitions, phenotype strings, and log messages.
-6. **Be explicit over terse.** Use google style doc strings, however, many of the examples 
+6. **Real examples in doc strs.** Use google style doc strings, however, many of the examples 
    in the existing functions have copy paste from logs and this is not always formatted perfectly,
    Do no change these - they are real examples of the function (normally a filter).
+
+## Working agreement
+
+Agents **propose; the maintainer applies.** This repo is the maintainer's primary work.
+
+1. **Do not edit files in this repo.** Output suggested changes as code blocks in chat, or as
+   files written to the session working directory, for manual review and paste. This is
+   deliberate: it keeps a human on every line that lands.
+2. **Write all output to the working directory.** Findings docs, notes, analyses, throwaway
+   scripts, and proposed versions of repo files all go there — never into the repo tree.
+   `git status` should stay clean unless the maintainer dirtied it.
+3. **Anchor every claim to `file:line`** so a suggestion can be found by hand. Prefer small
+   self-contained blocks over large rewrites — they are being pasted, not applied.
 
 ## Commands
 
@@ -42,6 +55,44 @@ rbceq2 --vcf x.vcf.gz --out y --reference_genome GRCh38 --debug
 
 No CI workflows exist. There is no Makefile. `--debug` produces the full per-sample filter
 trace and is the primary debugging tool — reproduce a bug with `--debug` before changing code.
+
+**The `unittest` suite is a smoke check, not the acceptance gate.** The end-to-end tests are
+the real gate and the maintainer runs them manually after any change. Never report work as
+verified on the strength of `python -m unittest discover tests` alone — state which unit tests
+ran and that e2e is still outstanding.
+
+### End-to-end tests
+
+`~/Dropbox/RBCeq2_related/scripts/e2e.py` runs the real CLI over five datasets and diffs the
+three output TSVs against gold standards in `~/Dropbox/rbceq2/e2e_gold/linux`:
+
+| key | data | genome | flags |
+|---|---|---|---|
+| `1kg_microarray` | `~/Dropbox/vcfs/ALL_just_genes.vcf.gz` | GRCh37 | — |
+| `ont_vienna_1kg_phased` | `~/Dropbox/vcfs/clair3_norm/` | GRCh38 | `--phased --RH` |
+| `ont_vienna_1kg_unphased` | `~/Dropbox/vcfs/clair3_norm/` | GRCh38 | `--RH` |
+| `public_truth_17_unphased` | `~/Dropbox/rbceq2/public_truth/combined_VCFs_uncompressed/` | GRCh38 | `--RH` |
+| `public_truth_17_phased` | same | GRCh38 | `--phased --RH` |
+
+```bash
+python ~/Dropbox/RBCeq2_related/scripts/e2e.py --datasets public_truth_17_phased
+```
+
+All five run by default. Every run adds `--HPAs --debug --processes 12`. Identical output to
+gold is a pass; otherwise `report_minimal_differences` prints per-sample, per-column diffs
+(`e2e.py:163`), with comma-delimited fields compared as unordered sets (`:115`).
+
+How it is used, so agents read the results correctly:
+
+- **The maintainer reviews every gold-vs-new discrepancy by hand.** The script is a difference
+  *reporter*, not a pass/fail gate — `validate_outputs` always returns `True` (`e2e.py:264`),
+  so the exit code carries no signal. Never write "e2e passed"; e2e produces a diff, and a
+  human adjudicates it.
+- **It runs the installed `rbceq2` console script** (`e2e.py:60-61`), not the working tree, so
+  the active env's install has to be current for a change to show up in the output.
+- **Gold standards are platform- and version-specific** (`.../e2e_gold/linux`, a given DB
+  version). When a change is *supposed* to alter output, the gold files need regenerating —
+  that is the maintainer's call, never an agent's.
 
 ## Repo map
 
