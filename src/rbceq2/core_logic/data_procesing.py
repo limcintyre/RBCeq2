@@ -1,5 +1,6 @@
 import itertools
 import operator
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial
@@ -9,6 +10,7 @@ from loguru import logger
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState
 from rbceq2.core_logic.utils import (
+    BeyondLogicError,
     Zygosity,
     apply_to_dict_values,
     check_available_variants,
@@ -451,7 +453,9 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
-        zygosity = {var: get_ref(vcf.variants[var]) for var in allele.defining_variants}
+        zygosity = {
+            var: get_ref(vcf.variants[var], var) for var in allele.defining_variants
+        }
         variant_pool = variant_pool | zygosity
 
     for variant, zygo in variant_pool.items():
@@ -853,32 +857,77 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
-def get_ref(ref_dict: dict[str, str]) -> str:
-    """Determine the zygosity from a reference dictionary containing genotype
-    information.
+def parse_GT(GT: str) -> tuple[str, ...]:
+    """Split a genotype string into its allele indices.
+
+    Splits on either separator, so phased and unphased genotypes parse the same way.
+    No interpretation is applied - '.' is returned as '.', and multi-digit indices are
+    returned whole.
 
     Args:
-        ref_dict (Dict[str, str]): A dictionary containing the genotype ("GT") and
-        possibly other information.
+        GT (str): A genotype string, e.g. '0/1', '0|1', '1', './.'.
 
     Returns:
-        str: A string indicating the zygosity as 'Homozygous' or 'Heterozygous'.
+        tuple[str, ...]: The allele indices, e.g. ('0', '1') for '0/1', ('1',) for '1'.
+    """
+    return tuple(re.split(r"[/|]", GT))
 
-    Raises:
-        ValueError: If the genotype string does not conform to the expected format.
+
+def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
+    """Determine the zygosity from a reference dictionary containing genotype
+    information.
 
     The genotype string is expected to be in the format '0/1', '0|1', etc., where
     the delimiter can be '/' or '|'.
     A genotype of '0/0' or '1/1', etc., where both alleles are the same, will return
     'Homozygous'.
     A genotype of '0/1', '1/0', etc., will return 'Heterozygous'.
+
+    Only diploid, biallelic genotypes are supported. Haploid genotypes (issue #40) and
+    multi-allelic genotypes are rejected rather than guessed at - a haploid call needs a
+    ploidy model that does not exist yet, and a multi-allelic call needs the VCF split
+    with 'bcftools norm -m -both' first.
+
+    Args:
+        ref_dict (Dict[str, str]): A dictionary containing the genotype ("GT") and
+        possibly other information.
+        variant (str): The variant the genotype belongs to, used to make errors
+        traceable back to a VCF row. Optional so existing callers keep working.
+
+    Returns:
+        str: A string indicating the zygosity as 'Homozygous' or 'Heterozygous'.
+
+    Raises:
+        BeyondLogicError: If the genotype is not diploid, or is multi-allelic.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
-    ref_str = ref_dict["GT"]
-    assert len(ref_str) == 3
+    GT = ref_dict["GT"]
+    alleles = parse_GT(GT)
 
-    ref_str = ref_str.replace(".", "0")
-    if ref_str[0] == ref_str[2]:
+    if len(alleles) != 2:
+        raise BeyondLogicError(
+            message=(
+                "Only diploid genotypes are supported. Haploid genotypes (ie non-PAR "
+                "X/Y, or copy-number-aware callers) are not yet supported - see "
+                "issue #40."
+            ),
+            context=f"variant: {variant}, GT: {GT}",
+        )
+
+    # '.' is treated as wildtype, as it always has been. This is wrong for a genuine
+    # no-call and is tracked separately - it is not changed here.
+    allele1, allele2 = (allele.replace(".", "0") for allele in alleles)
+
+    if not {allele1, allele2} <= {"0", "1"}:
+        raise BeyondLogicError(
+            message=(
+                "Multi-allelic genotypes are not supported. Please split the VCF "
+                "first, ie 'bcftools norm -m -both'."
+            ),
+            context=f"variant: {variant}, GT: {GT}",
+        )
+
+    if allele1 == allele2:
         return Zygosity.HOM
     return Zygosity.HET
 

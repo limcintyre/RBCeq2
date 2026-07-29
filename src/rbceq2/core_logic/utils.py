@@ -6,6 +6,8 @@ from itertools import zip_longest
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Any, Callable
 from typing import Literal
+from loguru import logger
+
 
 if TYPE_CHECKING:
     from src.core_logic.alleles import Allele, BloodGroup
@@ -127,6 +129,28 @@ def apply_to_dict_values(func: Callable[..., Any]) -> Callable[..., dict]:
 
     return decorator
 
+def zygosity_or_HOM(pool: dict[str, str], variant: str) -> str:
+    """Look up a variant's zygosity in the pool, assuming HOM if it is absent.
+
+    The variant pool is built from the defining variants of the blood group's own
+    alleles, so a miss means an allele is being checked against a pool that does not
+    describe it. That has never been observed on any test dataset, but if it happened
+    the caller would quietly treat the variant as neither HET nor HOM and skip a filter
+    without recording an exclusion, so the miss is warned about rather than swallowed.
+
+    Args:
+        pool (dict[str, str]): Mapping of variant identifiers to Zygosity values.
+        variant (str): The variant identifier to look up.
+
+    Returns:
+        str: The variant's Zygosity value, or Zygosity.HOM if it is not in the pool.
+    """
+    if variant not in pool:
+        logger.warning(
+            f"Variant missing from variant pool, assuming {Zygosity.HOM}: {variant}"
+        )
+    return pool.get(variant, Zygosity.HOM)
+
 
 def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
     """Check if the allele has one HET variant, all HOM variants, or just one variant.
@@ -146,46 +170,60 @@ def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
         variant for variant in allele.defining_variants if not variant.endswith(".")
     ]
 
-    return (
-        sum([1 for variant in proper_vars if pool.get(variant, "HOM") == Zygosity.HET])
-        == 1
-        or allele.number_of_defining_variants == 1
-        or all(pool.get(variant, "HOM") == Zygosity.HOM for variant in proper_vars)
-    )
-
-
-def one_HET_all_HOM_ref_or_1variant(allele: Allele, pool: dict[str, str]) -> bool:
-    """Check if an allele meets one of the following conditions:
-    1. It has exactly one HET variant.
-    2. It has exactly one defining variant.
-    3. It is a reference allele.
-    4. All defining variants are HOM.
-
-    Args:
-        allele (Allele): An Allele object with its defining variants.
-        pool (dict[str, str]): A dictionary mapping variant identifiers to
-            their zygosity. Defaults to "HOM" if a variant is not found.
-
-    Returns:
-        bool: True if any of the above conditions is met, False otherwise.
-    """
-
+    # return (
+    #     sum([1 for variant in proper_vars if pool.get(variant, "HOM") == Zygosity.HET])
+    #     == 1
+    #     or allele.number_of_defining_variants == 1
+    #     or all(pool.get(variant, "HOM") == Zygosity.HOM for variant in proper_vars)
+    # )
     return (
         sum(
             [
                 1
-                for variant in allele.defining_variants
-                if pool.get(variant, "HOM") == Zygosity.HET
+                for variant in proper_vars
+                if zygosity_or_HOM(pool, variant) == Zygosity.HET
             ]
         )
         == 1
         or allele.number_of_defining_variants == 1
-        or allele.reference
         or all(
-            pool.get(variant, "HOM") == Zygosity.HOM
-            for variant in allele.defining_variants
+            zygosity_or_HOM(pool, variant) == Zygosity.HOM for variant in proper_vars
         )
     )
+
+
+# def one_HET_all_HOM_ref_or_1variant(allele: Allele, pool: dict[str, str]) -> bool:
+#     """Check if an allele meets one of the following conditions:
+#     1. It has exactly one HET variant.
+#     2. It has exactly one defining variant.
+#     3. It is a reference allele.
+#     4. All defining variants are HOM.
+
+#     Args:
+#         allele (Allele): An Allele object with its defining variants.
+#         pool (dict[str, str]): A dictionary mapping variant identifiers to
+#             their zygosity. Defaults to "HOM" if a variant is not found.
+
+#     Returns:
+#         bool: True if any of the above conditions is met, False otherwise.
+#     """
+
+#     return (
+#         sum(
+#             [
+#                 1
+#                 for variant in allele.defining_variants
+#                 if pool.get(variant, "HOM") == Zygosity.HET
+#             ]
+#         )
+#         == 1
+#         or allele.number_of_defining_variants == 1
+#         or allele.reference
+#         or all(
+#             pool.get(variant, "HOM") == Zygosity.HOM
+#             for variant in allele.defining_variants
+#         )
+#     )
 
 
 def check_available_variants(

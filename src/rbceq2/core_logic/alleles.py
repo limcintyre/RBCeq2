@@ -162,7 +162,7 @@ class Allele:
         return (
             f"Allele \n "
             f"genotype: {self.genotype} \n "
-            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in self.defining_variants])} \n "
+            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in sorted(self.defining_variants)])} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
             f"reference: {self.reference} \n"

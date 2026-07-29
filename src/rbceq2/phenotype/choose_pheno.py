@@ -383,7 +383,11 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             else current_pair.alleles
         )
 
-        return [getattr(allele, phenotype_attr) for allele in alleles_to_use]
+        #return [getattr(allele, phenotype_attr) for allele in alleles_to_use]
+        return [
+            getattr(allele, phenotype_attr)
+            for allele in sorted(alleles_to_use, key=lambda allele: allele.genotype)
+                ]
 
     pair_antigens = {}
     make_values_dict_pre_filled = partial(

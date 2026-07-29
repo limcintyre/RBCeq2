@@ -75,7 +75,7 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
     def format_vars(pool):
         transcripts = GENOMIC_TO_TRANSCRIPT_GRCh37 if ref == 'GRCh37' else GENOMIC_TO_TRANSCRIPT_GRCh38
         return "\n" + "\n".join(
-            [" : ".join([collapse_variant(k), transcripts.get(k, '(None)'), v]) for k, v in pool.items()]
+            [" : ".join([collapse_variant(k), transcripts.get(k, '(None)'), v]) for k, v in sorted(pool.items())]
         )
 
     sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results
@@ -110,7 +110,7 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
             no_filters = True
             for k, v in bg_data.filtered_out.items():
                 if v:
-                    logger.debug(f"\n{k}: {'\n'.join(map(str, v))}\n")
+                    logger.debug(f"\n{k}: {'\n'.join(sorted(map(str, v)))}\n")
                     no_filters = False
             if no_filters:
                 logger.debug("No filters were applied\n")

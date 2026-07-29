@@ -8,6 +8,7 @@ from rbceq2.core_logic.co_existing import (
     mushed_vars,
 )
 from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.utils import BeyondLogicError
 from rbceq2.core_logic.data_procesing import (
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
@@ -23,6 +24,7 @@ from rbceq2.core_logic.data_procesing import (
     make_pair,
     make_variant_pool,
     pair_can_exist,
+    parse_GT,
     process_genetic_data,
     raw_results,
     remove_alleles_with_low_base_quality,
@@ -136,7 +138,7 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_basic_functionality(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(ref_dict, variant=""):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -169,7 +171,7 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_multiple_alleles(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(ref_dict, variant=""):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -197,7 +199,7 @@ class TestMakeVariantPool(unittest.TestCase):
         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele4]}
 
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(ref_dict, variant=""):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1":
@@ -218,7 +220,7 @@ class TestMakeVariantPool(unittest.TestCase):
         self.allele_invalid = MagicMock(defining_variants={"var1"})
         self.bg.alleles = {AlleleState.FILT: [self.allele_invalid]}
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(BeyondLogicError):
             make_variant_pool({1: self.bg}, invalid_vcf)
 
 
@@ -239,12 +241,51 @@ class TestGetRef(unittest.TestCase):
 
     def test_invalid_genotype_format(self):
         ref_dict = {"GT": "invalid"}
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(BeyondLogicError):
             get_ref(ref_dict)
 
         ref_dict = {"GT": "0/1/2"}
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(BeyondLogicError):
             get_ref(ref_dict)
+
+    def test_haploid_genotype_rejected(self):
+        """Issue #40 - haploid GTs are rejected, not guessed at."""
+        for GT in ["1", "0", "."]:
+            with self.assertRaises(BeyondLogicError):
+                get_ref({"GT": GT})
+
+    def test_multi_allelic_genotype_rejected(self):
+        """1/2 used to return Heterozygous silently - it is 3 chars, so the old
+        len == 3 assert never caught it."""
+        for GT in ["1/2", "2/1", "0/2", "1|2"]:
+            with self.assertRaises(BeyondLogicError):
+                get_ref({"GT": GT})
+
+    def test_error_names_the_variant(self):
+        """Errors must be traceable back to a VCF row."""
+        with self.assertRaises(BeyondLogicError) as ctx:
+            get_ref({"GT": "1"}, "X:37600000_G_A")
+        self.assertIn("X:37600000_G_A", str(ctx.exception))
+
+    def test_no_call_still_treated_as_wildtype(self):
+        """Not a endorsement - ./. -> HOM is wrong for a genuine no-call and is
+        tracked separately. Pinned here so the change is deliberate when it comes."""
+        self.assertEqual(get_ref({"GT": "./."}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": ".|."}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "0/."}), Zygosity.HOM)
+
+
+class TestParseGT(unittest.TestCase):
+    def test_splits_on_either_separator(self):
+        self.assertEqual(parse_GT("0/1"), ("0", "1"))
+        self.assertEqual(parse_GT("0|1"), ("0", "1"))
+
+    def test_haploid(self):
+        self.assertEqual(parse_GT("1"), ("1",))
+
+    def test_no_interpretation_applied(self):
+        self.assertEqual(parse_GT("./."), (".", "."))
+        self.assertEqual(parse_GT("10/1"), ("10", "1"))
 
 
 class TestGetGenotypes(unittest.TestCase):
