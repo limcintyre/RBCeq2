@@ -89,6 +89,13 @@ class Zygosity:
     HET = "Heterozygous"
     #REF = "Reference"  # hom ref
     HEM = "Hemizygous"  # ie with big del
+    NO_DATA = "No_data"  # locus not called for this sample, ie a '.' in the GT
+    # NO_DATA is the absence of a measurement, not a measurement of absence - it is not
+    # 'zero copies'. That is still encoded by the token simply not being in the pool.
+    # An allele with a NO_DATA defining variant cannot be confirmed, so it is excluded by
+    # remove_alleles_with_no_call_variants rather than left to compare False against HOM
+    # or HET and drop out of a filter silently. Deliberately not in BloodGroup.len_dict:
+    # there is no honest copy number for 'not measured', so variant_pool_numeric omits it.
 
 
 Preprocessor = Callable[[dict[str, "BloodGroup"]], dict[str, "BloodGroup"]]

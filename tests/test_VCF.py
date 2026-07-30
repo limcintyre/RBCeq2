@@ -100,6 +100,78 @@ class TestVCFMethods(unittest.TestCase):
         vcf_obj = VCF([self.df_local], {}, set(), sample="test_sample")
         self.assertFalse(any(vcf_obj.df["SAMPLE"].str.startswith("0/0")))
 
+    @staticmethod
+    def _df_with_gts(gts: list[str]) -> pd.DataFrame:
+        """Return a VCF-like DataFrame with one row per genotype, at distinct positions.
+
+        Args:
+            gts (list[str]): GT strings, ie ['0/0', '0|0', '0/1'].
+
+        Returns:
+            pd.DataFrame: One row per genotype, all T>C on chr2.
+        """
+        n = len(gts)
+        return pd.DataFrame(
+            {
+                "CHROM": ["chr2"] * n,
+                "POS": [str(2000 + i * 10) for i in range(n)],
+                "ID": ["."] * n,
+                "REF": ["T"] * n,
+                "ALT": ["C"] * n,
+                "QUAL": ["."] * n,
+                "FILTER": ["."] * n,
+                "INFO": ["."] * n,
+                "FORMAT": ["GT:AD:GQ:DP:PS"] * n,
+                "SAMPLE": [f"{gt}:1,1:30:30:1" for gt in gts],
+            }
+        )
+
+    def test_remove_home_ref_drops_phased_hom_ref(self) -> None:
+        """A phased hom ref ('0|0') must be dropped, exactly as '0/0' is.
+
+        Regression guard for the A4 row of the ploidy state table. Until v2.4.3 only
+        '0/0' was matched, so a '0|0' row survived, was encoded as an ALT token and then
+        read as Homozygous - asserting the sample carries the variant on both chromosomes
+        when the GT says it carries it on neither.
+        """
+        vcf_obj = VCF(
+            [self._df_with_gts(["0/0", "0|0", "0/1"])],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        surviving_gts = [s.split(":")[0] for s in vcf_obj.df["SAMPLE"]]
+        self.assertEqual(surviving_gts, ["0/1"])
+
+    def test_get_variants_excludes_phased_hom_ref(self) -> None:
+        """No hom ref call of either separator may reach the variant dict.
+
+        get_variants has its own hom ref skip. It is a safety net behind
+        remove_home_ref, and it matched '0/0' only for the same reason.
+        """
+        vcf_obj = VCF(
+            [self._df_with_gts(["0/0", "0|0", "0/1"])],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        leaked = {
+            variant: metrics["GT"]
+            for variant, metrics in vcf_obj.variants.items()
+            if metrics["GT"] in ("0/0", "0|0")
+        }
+        self.assertEqual(leaked, {})
+
+    def test_remove_home_ref_keeps_haploid_zero(self) -> None:
+        """Haploid '0' must NOT be treated as hom ref.
+
+        It is hom ref only if the region is genuinely single-copy, which needs the ploidy
+        model that issue #40 tracks. Dropping it here would hide the case instead of
+        resolving it, so it is deliberately left to fail loudly downstream.
+        """
+        vcf_obj = VCF([self._df_with_gts(["0"])], {}, set(), sample="test_sample")
+        self.assertEqual(len(vcf_obj.df), 1)
+
     def test_rename_chrom(self) -> None:
         """Check rename_chrom removes the 'chr' prefix."""
         vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")

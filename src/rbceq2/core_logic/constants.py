@@ -7,8 +7,23 @@ DB_VERSION = "2.5.0"
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
 
+# Diploid hom ref genotypes, ie no ALT allele on either chromosome. Both separators are
+# listed because a phased caller may write either. Haploid '0' is deliberately excluded -
+# it is only hom ref if the region is genuinely single-copy, which needs the ploidy model
+# from issue #40.
+HOM_REF_GTS = ("0/0", "0|0")
+
+# The GT of the synthesised lane '_ref' row below. It is deliberately NOT a valid VCF
+# genotype, and deliberately not './.'.
+#
+# './.' was used until v2.4.3, which made RBCeq2's own assertion of wildtype
+# indistinguishable from a genuine no-call in the input. Both then became Homozygous, so a
+# locus that was never called was reported as hom ref. This row is the one place where
+# 'wildtype at this locus' is asserted by RBCeq2 rather than measured, so it says so.
+SYNTHESISED_HOM_REF_GT = "synthesised_hom_ref"
+
 HOM_REF_DUMMY_QUAL = ""
-HOM_REF_DUMMY_QUAL += "./.:"  # GT (Genotype ie  0/1, 1|0, 0/0, 1/1.)
+HOM_REF_DUMMY_QUAL += f"{SYNTHESISED_HOM_REF_GT}:"  # GT - see above, not a real GT
 HOM_REF_DUMMY_QUAL += "1,29:"  # AD (Allelic Depth)
 HOM_REF_DUMMY_QUAL += "30:"  # GQ (Genotype Quality)
 HOM_REF_DUMMY_QUAL += "30:"  # DP (Read Depth):

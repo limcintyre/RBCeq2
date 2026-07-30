@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import AlleleState, SYNTHESISED_HOM_REF_GT
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
     Zygosity,
@@ -475,6 +475,47 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
     return bg
 
 
+@apply_to_dict_values
+def remove_alleles_with_no_call_variants(bg: BloodGroup) -> BloodGroup:
+    """Remove alleles that depend on a locus the caller did not call.
+
+    An allele is only reported if every one of its defining variants was measured. If any
+    of them is Zygosity.NO_DATA the allele cannot be confirmed, so it is excluded here
+    with a named reason rather than being left in play - every one of the 18 sites that
+    compares a zygosity does so with '== Zygosity.HOM' or '!= Zygosity.HET', all of which
+    evaluate the wrong way for NO_DATA and would quietly stop a filter firing with nothing
+    recorded in filtered_out.
+
+    The NO_DATA token is deliberately left in bg.variant_pool. It is the evidence for the
+    exclusion, and the Vars: block of the debug log is where a user goes to see why an
+    allele went away. Dropping the token instead would remove the exclusion's own
+    explanation from the trail.
+
+    Note this is not the same check as only_keep_alleles_if_FILTER_PASS, and neither
+    subsumes the other: FILTER is a per-site column and can read PASS on a row where this
+    sample's GT is './.'. Measured on the 1kg microarray set, all 94 rows at DB loci are
+    FILTER PASS while 5,343 sample genotypes at those loci are no-calls.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose variant_pool has been built.
+
+    Returns:
+        BloodGroup: The BloodGroup with unconfirmable alleles moved to filtered_out under
+            'no_call_at_defining_variant'.
+    """
+    to_remove = [
+        allele
+        for allele in bg.alleles[AlleleState.FILT]
+        if any(
+            bg.variant_pool.get(variant) == Zygosity.NO_DATA
+            for variant in allele.defining_variants
+        )
+    ]
+    bg.remove_alleles(to_remove, "no_call_at_defining_variant", AlleleState.FILT)
+
+    return bg
+
+
 def _modify_variant_pool_with_large_indel(
     variant_pool: dict, sample: str, bg_type: str, is_phase_pool: bool = False
 ) -> dict:
@@ -883,10 +924,25 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
     'Homozygous'.
     A genotype of '0/1', '1/0', etc., will return 'Heterozygous'.
 
+    A GT containing '.' returns 'No_data'. Until v2.4.3 it was passed through
+    .replace(".", "0"), which turned './.' into '0/0' and therefore into 'Homozygous' -
+    converting the absence of a measurement into a positive claim of wildtype. That is
+    wrong in both directions: for an ALT token it asserted the sample carries the variant
+    on both chromosomes, and it is exactly the case the caller declined to call. In a
+    microarray call set '0/0' and './.' both appear in the same file with different
+    meanings (a confident hom ref call, and a failed probe), so './.' cannot be read as
+    hom ref. Half-calls ('0/.', '1/.') are No_data too - one known allele is not a
+    confirmed genotype.
+
+    The synthesised lane row is the one legitimate assertion of wildtype and carries
+    SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here and is not
+    affected.
+
     Only diploid, biallelic genotypes are supported. Haploid genotypes (issue #40) and
     multi-allelic genotypes are rejected rather than guessed at - a haploid call needs a
     ploidy model that does not exist yet, and a multi-allelic call needs the VCF split
-    with 'bcftools norm -m -both' first.
+    with 'bcftools norm -m -both' first. The '.' check runs before the biallelic check, so
+    a nonsense GT like '2/.' reports as No_data rather than as multi-allelic.
 
     Args:
         ref_dict (Dict[str, str]): A dictionary containing the genotype ("GT") and
@@ -895,13 +951,18 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
         traceable back to a VCF row. Optional so existing callers keep working.
 
     Returns:
-        str: A string indicating the zygosity as 'Homozygous' or 'Heterozygous'.
+        str: A string indicating the zygosity as 'Homozygous', 'Heterozygous' or
+        'No_data'.
 
     Raises:
         BeyondLogicError: If the genotype is not diploid, or is multi-allelic.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
     GT = ref_dict["GT"]
+
+    if GT == SYNTHESISED_HOM_REF_GT:
+        return Zygosity.HOM
+
     alleles = parse_GT(GT)
 
     if len(alleles) != 2:
@@ -914,11 +975,10 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
             context=f"variant: {variant}, GT: {GT}",
         )
 
-    # '.' is treated as wildtype, as it always has been. This is wrong for a genuine
-    # no-call and is tracked separately - it is not changed here.
-    allele1, allele2 = (allele.replace(".", "0") for allele in alleles)
+    if "." in alleles:
+        return Zygosity.NO_DATA
 
-    if not {allele1, allele2} <= {"0", "1"}:
+    if not set(alleles) <= {"0", "1"}:
         raise BeyondLogicError(
             message=(
                 "Multi-allelic genotypes are not supported. Please split the VCF "
@@ -927,6 +987,7 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
             context=f"variant: {variant}, GT: {GT}",
         )
 
+    allele1, allele2 = alleles
     if allele1 == allele2:
         return Zygosity.HOM
     return Zygosity.HET

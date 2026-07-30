@@ -312,6 +312,7 @@ def find_hits(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
         partial(dp.make_variant_pool, vcf=vcf),
+        dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
         partial(dp.modify_allele_pool_if_large_indel),
         partial(

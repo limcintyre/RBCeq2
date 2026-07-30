@@ -577,6 +577,8 @@ def ensure_co_existing_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     """
     if bg.type != "KN":
         return bg
+    if bg.alleles[AlleleState.CO] is None:
+        return bg
     to_remove = []
     for variant, zygo in bg.variant_pool.items():
         if zygo == Zygosity.HET:

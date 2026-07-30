@@ -325,10 +325,20 @@ class BloodGroup:
     def variant_pool_numeric(self) -> dict[str, int]:
         """Convert variant pool zygosity states to their numerical values.
 
+        Zygosity.NO_DATA is omitted rather than scored. 'Not measured' has no copy number,
+        so any value put here would be invented - which is the bug this state exists to
+        fix. Omitting is safe because remove_alleles_with_no_call_variants has already
+        excluded every allele with a NO_DATA defining variant, so the only code that would
+        look one up by key is operating on alleles that no longer exist.
+
         Returns:
             Dict[str, int]: Dictionary of variants mapped to their numerical zygosity values.
         """
-        return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
+        return {
+            k: self.len_dict[v]
+            for k, v in self.variant_pool.items()
+            if v != Zygosity.NO_DATA
+        }
 
     @property
     def number_of_putative_alleles(self) -> int:

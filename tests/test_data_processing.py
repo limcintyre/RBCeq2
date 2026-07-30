@@ -7,8 +7,15 @@ from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.co_existing import (
     mushed_vars,
 )
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import (
+    AlleleState,
+    HOM_REF_DUMMY_QUAL,
+    SYNTHESISED_HOM_REF_GT,
+)
 from rbceq2.core_logic.utils import BeyondLogicError
+# The real enum, aliased because this module defines a local 2-value 'Zygosity' stub below
+# (used to mock get_ref in TestMakeVariantPool) which shadows it for the whole file.
+from rbceq2.core_logic.utils import Zygosity as RealZygosity
 from rbceq2.core_logic.data_procesing import (
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
@@ -29,6 +36,7 @@ from rbceq2.core_logic.data_procesing import (
     raw_results,
     remove_alleles_with_low_base_quality,
     remove_alleles_with_low_read_depth,
+    remove_alleles_with_no_call_variants,
     unique_in_order,
 )
 from rbceq2.db.db import Db
@@ -267,12 +275,119 @@ class TestGetRef(unittest.TestCase):
             get_ref({"GT": "1"}, "X:37600000_G_A")
         self.assertIn("X:37600000_G_A", str(ctx.exception))
 
-    def test_no_call_still_treated_as_wildtype(self):
-        """Not a endorsement - ./. -> HOM is wrong for a genuine no-call and is
-        tracked separately. Pinned here so the change is deliberate when it comes."""
-        self.assertEqual(get_ref({"GT": "./."}), Zygosity.HOM)
-        self.assertEqual(get_ref({"GT": ".|."}), Zygosity.HOM)
-        self.assertEqual(get_ref({"GT": "0/."}), Zygosity.HOM)
+    def test_no_call_is_no_data_not_wildtype(self):
+        """A '.' in the GT means the locus was not called, so it cannot be read as hom ref.
+
+        Replaces test_no_call_still_treated_as_wildtype, which pinned the old
+        .replace(".", "0") behaviour so that changing it would be deliberate. This is that
+        change. Both separators and half-calls are covered - one known allele is still not
+        a confirmed genotype.
+        """
+        self.assertEqual(get_ref({"GT": "./."}), RealZygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": ".|."}), RealZygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0/."}), RealZygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "./1"}), RealZygosity.NO_DATA)
+
+    def test_synthesised_lane_row_is_still_hom(self):
+        """The synthesised lane '_ref' row is RBCeq2's own wildtype assertion, not a call.
+
+        It is the one legitimate 'wildtype here' claim, so it must stay HOM after './.'
+        stopped meaning that. It carries SYNTHESISED_HOM_REF_GT precisely so the two are
+        distinguishable.
+        """
+        self.assertEqual(
+            get_ref({"GT": SYNTHESISED_HOM_REF_GT}), RealZygosity.HOM
+        )
+        self.assertEqual(HOM_REF_DUMMY_QUAL.split(":")[0], SYNTHESISED_HOM_REF_GT)
+
+    def test_real_genotypes_unaffected(self):
+        """Regression guard: the diploid cases must be untouched by the No_data change."""
+        self.assertEqual(get_ref({"GT": "0/1"}), RealZygosity.HET)
+        self.assertEqual(get_ref({"GT": "1|0"}), RealZygosity.HET)
+        self.assertEqual(get_ref({"GT": "1/1"}), RealZygosity.HOM)
+        self.assertEqual(get_ref({"GT": "0|0"}), RealZygosity.HOM)
+
+
+class TestRemoveAllelesWithNoCallVariants(unittest.TestCase):
+    """An allele is only reported if every defining variant was actually called."""
+
+    @staticmethod
+    def _allele(genotype: str, variants: set[str]) -> Allele:
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type=genotype.split("*")[0],
+        )
+
+    def _bg(self, alleles: list[Allele], pool: dict[str, str]) -> BloodGroup:
+        return BloodGroup(
+            type="FY",
+            alleles={AlleleState.FILT: list(alleles)},
+            sample="s",
+            variant_pool=dict(pool),
+        )
+
+    def test_allele_with_no_call_variant_is_excluded_and_recorded(self):
+        keep = self._allele("FY*01", {"1:100_A_G"})
+        drop = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg(
+            [keep, drop],
+            {"1:100_A_G": RealZygosity.HET, "1:200_C_T": RealZygosity.NO_DATA},
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep])
+        self.assertEqual(
+            result.filtered_out["no_call_at_defining_variant"], [drop]
+        )
+
+    def test_no_call_token_is_left_in_the_pool_as_the_evidence(self):
+        """The exclusion's explanation has to survive in the Vars: block of the log."""
+        drop = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg([drop], {"1:200_C_T": RealZygosity.NO_DATA})
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.variant_pool["1:200_C_T"], RealZygosity.NO_DATA)
+
+    def test_allele_needing_one_good_and_one_no_call_variant_is_excluded(self):
+        """Partial evidence is not evidence - all defining variants must be called."""
+        drop = self._allele("FY*02.01", {"1:100_A_G", "1:200_C_T"})
+        bg = self._bg(
+            [drop], {"1:100_A_G": RealZygosity.HOM, "1:200_C_T": RealZygosity.NO_DATA}
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [])
+
+    def test_pool_with_no_no_call_is_untouched(self):
+        keep1 = self._allele("FY*01", {"1:100_A_G"})
+        keep2 = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg(
+            [keep1, keep2],
+            {"1:100_A_G": RealZygosity.HET, "1:200_C_T": RealZygosity.HOM},
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep1, keep2])
+        self.assertEqual(dict(result.filtered_out), {})
+
+    def test_variant_pool_numeric_omits_no_call_rather_than_scoring_it(self):
+        """There is no honest copy number for 'not measured', so no number is invented."""
+        bg = self._bg(
+            [], {"1:100_A_G": RealZygosity.HET, "1:200_C_T": RealZygosity.NO_DATA}
+        )
+
+        self.assertEqual(bg.variant_pool_numeric, {"1:100_A_G": 1})
 
 
 class TestParseGT(unittest.TestCase):

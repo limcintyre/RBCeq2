@@ -10,7 +10,12 @@ os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
 from loguru import logger
 from collections import defaultdict
-from rbceq2.core_logic.constants import COMMON_COLS, HOM_REF_DUMMY_QUAL, LANE
+from rbceq2.core_logic.constants import (
+    COMMON_COLS,
+    HOM_REF_DUMMY_QUAL,
+    HOM_REF_GTS,
+    LANE,
+)
 from rbceq2.IO.encoders import VariantEncoderFactory
 
 
@@ -116,8 +121,25 @@ class VCF:
         self.df["CHROM"] = self.df["CHROM"].apply(lambda x: x.replace("chr", ""))
 
     def remove_home_ref(self) -> None:
-        """Remove homozygous reference calls from the DataFrame."""
-        self.df = self.df[~self.df["SAMPLE"].str.startswith("0/0")].copy(deep=True)
+        """Remove homozygous reference calls from the DataFrame.
+
+        A hom ref call carries no allele, so the row is dropped and the token's absence
+        from the variant pool is what records 'zero copies of this ALT'. Kept as a row it
+        would instead become an ALT token asserting the sample carries the variant on both
+        chromosomes - the exact inverse of what the GT says.
+
+        Both separators are matched. Only '0/0' was matched until v2.4.3, so a phased
+        '0|0' survived and produced that inverted HOM ALT token. No caller in any test
+        dataset emits '0|0' (they all write hom ref unphased even in phased VCFs), so the
+        bug was latent rather than observed.
+
+        Haploid '0' is deliberately NOT matched here. It is hom ref only if the region
+        really is single-copy, which needs a ploidy model that does not exist yet - see
+        issue #40. Dropping it here would bury the case rather than resolve it.
+        """
+        self.df = self.df[
+            ~self.df["SAMPLE"].str.startswith(HOM_REF_GTS, na=False)
+        ].copy(deep=True)
 
     def encode_variants(self) -> None:
         """Encode variants into a unified format using the encoder factory."""
@@ -245,6 +267,13 @@ class VCF:
     def get_variants(self) -> dict[str, str]:
         """Retrieve variant information from the DataFrame.
 
+        The hom ref skip here is the second of two, and is a safety net rather than the
+        primary filter: remove_home_ref has already dropped these rows before the loci set
+        is built. Both are needed and they are not interchangeable - dropping the row in
+        remove_home_ref also removes the locus from self.loci, which is what lets
+        add_lane_variants synthesise the '_ref' partner for a lane locus. Skipping only
+        here would leave the locus looking called and no '_ref' token would be made.
+
         Returns:
             dict[str, str]: A dictionary of variants and their associated metrics.
         """
@@ -258,7 +287,7 @@ class VCF:
             mapped_metrics = dict(
                 zip(format.strip().split(":"), metrics.strip().split(":"))
             )
-            if mapped_metrics["GT"] == "0/0":
+            if mapped_metrics["GT"] in HOM_REF_GTS:
                 continue
             if "," in variant:
                 for variant in variant.split(","):
