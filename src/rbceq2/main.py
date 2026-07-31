@@ -21,7 +21,7 @@ import rbceq2.filters.phased as filt_phase
 import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
 from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
-from rbceq2.core_logic.utils import compose, get_allele_relationships
+from rbceq2.core_logic.utils import Zygosity, compose, get_allele_relationships
 from rbceq2.db.db import (
     Db,
     prepare_db,
@@ -34,6 +34,7 @@ from rbceq2.IO.record_data import (
     configure_logging,
     log_validation,
     record_filtered_data,
+    report_no_call_summary,
     save_df,
     stamps,
 )
@@ -229,6 +230,8 @@ def main():
     dfs_geno = {}
     dfs_pheno_numeric = {}
     dfs_pheno_alphanumeric = {}
+    # (blood group, variant) -> samples where the caller made no call there
+    no_calls: dict[tuple[str, str], set[str]] = defaultdict(set)
     with Pool(processes=int(args.processes)) as pool:
         find_hits_db = partial(
             find_hits,
@@ -240,10 +243,14 @@ def main():
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if results is not None:
-                sample, genos, numeric_phenos, alphanumeric_phenos, _, _ = results
+                sample, genos, numeric_phenos, alphanumeric_phenos, bgs, _ = results
                 dfs_geno[sample] = genos
                 dfs_pheno_numeric[sample] = numeric_phenos
                 dfs_pheno_alphanumeric[sample] = alphanumeric_phenos
+                for bg_name, bg in bgs.items():
+                    for variant, zygosity in bg.variant_pool.items():
+                        if zygosity == Zygosity.NO_DATA:
+                            no_calls[(bg_name, variant)].add(sample)
                 record_filtered_data(results, args.reference_genome)
                 sep = "##############"
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
@@ -257,6 +264,11 @@ def main():
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
+
+    # Deliberately at the end rather than as each sample is read - with --debug a warning
+    # emitted mid-run is buried under the per-sample trace, and the rate only means
+    # anything once every sample has been seen.
+    report_no_call_summary(no_calls, len(dfs_geno))
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")

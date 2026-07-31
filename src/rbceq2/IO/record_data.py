@@ -154,6 +154,58 @@ def save_df(df: pd.DataFrame, name: str, UUID: str) -> None:
     df.to_csv(name, sep="\t")
 
 
+def report_no_call_summary(
+    no_calls: dict[tuple[str, str], set[str]], samples_processed: int
+) -> None:
+    """Warn, once per run, about database loci the caller did not call.
+
+    A no-call means the alleles that need that locus could not be confirmed, so they were
+    excluded (see remove_alleles_with_no_call_variants) and the call fell back to the
+    reference allele. That is the same contract every other missing-data path in RBCeq2
+    follows - a hom ref row is dropped, a non-PASS variant is dropped, a low depth variant
+    is dropped, and in each case the result reverts to reference. Applying it silently is
+    the problem: a probe that fails in most samples produces confident wildtype calls for
+    all of them with nothing in the normal log to say so.
+
+    Worth reading carefully at an antithetical locus, where 'reverted to reference' is a
+    positive claim about an antigen rather than an absence - GYPB*04 asserts s+, it does
+    not mean 'no S/s result'.
+
+    Real example, from a 1000 Genomes microarray call set of 2318 samples, where the FY
+    GATA probe had failed almost completely:
+
+        13 database loci were not called in at least one sample ...
+          FY 1:159174683: no call in 2141/2318 samples (92.4%) <- failed in the majority
+          HPA3 17:42453065: no call in 413/2318 samples (17.8%)
+          VEL 1:3691528: no call in 252/2318 samples (10.9%)
+
+    Args:
+        no_calls (dict[tuple[str, str], set[str]]): Maps (blood group, variant) to the set
+            of samples in which that variant was Zygosity.NO_DATA.
+        samples_processed (int): Total samples in the run, used as the denominator.
+
+    Returns:
+        None. Emits loguru warnings; emits nothing at all if there were no no-calls.
+    """
+    if not no_calls or not samples_processed:
+        return
+
+    logger.warning(
+        f"{len(no_calls)} database loci were not called in at least one sample. The "
+        f"alleles that need them were excluded (no_call_at_defining_variant) and the "
+        f"call reverted to reference, so missing or low quality data is reported as "
+        f"wildtype. Check these before trusting the affected blood groups:"
+    )
+    ranked = sorted(no_calls.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    for (bg_name, variant), samples in ranked:
+        pct = 100 * len(samples) / samples_processed
+        note = " <- failed in the majority of samples" if pct > 50 else ""
+        logger.warning(
+            f"  {bg_name} {variant}: no call in {len(samples)}/{samples_processed} "
+            f"samples ({pct:.1f}%){note}"
+        )
+
+
 def stamps(start: pd.Timestamp) -> str:
     delta = pd.Timestamp.now() - start
     total_seconds = delta.total_seconds()
