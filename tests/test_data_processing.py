@@ -3,6 +3,7 @@ from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from loguru import logger
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.co_existing import (
     mushed_vars,
@@ -37,6 +38,8 @@ from rbceq2.core_logic.data_procesing import (
     remove_alleles_with_low_base_quality,
     remove_alleles_with_low_read_depth,
     remove_alleles_with_no_call_variants,
+    _modify_variant_pool_with_large_indel,
+    modify_allele_pool_if_large_indel,
     unique_in_order,
 )
 from rbceq2.db.db import Db
@@ -388,6 +391,156 @@ class TestRemoveAllelesWithNoCallVariants(unittest.TestCase):
         )
 
         self.assertEqual(bg.variant_pool_numeric, {"1:100_A_G": 1})
+
+
+class TestLargeIndelNoCopies(unittest.TestCase):
+    """C4: a locus inside a homozygous deletion has no chromosomes under it.
+
+    These are the shapes the e2e datasets cannot produce. Only 10 of the 17 public_truth
+    samples carry any DEL token, all from Sniffles2 over minimap2, which calls some large
+    deletions and no gene conversions or complex SVs - against 154 large-variant tokens in
+    the database. So this path is covered here or not at all.
+    """
+
+    DEL = "1:25272547_DEL_59419"   # RHD whole gene deletion, spans to 1:25331966
+    INNER_REF = "1:25317062_ref"   # defines RHD*01 and RHD*10.00
+    INNER_ALT = "1:25317062_A_G"
+    OUTSIDE = "1:25400000_C_T"
+
+    def test_hom_deletion_marks_inner_ref_as_no_copies(self):
+        pool = {self.DEL: RealZygosity.HOM, self.INNER_REF: RealZygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], RealZygosity.NO_COPIES)
+        self.assertEqual(result[self.DEL], RealZygosity.HOM)
+
+    def test_het_deletion_still_converts_hom_to_hem(self):
+        """Regression guard for C1 - the existing inference must not change."""
+        pool = {self.DEL: RealZygosity.HET, self.INNER_REF: RealZygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], RealZygosity.HEM)
+
+    def test_variant_outside_the_deletion_is_untouched(self):
+        pool = {
+            self.DEL: RealZygosity.HOM,
+            self.INNER_REF: RealZygosity.HOM,
+            self.OUTSIDE: RealZygosity.HET,
+        }
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.OUTSIDE], RealZygosity.HET)
+
+    def test_alt_call_inside_a_hom_deletion_warns_but_still_marks_no_copies(self):
+        """Not reachable with the current SV calls, and a contradiction when it is.
+
+        Was a bare `assert variant.endswith("_ref")`, which vanishes under `python -O`.
+        """
+        pool = {self.DEL: RealZygosity.HOM, self.INNER_ALT: RealZygosity.HOM}
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            result = _modify_variant_pool_with_large_indel(pool, "s1", "RHD")
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(result[self.INNER_ALT], RealZygosity.NO_COPIES)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("homozygous deletion", messages[0])
+        self.assertIn("s1", messages[0])
+
+    def test_phase_pool_is_left_alone_inside_a_hom_deletion(self):
+        """Phase belongs to a chromosome that exists, so there is nothing to write."""
+        pool = {self.DEL: "1/1", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result[self.INNER_REF], "1/1")
+        self.assertNotIn(RealZygosity.NO_COPIES, result.values())
+
+
+class TestModifyAllelePoolIfLargeIndel(unittest.TestCase):
+    """The allele side of C4 - what the pool marking is for."""
+
+    DEL = "1:25272547_DEL_59419"
+    INNER_REF = "1:25317062_ref"
+
+    @staticmethod
+    def _allele(genotype, variants):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type=genotype.split("*")[0],
+        )
+
+    def _bg(self, alleles, pool):
+        return BloodGroup(
+            type="RHD",
+            alleles={AlleleState.FILT: list(alleles)},
+            sample="s",
+            variant_pool=dict(pool),
+        )
+
+    def test_allele_needing_a_no_copies_locus_is_excluded_and_recorded(self):
+        """The RHD*10.00 case named in the function's own docstring."""
+        keep = self._allele("RHD*01N.01", {self.DEL})
+        drop = self._allele("RHD*10.00", {self.INNER_REF})
+        bg = self._bg(
+            [keep, drop],
+            {self.DEL: RealZygosity.HOM, self.INNER_REF: RealZygosity.NO_COPIES},
+        )
+
+        result = list(modify_allele_pool_if_large_indel({"RHD": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep])
+        self.assertEqual(
+            result.filtered_out["hom_deletion_at_defining_variant"], [drop]
+        )
+
+    def test_allele_needing_a_variant_absent_from_the_pool_is_recorded_not_silent(self):
+        """Previously an `ic` to stdout and a silent drop - hard rule 3."""
+        drop = self._allele("RHD*10.00", {"1:99999999_C_T"})
+        bg = self._bg([drop], {self.DEL: RealZygosity.HOM})
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            result = list(modify_allele_pool_if_large_indel({"RHD": bg}).values())[0]
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(
+            result.filtered_out["defining_variant_missing_from_pool"], [drop]
+        )
+        self.assertTrue(any("not in the variant pool" in m for m in messages))
+
+    def test_no_warning_when_the_blood_group_was_already_empty(self):
+        """remove_alleles warns on an empty list even when it removed nothing."""
+        bg = self._bg([], {self.DEL: RealZygosity.HOM})
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            modify_allele_pool_if_large_indel({"RHD": bg})
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(messages, [])
+
+    def test_no_copies_is_scored_zero_not_omitted(self):
+        """Unlike No_data, zero copies is a real count, so it keeps a numeric entry."""
+        bg = self._bg([], {self.DEL: RealZygosity.HOM, self.INNER_REF: RealZygosity.NO_COPIES})
+
+        self.assertEqual(bg.variant_pool_numeric[self.INNER_REF], 0)
 
 
 class TestParseGT(unittest.TestCase):

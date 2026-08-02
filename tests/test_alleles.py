@@ -1,5 +1,7 @@
 import unittest
 
+from loguru import logger
+
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 
 
@@ -116,6 +118,64 @@ class TestBloodGroup(unittest.TestCase):
         self.blood_group.remove_alleles([self.allele1], "test_filter")
         self.assertEqual(len(self.blood_group.alleles["raw"]), 1)
         self.assertEqual(len(self.blood_group.filtered_out["test_filter"]), 1)
+
+
+    def _captured_warnings(self, call) -> list[str]:
+        """Run `call` and return the WARNING messages it emitted."""
+        messages: list[str] = []
+        sink = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            call()
+        finally:
+            logger.remove(sink)
+        return messages
+
+    def test_remove_alleles_warns_when_it_empties_the_group(self) -> None:
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles(
+                [self.allele1, self.allele2], "test_filter"
+            )
+        )
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("all alleles removed", msgs[0])
+        self.assertIn("test_filter", msgs[0])
+
+    def test_remove_alleles_silent_when_it_removed_nothing(self) -> None:
+        """A filter that removed nothing must not be blamed for an already empty group.
+
+        The warning used to fire on any call where the list was empty afterwards, so it
+        named whichever filter ran next rather than the one responsible.
+        """
+        self.blood_group.alleles["raw"] = []
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles([], "innocent_filter")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_alleles_silent_when_some_alleles_survive(self) -> None:
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles([self.allele1], "test_filter")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_pairs_silent_when_it_removed_nothing(self) -> None:
+        """Same misattribution, same fix."""
+        self.blood_group.alleles["pairs"] = []
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_pairs([], "innocent_filter", "pairs")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_pairs_warns_when_it_empties_the_group(self) -> None:
+        p1 = Pair(self.allele1, self.allele2)
+        self.blood_group.alleles["pairs"] = [p1]
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_pairs([p1], "test_filter", "pairs")
+        )
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("all pairs removed", msgs[0])
 
 
 class TestPair(unittest.TestCase):

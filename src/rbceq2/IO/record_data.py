@@ -17,8 +17,35 @@ def configure_logging(args: argparse.Namespace) -> str:
     """
     Configures the logging for the application and logs arguments line by line.
 
+    One run writes exactly one log file, whatever --processes is set to.
+
+    Note:
+        main() forks a multiprocessing Pool and every worker inherits this sink, so the
+        sink has to be safe to share. enqueue=True gives each process a queue instead of
+        the file handle: records are pickled onto the queue and a single writer thread,
+        in this process, is the only thing that ever opens the file. loguru registers
+        os.register_at_fork hooks that hold its locks across the fork, so this is safe
+        with the default fork start method on Linux.
+
+        Without it every worker wrote to - and rotated - the same path. One
+        --processes 12 run of ALL_just_genes.vcf.gz produced 13 log artefacts (a dozen
+        truncated .zip fragments plus the .txt), two FileNotFoundError tracebacks on the
+        console out of loguru's _terminate_file when two workers rotated at once, and
+        only 1256 of the 2318 per sample debug traces survived anywhere on disk. Keep
+        enqueue=True for as long as find_hits runs in a Pool.
+
+        Rotation is deliberately not set. A run is one logical log and --debug makes it
+        the primary debugging tool, so it stays one greppable .txt rather than 50 MB
+        slices that have to be reassembled before anything can be counted. Compression
+        goes with it: loguru only compresses at exit when no rotation is configured (see
+        _file_sink._terminate_file), so leaving compression="zip" here would start
+        zipping the sub 50 MB logs that are plain text today.
+
     Args:
         args: Command-line arguments (typically from argparse.parse_args()).
+
+    Returns:
+        str: The session UUID, also stamped into the header of each output TSV.
     """
     UUID = str(uuid.uuid4())
     log_level = "DEBUG" if args.debug else "INFO"
@@ -29,8 +56,7 @@ def configure_logging(args: argparse.Namespace) -> str:
         log_file_path,
         level=log_level,
         format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}",
-        rotation="50 MB",
-        compression="zip",
+        enqueue=True,  # multiprocessing safe - see Note above before changing
     )
 
     logger.info("=" * 20 + " SESSION START " + "=" * 20)

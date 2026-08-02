@@ -285,6 +285,9 @@ class BloodGroup:
             Zygosity.HET: 1,
             #Zygosity.REF: 2,
             Zygosity.HEM: 1,
+            Zygosity.NO_COPIES: 0,  # inside a hom deletion - genuinely zero chromosomes
+            # Zygosity.NO_DATA has no entry on purpose. 'Not measured' has no copy number,
+            # so variant_pool_numeric omits it rather than inventing one.
         }
     )
     misc: dict[Any, Any] = None  # TODO - pheno separately??
@@ -325,6 +328,7 @@ class BloodGroup:
     def variant_pool_numeric(self) -> dict[str, int]:
         """Convert variant pool zygosity states to their numerical values.
 
+        Zygosity.NO_COPIES is kept and scored 0, because zero copies is a real count.
         Zygosity.NO_DATA is omitted rather than scored. 'Not measured' has no copy number,
         so any value put here would be invented - which is the bug this state exists to
         fix. Omitting is safe because remove_alleles_with_no_call_variants has already
@@ -368,7 +372,8 @@ class BloodGroup:
                 self.alleles[allele_type].remove(pair)
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
-        if not self.alleles[allele_type]:
+        # Same misattribution as remove_alleles - only warn if this call emptied it
+        if to_remove and not self.alleles[allele_type]:
             logger.warning(
                 f"all pairs removed (reverting to reference allele, if possible): {self.sample} {self.type} {filter_name}"
             )
@@ -378,6 +383,12 @@ class BloodGroup:
     ) -> None:
         """Remove specific alleles from the raw set.
 
+        The warning fires only when this call actually removed something. Previously it
+        fired whenever the list was empty afterwards, so a filter that removed nothing
+        from an already empty blood group was still named as the cause - the warning
+        pointed at whichever filter happened to run next rather than at the one
+        responsible.
+
         Args:
             to_remove (List[Allele]): List of alleles to be removed.
             filter_name (str): Category name for the filtering reason.
@@ -385,7 +396,7 @@ class BloodGroup:
         for allele in to_remove:
             self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
-        if not self.alleles[allele_type]:
+        if to_remove and not self.alleles[allele_type]:
             logger.warning(
                 f"all alleles removed (will revert to reference): {self.sample} {self.type} {filter_name}"
             )

@@ -370,8 +370,11 @@ class AlphaNumericAntigenXG(AlphaNumericAntigen):
         """Generate the name for the AlphaNumericAntigenXG.
 
         Returns:
-            str: The given name with parentheses and plus signs removed, with 'CD99'
-            appended.
+            str: The given name with parentheses removed, ie 'Xg(a+)' -> 'Xga+'.
+
+        CD99 used to be appended here, and the plus sign stripped, giving 'XgaCD99'.
+        That was removed in 8bd5c2e - CD99 is reported as its own blood group rather
+        than folded into the XG antigen name.
         """
         return (
             self.given_name.replace("(", "").replace(")", "")

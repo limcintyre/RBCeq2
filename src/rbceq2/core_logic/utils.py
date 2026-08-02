@@ -87,9 +87,13 @@ class BeyondLogicError(Exception):
 class Zygosity:
     HOM = "Homozygous"  # hom alt
     HET = "Heterozygous"
-    #REF = "Reference"  # hom ref
     HEM = "Hemizygous"  # ie with big del
     NO_DATA = "No_data"  # locus not called for this sample, ie a '.' in the GT
+    NO_COPIES = "No_copies"  # locus sits inside a homozygous deletion, so 0 chromosomes
+    # NO_COPIES and NO_DATA are both 'no allele can be confirmed here' but for opposite
+    # reasons, and the remedies differ, so they are not merged: NO_DATA means the caller
+    # did not look, NO_COPIES means it looked and there is nothing there to look at. Only
+    # NO_COPIES has an honest copy number (0, see BloodGroup.len_dict).
     # NO_DATA is the absence of a measurement, not a measurement of absence - it is not
     # 'zero copies'. That is still encoded by the token simply not being in the pool.
     # An allele with a NO_DATA defining variant cannot be confirmed, so it is excluded by

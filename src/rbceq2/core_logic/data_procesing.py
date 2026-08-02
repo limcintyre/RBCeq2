@@ -187,6 +187,11 @@ def add_phasing(
         zygosity = bg.variant_pool.get(current_variant)
         if zygosity == Zygosity.HOM:
             return "1/1"
+        if zygosity in (Zygosity.NO_COPIES, Zygosity.NO_DATA):
+            # No chromosome to be phased, or nothing measured to phase. Without this the
+            # fall-through returns the raw GT, which for a synthesised lane row is the
+            # SYNTHESISED_HOM_REF_GT sentinel - a GT leaking into a phase field.
+            return "unknown"
         elif "/" in phase_pool[current_variant]:
             return "unknown"
         return phase_pool[current_variant]
@@ -554,10 +559,17 @@ def _modify_variant_pool_with_large_indel(
         hom_value = "1/1"
         het_value = ("1|0", "0|1")
         hem_value = "1"
+        # The phase pool has no equivalent of 'no copies'. Phase is a property of a
+        # chromosome that exists, so there is nothing honest to write inside a hom
+        # deletion. None means 'leave the phase alone' - the zygosity pool is what records
+        # the absence, and by the time any phased filter runs, the alleles that would read
+        # this phase have been excluded.
+        no_copies_value = None
     else:
         hom_value = Zygosity.HOM
         het_value = Zygosity.HET
         hem_value = Zygosity.HEM
+        no_copies_value = Zygosity.NO_COPIES
 
     new_variant_pool = {}
 
@@ -577,8 +589,23 @@ def _modify_variant_pool_with_large_indel(
             elif start < get_start_pos(variant) < end:
                 # Variant falls within deletion range
                 if big_del_is_hom:
-                    assert variant.endswith("_ref")
-                    new_variant_pool[variant] = zygosity
+                    if not variant.endswith("_ref"):
+                        # An ALT call inside a deletion that removed both copies is a
+                        # contradiction - one of the two calls is wrong. Warned rather
+                        # than raised because it is an input problem, not a logic error
+                        # here, and because the SV calls this is judged against are thin
+                        # (see the fuzzy matching note in CLAUDE.md). Either way the
+                        # locus is untrustworthy, so it is marked the same way.
+                        logger.warning(
+                            f"Non-reference variant inside a homozygous deletion, so "
+                            f"both the deletion and the variant cannot be right "
+                            f"{sample} {bg_type} {variant}"
+                        )
+                    # Was: kept as-is, ie Homozygous - a claim of two wildtype copies at a
+                    # locus with no chromosomes at all. Nothing can be carried here.
+                    new_variant_pool[variant] = (
+                        zygosity if no_copies_value is None else no_copies_value
+                    )
                 else:
                     if zygosity == hom_value:
                         # Convert homozygous to hemizygous
@@ -708,17 +735,56 @@ def modify_allele_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
               phenotype: . or DAU0
               reference: False
 
+    The example above is what this function was written for, but until the C4 fix it could
+    not happen: _modify_variant_pool_with_large_indel kept the '_ref' token as Homozygous,
+    so every defining variant was still in the pool and nothing was ever removed. It is
+    now marked Zygosity.NO_COPIES instead, which is what makes this reachable.
+
+    Two separate reasons are recorded, because they are not the same problem:
+
+    - hom_deletion_at_defining_variant - the allele needs a locus that has no chromosomes
+      under it. Expected, and the point of this function.
+    - defining_variant_missing_from_pool - the allele needs a variant that is not in the
+      pool at all. Not expected; previously an `ic` to stdout and a bare assert that
+      vanishes under `python -O`, and the alleles were dropped with nothing recorded.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose variant_pool has had large indels applied.
+
+    Returns:
+        BloodGroup: The BloodGroup with impossible alleles moved to filtered_out.
     """
-    keepers = []
+    in_hom_del = []
+    missing_from_pool = []
+
     for allele in bg.alleles[AlleleState.FILT]:
-        for variant in allele.defining_variants:
-            try:
-                assert variant in bg.variant_pool
-            except AssertionError:
-                ic('Error - report to devs plz',bg.sample, allele, variant, bg.variant_pool)
-        if all(variant in bg.variant_pool for variant in allele.defining_variants):
-            keepers.append(allele)
-    bg.alleles[AlleleState.FILT] = keepers
+        if any(
+            bg.variant_pool.get(variant) == Zygosity.NO_COPIES
+            for variant in allele.defining_variants
+        ):
+            in_hom_del.append(allele)
+        elif not all(
+            variant in bg.variant_pool for variant in allele.defining_variants
+        ):
+            missing = sorted(
+                variant
+                for variant in allele.defining_variants
+                if variant not in bg.variant_pool
+            )
+            logger.warning(
+                f"Allele needs a variant that is not in the variant pool, which should "
+                f"not be reachable - please report: {bg.sample} {bg.type} "
+                f"{allele.genotype} {missing}"
+            )
+            missing_from_pool.append(allele)
+
+    bg.remove_alleles(
+        in_hom_del, "hom_deletion_at_defining_variant", AlleleState.FILT
+    )
+    bg.remove_alleles(
+        missing_from_pool, "defining_variant_missing_from_pool", AlleleState.FILT
+    )
+
     return bg
 
 
