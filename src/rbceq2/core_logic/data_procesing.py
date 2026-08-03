@@ -8,7 +8,11 @@ from typing import Any, Protocol
 from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState, SYNTHESISED_HOM_REF_GT
+from rbceq2.core_logic.constants import (
+    AlleleState,
+    HAPLOID_SECOND_SLOT,
+    SYNTHESISED_HOM_REF_GT,
+)
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
     Zygosity,
@@ -374,8 +378,41 @@ def add_phasing(
 #     return bg
 
 
+def chrom_copies_for_bg(
+    bg: BloodGroup, vcf: VCF, single_copy_types: dict[str, str]
+) -> int:
+    """How many allele slots this blood group's result has for this sample.
+
+    1 only where both halves agree: the blood group lies outside PAR on X/Y
+    (Db.get_single_copy_types, from the database), and this sample's caller emitted
+    haploid GTs on that chromosome outside PAR (VCF._infer_haploid_chroms, from the GTs).
+    2 otherwise - every autosomal blood group, every female sample, and every VCF that
+    gave no ploidy evidence, which is all five e2e datasets.
+
+    Both halves are needed and neither is sufficient. The database half alone would make
+    XK haploid for everyone including females; the sample half alone has no way to answer
+    for a blood group whose only variant was dropped as hom ref, which is state table row
+    B2 - a male hemizygous for reference XK, where the pool is empty and the answer is
+    still one slot.
+
+    Args:
+        bg (BloodGroup): The blood group being built.
+        vcf (VCF): The VCF this sample came from, carrying haploid_chroms.
+        single_copy_types (dict[str, str]): Blood group type -> chromosome, from Db.
+
+    Returns:
+        int: 1 or 2.
+    """
+    chrom = single_copy_types.get(bg.type)
+    if chrom is not None and chrom in vcf.haploid_chroms:
+        return 1
+    return 2
+
+
 @apply_to_dict_values
-def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
+def make_variant_pool(
+    bg: BloodGroup, vcf: VCF, single_copy_types: dict[str, str] | None = None
+) -> BloodGroup:
     """Construct or update a variant pool for a BloodGroup from VCF data.
 
     This function traverses the alleles in the BloodGroup object, extracts reference
@@ -455,11 +492,14 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
 
         return matches
 
+    bg.chrom_copies = chrom_copies_for_bg(bg, vcf, single_copy_types or {})
+
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
         zygosity = {
-            var: get_ref(vcf.variants[var], var) for var in allele.defining_variants
+            var: get_ref(vcf.variants[var], var, bg.chrom_copies)
+            for var in allele.defining_variants
         }
         variant_pool = variant_pool | zygosity
 
@@ -476,8 +516,47 @@ def make_variant_pool(bg: BloodGroup, vcf: VCF) -> BloodGroup:
                 if matching2:  # het pair gone
                     variant_pool[variant] = Zygosity.HOM
     bg.variant_pool = variant_pool
+    check_token_copies_fit_chrom_copies(bg)
 
     return bg
+
+
+def check_token_copies_fit_chrom_copies(bg: BloodGroup) -> None:
+    """No token may claim more copies than the sample has chromosomes.
+
+    The per-token form of the weak invariant in ploidy_state_table.md section 4. Vacuous
+    while every region is two copies - Zygosity tops out at HOM, which is 2 - so this only
+    ever fires on a single-copy region, where it catches one specific thing: a caller that
+    mixes ploidy codings within one sample, writing '1' at one non-PAR X locus and '1/1'
+    at another. Then the file says both one chromosome and two and there is no way to tell
+    which is meant.
+
+    Raised rather than warned. A wrong answer here is a wrong blood group, and unlike the
+    contradictions in _modify_variant_pool_with_large_indel there is no defensible
+    fallback - picking either reading invents a chromosome count. A BeyondLogicError
+    rather than a bare assert so it survives 'python -O'.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose variant_pool has just been built.
+
+    Raises:
+        BeyondLogicError: If any token claims more copies than bg.chrom_copies.
+    """
+    for variant, copies in bg.variant_pool_numeric.items():
+        if copies > bg.chrom_copies:
+            raise BeyondLogicError(
+                message=(
+                    "A variant claims more copies than the sample has chromosomes "
+                    "there. This happens when one sample mixes ploidy codings, ie a "
+                    "haploid '1' at one non-PAR X locus and a diploid '1/1' at another. "
+                    "The VCF is saying both one chromosome and two - see issue #40."
+                ),
+                context=(
+                    f"sample: {bg.sample}, BG: {bg.type}, variant: {variant}, "
+                    f"zygosity: {bg.variant_pool[variant]} ({copies} copies), "
+                    f"chrom_copies: {bg.chrom_copies}"
+                ),
+            )
 
 
 @apply_to_dict_values
@@ -522,9 +601,19 @@ def remove_alleles_with_no_call_variants(bg: BloodGroup) -> BloodGroup:
 
 
 def _modify_variant_pool_with_large_indel(
-    variant_pool: dict, sample: str, bg_type: str, is_phase_pool: bool = False
+    variant_pool: dict,
+    sample: str,
+    bg_type: str,
+    is_phase_pool: bool = False,
+    chrom_copies: int = 2,
 ) -> dict:
     """Internal helper to adjust variant zygosity when large deletions are present.
+
+    On a single-copy region a deletion is Hemizygous, not Homozygous - there is one
+    chromosome and the deletion is on it - but it still removes every copy of everything
+    inside it, so it takes the 'hom' branch here. Without that, an XK whole-gene deletion
+    in a male (McLeod, and the reason XK*N.01 exists) trips the het assert below. See
+    issue #40.
 
     Args:
         variant_pool (dict): Dictionary mapping variant strings to zygosity values.
@@ -532,6 +621,7 @@ def _modify_variant_pool_with_large_indel(
         bg_type (str): Blood group type for logging.
         is_phase_pool (bool): If True, expects phase notation ('1/1', '1'),
             otherwise Zygosity enums. Defaults to False.
+        chrom_copies (int): Copies of the region the sample was born with. Defaults to 2.
 
     Returns:
         dict: Modified variant pool dictionary, or empty dict if no modifications needed.
@@ -579,8 +669,12 @@ def _modify_variant_pool_with_large_indel(
         length = int(length[:-2]) * 1000 if length.endswith("kb") else int(length)
         end = start + length
 
-        # Check if deletion is homozygous
-        big_del_is_hom = variant_pool.get(big_del) == hom_value
+        # Check if deletion is homozygous - ie removes every copy of what it spans. On a
+        # single-copy region hemizygous means exactly that, so it counts here too.
+        del_zygosity = variant_pool.get(big_del)
+        big_del_is_hom = del_zygosity == hom_value or (
+            chrom_copies == 1 and del_zygosity == hem_value
+        )
 
         for variant, zygosity in variant_pool.items():
             if variant == big_del:
@@ -662,7 +756,11 @@ def modify_variant_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                           '4:143999443_ref': 'Hemizygous'}
     """
     new_variant_pool = _modify_variant_pool_with_large_indel(
-        bg.variant_pool, bg.sample, bg.type, is_phase_pool=False
+        bg.variant_pool,
+        bg.sample,
+        bg.type,
+        is_phase_pool=False,
+        chrom_copies=bg.chrom_copies,
     )
 
     if new_variant_pool:
@@ -705,7 +803,11 @@ def modify_variant_phase_pool_if_large_indel(bg: BloodGroup) -> BloodGroup:
                                  '4:143999443_ref': '1'}
     """
     new_variant_pool = _modify_variant_pool_with_large_indel(
-        bg.variant_pool_phase, bg.sample, bg.type, is_phase_pool=True
+        bg.variant_pool_phase,
+        bg.sample,
+        bg.type,
+        is_phase_pool=True,
+        chrom_copies=bg.chrom_copies,
     )
 
     if new_variant_pool:
@@ -980,7 +1082,7 @@ def parse_GT(GT: str) -> tuple[str, ...]:
     return tuple(re.split(r"[/|]", GT))
 
 
-def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
+def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) -> str:
     """Determine the zygosity from a reference dictionary containing genotype
     information.
 
@@ -1004,9 +1106,21 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
     SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here and is not
     affected.
 
-    Only diploid, biallelic genotypes are supported. Haploid genotypes (issue #40) and
-    multi-allelic genotypes are rejected rather than guessed at - a haploid call needs a
-    ploidy model that does not exist yet, and a multi-allelic call needs the VCF split
+    A haploid GT is only interpreted where chrom_copies is 1, ie non-PAR X/Y in a sample
+    whose caller wrote haploid GTs there. Then '1' is Hemizygous, '.' is No_data, and '0'
+    never arrives because remove_home_ref has already dropped it the way it drops '0/0'.
+
+    Hemizygous is the honest label - one chromosome carrying one copy of the token - but
+    it is not what the pairing machinery needs, so the *numeric* value comes from
+    BloodGroup.len_dict via chrom_copies rather than from the enum. See
+    make_variant_pool, which is where the normalisation is applied and explained.
+
+    A haploid GT anywhere else is still rejected, and the two rejections are deliberately
+    separate errors. Inside PAR it is a caller error: PAR is two copies in every sample
+    (state table B5). On an autosome it is a statement about how many copies of a *locus*
+    are present.
+
+    Multi-allelic genotypes are rejected rather than guessed at - the VCF needs splitting
     with 'bcftools norm -m -both' first. The '.' check runs before the biallelic check, so
     a nonsense GT like '2/.' reports as No_data rather than as multi-allelic.
 
@@ -1015,13 +1129,17 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
         possibly other information.
         variant (str): The variant the genotype belongs to, used to make errors
         traceable back to a VCF row. Optional so existing callers keep working.
+        chrom_copies (int): Copies of the region the sample was born with. 2 unless the
+        VCF layer found haploid GTs outside PAR on this chromosome. Optional so existing
+        callers keep working.
 
     Returns:
-        str: A string indicating the zygosity as 'Homozygous', 'Heterozygous' or
-        'No_data'.
+        str: A string indicating the zygosity as 'Homozygous', 'Heterozygous',
+        'Hemizygous' or 'No_data'.
 
     Raises:
-        BeyondLogicError: If the genotype is not diploid, or is multi-allelic.
+        BeyondLogicError: If the genotype is haploid where the region has two copies, or
+        is multi-allelic.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
     GT = ref_dict["GT"]
@@ -1031,14 +1149,34 @@ def get_ref(ref_dict: dict[str, str], variant: str = "") -> str:
 
     alleles = parse_GT(GT)
 
+    if len(alleles) == 1 and chrom_copies == 1:
+        if alleles[0] == ".":
+            return Zygosity.NO_DATA
+        if alleles[0] == "0":
+            # remove_home_ref drops these, so reaching here means the pool was built from
+            # a df that never went through it. Absence is still the right encoding.
+            return Zygosity.NO_DATA
+        if alleles[0] != "1":
+            raise BeyondLogicError(
+                message=(
+                    "Multi-allelic genotypes are not supported. Please split the VCF "
+                    "first, ie 'bcftools norm -m -both'."
+                ),
+                context=f"variant: {variant}, GT: {GT}",
+            )
+        return Zygosity.HEM
+
     if len(alleles) != 2:
         raise BeyondLogicError(
             message=(
-                "Only diploid genotypes are supported. Haploid genotypes (ie non-PAR "
-                "X/Y, or copy-number-aware callers) are not yet supported - see "
-                "issue #40."
+                "Haploid genotypes are only supported outside the pseudoautosomal "
+                "regions of X/Y, where the sample really does carry one copy. A haploid "
+                "GT inside PAR, or on an autosome, is a statement about locus copy "
+                "number rather than about ploidy and has a different correct answer - "
+                "see issue #40. If this is an array export encoding RHD copy number, "
+                "that mapping is not decided yet."
             ),
-            context=f"variant: {variant}, GT: {GT}",
+            context=f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}",
         )
 
     if "." in alleles:
@@ -1072,19 +1210,41 @@ def get_genotypes(bg: BloodGroup) -> BloodGroup:
 
     This function processes 'pairs' and 'co_existing' alleles to create sorted genotype
     strings.
+
+    Where bg.chrom_copies is 1 the two slots hold the same allele - one chromosome
+    carrying it, which the pairing machinery represents as a duplicate - and the second
+    slot is written as HAPLOID_SECOND_SLOT rather than repeating the allele. 'XK*N.03/-'
+    says there is no second chromosome; 'XK*N.03/XK*N.03' would be indistinguishable in
+    the TSV from a female homozygote, and a bare 'XK*N.03' would break every consumer that
+    splits a genotype on '/'. The pair itself is left alone, so phenotype, filters and the
+    exclusion trail all still see an ordinary two-allele pair - the haploid shape is a
+    reporting decision and lives only here.
+
+    Example:
+        XK, male, X:37686068 G>A called '1':
+            pair       -> Pair(XK*N.16, XK*N.16)
+            genotypes  -> ['XK*N.16/-']
     """
 
     def make_list_of_lists(alleles):
         return [pair.genotypes for pair in alleles]
 
+    def render(genotypes: list[str]) -> str:
+        """Join a pair's genotypes, collapsing the duplicated slot when haploid.
+
+        pair.genotypes is already sorted by Pair._ordered, so it is not re-sorted here.
+        """
+        if bg.chrom_copies == 1 and len(set(genotypes)) == 1:
+            return f"{genotypes[0]}/{HAPLOID_SECOND_SLOT}"
+        return "/".join(sorted(genotypes))
+
     if bg.alleles[AlleleState.CO] is not None:
         bg.genotypes = [
-            "/".join(sorted(co))
-            for co in make_list_of_lists(bg.alleles[AlleleState.CO])
+            render(co) for co in make_list_of_lists(bg.alleles[AlleleState.CO])
         ]
     else:
         bg.genotypes = [
-            "/".join(sorted(normal_pair))
+            render(normal_pair)
             for normal_pair in make_list_of_lists(bg.alleles[AlleleState.NORMAL])
         ]
 
@@ -1279,7 +1439,9 @@ def remove_alleles_with_low_base_quality(
 
 
 def get_fully_homozygous_alleles(
-    ranked_chunks: list[list[Allele]], variant_pool: dict[str, Any]
+    ranked_chunks: list[list[Allele]],
+    variant_pool: dict[str, Any],
+    chrom_copies: int = 2,
 ) -> list[list[Allele]]:
     """Filter out alleles that are not fully homozygous from a list of ranked allele chunks.
 
@@ -1287,12 +1449,21 @@ def get_fully_homozygous_alleles(
     Only alleles where every relevant variant equals the required homozygous genotype (2)
     are included in the result.
 
+    The question being asked is 'is this token on every chromosome the sample has', which
+    was 2 while every region was assumed diploid. Where chrom_copies is 1 the answer is 1
+    - a Hemizygous token on a single-copy region is on every chromosome present, and is
+    fully homozygous in the only sense available. The comparison is against chrom_copies
+    rather than a literal so that variant_pool_numeric stays truthful: Zygosity.HEM keeps
+    scoring 1, because one chromosome carries it.
+
     Args:
         ranked_chunks (list[list[Allele]]):
             A list of lists (chunks), where each chunk contains ranked Allele objects.
         variant_pool (dict[str, Any]):
             A dictionary containing variant data used for assessing homozygosity.
             The exact structure depends on the `check_available_variants` function.
+        chrom_copies (int):
+            Copies of the region the sample was born with. Defaults to 2.
 
     Returns:
         list[list[Allele]]:
@@ -1303,7 +1474,9 @@ def get_fully_homozygous_alleles(
         KeyError:
             If a variant key is missing in `variant_pool`.
     """
-    check_hom = partial(check_available_variants, 2, variant_pool, operator.eq)
+    check_hom = partial(
+        check_available_variants, chrom_copies, variant_pool, operator.eq
+    )
     homs = [[] for _ in ranked_chunks]
 
     for i, chunk in enumerate(ranked_chunks):
@@ -1372,7 +1545,10 @@ class SingleVariantStrategy:
     ) -> list[Pair]:
         return [
             make_pair(
-                reference_alleles, bg.variant_pool_numeric, bg.alleles[AlleleState.FILT]
+                reference_alleles,
+                bg.variant_pool_numeric,
+                bg.alleles[AlleleState.FILT],
+                bg.chrom_copies,
             )
         ]
 
@@ -1387,7 +1563,9 @@ class MultipleVariantDispatcher:
         options = unique_in_order(bg.alleles[AlleleState.FILT])
         non_ref_options = get_non_refs(options)
         ranked_chunks = chunk_geno_list_by_rank(non_ref_options)
-        homs = get_fully_homozygous_alleles(ranked_chunks, bg.variant_pool_numeric)
+        homs = get_fully_homozygous_alleles(
+            ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+        )
 
         first_chunk = ranked_chunks[0]
         weight_first_chunk = first_chunk[0].weight_geno
@@ -1453,7 +1631,9 @@ class SomeHomMultiVariantStrategy:
     def process(
         self, bg: BloodGroup, reference_alleles: dict[str, Allele]
     ) -> list[Pair]:
-        homs = get_fully_homozygous_alleles(self.ranked_chunks, bg.variant_pool_numeric)
+        homs = get_fully_homozygous_alleles(
+            self.ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+        )
         if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
             flat = [item for sublist in self.ranked_chunks for item in sublist]
             return combine_all(
@@ -1467,6 +1647,7 @@ class SomeHomMultiVariantStrategy:
                     reference_alleles,
                     bg.variant_pool_numeric.copy(),
                     first_chunk,
+                    bg.chrom_copies,
                 )
             ]
         return combine_all(
@@ -1562,7 +1743,9 @@ def find_what_was_excluded_due_to_rank(
             if pair not in bg.alleles[AlleleState.NORMAL]:
                 bg.filtered_out["excluded_due_to_rank_ref"].append(pair)
         ranked_chunks = chunk_geno_list_by_rank(non_ref_options)
-        homs = get_fully_homozygous_alleles(ranked_chunks, bg.variant_pool_numeric)
+        homs = get_fully_homozygous_alleles(
+            ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+        )
         for ranked_homs in homs:
             for hom in ranked_homs:
                 pair = Pair(allele1=hom, allele2=hom)
@@ -1573,9 +1756,18 @@ def find_what_was_excluded_due_to_rank(
 
 
 def make_pair(
-    reference_alleles: dict[str, str], variant_pool: list[str], sub_results: list[str]
+    reference_alleles: dict[str, str],
+    variant_pool: list[str],
+    sub_results: list[str],
+    chrom_copies: int = 2,
 ) -> list[str]:
     """Creates a pair of alleles based on the given parameters.
+
+    Where chrom_copies is 1 the allele is always duplicated rather than paired with the
+    reference, because the single chromosome carries it and there is no second chromosome
+    to be reference. That duplicate is what get_genotypes renders as 'ALLELE/-'. Taking
+    the reference branch instead is what made a hemizygous male read as a heterozygous
+    female before v2.4.4 - see issue #40.
 
     Args:
         reference_alleles (Dict[str, str]): A mapping from blood group to reference
@@ -1583,6 +1775,7 @@ def make_pair(
         variant_pool (List[str]): A list of available variants.
         sub_results (List[str]): A list containing the initial results, expected to be
         of length 1.
+        chrom_copies (int): Copies of the region the sample was born with. Defaults to 2.
 
     Returns:
         List[str]: A list containing the original results and an additional allele,
@@ -1593,7 +1786,9 @@ def make_pair(
         AssertionError: If the length of `sub_results` is not 1.
     """
     sub_results = list(sub_results)
-    check_vars = partial(check_available_variants, 2, variant_pool, operator.eq)
+    check_vars = partial(
+        check_available_variants, chrom_copies, variant_pool, operator.eq
+    )
     assert len(sub_results) == 1
     if all(check_vars(sub_results[0])):  # this is essentially fully_hom (func)
         sub_results.append(sub_results[0])
@@ -1663,13 +1858,28 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
 #     return bg
 
 
-def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGroup]:
+def add_refs(
+    db: Db,
+    res: dict[str, BloodGroup],
+    exclude,
+    haploid_chroms: frozenset[str] = frozenset(),
+) -> dict[str, BloodGroup]:
     """Add reference genotypes to existing results or create new entries for them.
+
+    A blood group only reaches here with no alleles of its own, so the genotype string is
+    built directly rather than by get_genotypes. That means the haploid rendering has to
+    be repeated here: a male with no XK variant at all is hemizygous *reference*, which is
+    'XK*01/-' and not 'XK*01/XK*01'. State table row B2, and the case that has no evidence
+    left in the variant pool to work it out from - remove_home_ref dropped the only row.
 
     Args:
         db (Db): The database object containing reference alleles.
         res (Dict[str, BloodGroup]): Dictionary of BloodGroup objects to be updated
         with reference data.
+        exclude: Blood groups to skip.
+        haploid_chroms (frozenset[str]): Chromosomes this sample carries once, from
+        VCF.haploid_chroms. Empty means every blood group gets two slots, which is the
+        behaviour before v2.4.4.
 
     Returns:
         Dict[str, BloodGroup]: The updated dictionary of BloodGroup objects with added
@@ -1684,6 +1894,10 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
         if blood_group in exclude:
             continue
         if blood_group not in res:
+            single_copy = db.single_copy_types.get(blood_group) in haploid_chroms
+            second_slot = (
+                HAPLOID_SECOND_SLOT if single_copy else reference.genotype
+            )
             res[blood_group] = BloodGroup(
                 type=blood_group,
                 alleles={
@@ -1692,7 +1906,8 @@ def add_refs(db: Db, res: dict[str, BloodGroup], exclude) -> dict[str, BloodGrou
                     AlleleState.NORMAL: [Pair(*[reference] * 2)],
                 },
                 sample="ref",
-                genotypes=[f"{reference.genotype}/{reference.genotype}"],
+                chrom_copies=1 if single_copy else 2,
+                genotypes=[f"{reference.genotype}/{second_slot}"],
             )
     return res
 

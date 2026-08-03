@@ -15,8 +15,73 @@ from rbceq2.core_logic.constants import (
     HOM_REF_DUMMY_QUAL,
     HOM_REF_GTS,
     LANE,
+    PAR,
 )
 from rbceq2.IO.encoders import VariantEncoderFactory
+
+
+def gt_of(sample_field: str) -> str:
+    """Pull the GT out of a SAMPLE column value.
+
+    GT is always the first field - get_variants asserts FORMAT starts with 'GT'
+    (vcf.py) and add_lane_variants relies on the same thing.
+
+    Args:
+        sample_field (str): A raw SAMPLE column value, ie '0/1:41,47:88:99' or, on an
+            array export whose FORMAT is just 'GT', '0/1'.
+
+    Returns:
+        str: The GT, or '' if there is nothing parseable there.
+    """
+    if not isinstance(sample_field, str):
+        return ""
+    return sample_field.split(":")[0].strip()
+
+
+def is_haploid_gt(GT: str) -> bool:
+    """True if a GT names one allele rather than two, ie '1', '0' or '.'.
+
+    Deliberately a string test and nothing more. Whether a haploid GT is *legitimate*
+    depends on the coordinate, and that is is_single_copy's job - a haploid GT inside
+    PAR is a caller error, not a ploidy statement.
+    """
+    return bool(GT) and "/" not in GT and "|" not in GT
+
+
+def is_single_copy(chrom: str, pos: int, reference_genome: str) -> bool:
+    """True if this coordinate sits on a chromosome that a male carries once.
+
+    Non-PAR X and non-PAR Y. Everything else - every autosome, and X/Y inside PAR - is
+    two copies in every sample, so this returns False for them and a haploid GT there is
+    an input problem rather than constitutional haploidy.
+
+    Note this asks about the *coordinate*, not the sample. A female is diploid at these
+    coordinates too; whether a given sample is single copy is decided by
+    VCF._infer_haploid_chroms, which needs both this and positive evidence from the GTs.
+
+    Args:
+        chrom (str): Chromosome with the 'chr' prefix already stripped, ie 'X'.
+        pos (int): 1 based position.
+        reference_genome (str): 'GRCh37' or 'GRCh38'.
+
+    Returns:
+        bool: True if the coordinate is outside PAR on X or Y.
+
+    Example:
+        >>> is_single_copy("X", 37686068, "GRCh38")   # XK
+        True
+        >>> is_single_copy("X", 2748343, "GRCh38")    # XG, inside PAR1
+        False
+        >>> is_single_copy("1", 25272548, "GRCh38")   # RHD, autosomal
+        False
+    """
+    par_for_build = PAR.get(reference_genome)
+    if par_for_build is None:
+        return False
+    intervals = par_for_build.get(chrom)
+    if intervals is None:
+        return False
+    return not any(start <= pos <= end for start, end in intervals)
 
 
 @dataclass(slots=True, frozen=False)
@@ -30,22 +95,33 @@ class VCF:
             Mapping of chromosome to variants specific to lanes.
         unique_variants (set[str]):
             A set of unique variant identifiers.
+        reference_genome (str | None):
+            'GRCh37' or 'GRCh38'. Optional, and None means ploidy inference is off and
+            every region is treated as two copies - the behaviour before v2.4.4. Kept
+            optional so the many test constructions of VCF keep working unchanged.
+        haploid_chroms (frozenset[str]):
+            Chromosomes this sample's caller reported as single copy outside PAR.
     """
 
     input_vcf: pl.DataFrame | pd.DataFrame
     lane_variants: dict[str, Any]
     unique_variants: set[str]
     sample: str  # field(init=False)
+    reference_genome: str | None = None
     df: pd.DataFrame = field(init=False)
     loci: set[str] = field(init=False)
     variants: dict[str, str] = field(init=False)
     phase_sets: dict[str, dict[int, tuple[int, int]]] = field(init=False)
+    haploid_chroms: frozenset[str] = field(init=False)
 
     def __post_init__(self):
         """Handle initialization after data class creation."""
         object.__setattr__(self, "df", self.handle_single_or_multi())
         # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
+        # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
+        # depends on the answer, and remove_home_ref is where that row gets dropped.
+        object.__setattr__(self, "haploid_chroms", self._infer_haploid_chroms())
         self.remove_home_ref()
         self.encode_variants()
         self.add_loci()
@@ -120,6 +196,72 @@ class VCF:
         """Rename chromosome identifiers by removing the 'chr' prefix."""
         self.df["CHROM"] = self.df["CHROM"].apply(lambda x: x.replace("chr", ""))
 
+    def _infer_haploid_chroms(self) -> frozenset[str]:
+        """Chromosomes this sample's caller reported as single copy outside PAR.
+
+        Positive evidence only: at least one haploid GT at a non-PAR X/Y coordinate. That
+        is the one signal a VCF actually carries. Sex is not in a VCF, so a caller that
+        codes a male as '1/1' across non-PAR X leaves nothing to find and the sample stays
+        diploid - that is state table row B3, and it is a known, permanent limitation
+        rather than an oversight. B3 gets the phenotype right and only the genotype string
+        wrong.
+
+        Deliberately per sample, not per file. A multi-sample array export mixes both
+        codings in one file - males haploid across non-PAR X, females diploid - and each
+        VCF object here already holds one sample.
+
+        Deliberately restricted to X and Y. A haploid GT on an autosome is a copy number
+        statement about a *locus*, not about how many chromosomes the sample has, and the
+        two have different correct answers - see get_ref. Returning early when
+        reference_genome is None keeps every existing caller on the old behaviour.
+
+        Returns:
+            frozenset[str]: ie frozenset({'X'}), or an empty set for a female sample, an
+            autosome-only VCF, or when reference_genome was not supplied.
+        """
+        if self.reference_genome is None:
+            return frozenset()
+
+        haploid: set[str] = set()
+        for chrom, pos, sample_field in zip(
+            self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
+        ):
+            if chrom in haploid or chrom not in PAR.get(self.reference_genome, {}):
+                continue
+            if not is_haploid_gt(gt_of(sample_field)):
+                continue
+            try:
+                position = int(pos)
+            except (TypeError, ValueError):
+                continue
+            if is_single_copy(chrom, position, self.reference_genome):
+                haploid.add(chrom)
+
+        if haploid:
+            logger.info(
+                f"{self.sample}: haploid GTs found outside PAR on "
+                f"{','.join(sorted(haploid))}, so those regions are reported with one "
+                f"allele slot"
+            )
+        return frozenset(haploid)
+
+    def _is_haploid_hom_ref(self, chrom: str, pos: Any, sample_field: Any) -> bool:
+        """True for a haploid '0' at a coordinate this sample carries once.
+
+        The single-copy equivalent of '0/0': one chromosome, and it is reference. Split
+        out of remove_home_ref so the row-wise test stays readable next to the vectorised
+        startswith it sits beside.
+        """
+        if chrom not in self.haploid_chroms:
+            return False
+        GT = gt_of(sample_field)
+        if GT != "0":
+            return False
+        try:
+            return is_single_copy(chrom, int(pos), self.reference_genome)
+        except (TypeError, ValueError):
+            return False
+
     def remove_home_ref(self) -> None:
         """Remove homozygous reference calls from the DataFrame.
 
@@ -133,13 +275,29 @@ class VCF:
         dataset emits '0|0' (they all write hom ref unphased even in phased VCFs), so the
         bug was latent rather than observed.
 
-        Haploid '0' is deliberately NOT matched here. It is hom ref only if the region
-        really is single-copy, which needs a ploidy model that does not exist yet - see
-        issue #40. Dropping it here would bury the case rather than resolve it.
+        Haploid '0' is matched too, but only where this sample is single copy - non-PAR
+        X/Y with haploid GTs elsewhere in the same region (see _infer_haploid_chroms).
+        There it means exactly what '0/0' means: the chromosomes present are reference, so
+        the token has zero copies and absence is the right encoding. Everywhere else a
+        haploid '0' is left in place to be rejected by name in get_ref, because on an
+        autosome it is a statement about copy number that this code cannot yet act on -
+        state table rows D3 and E1.
         """
-        self.df = self.df[
-            ~self.df["SAMPLE"].str.startswith(HOM_REF_GTS, na=False)
-        ].copy(deep=True)
+        hom_ref = self.df["SAMPLE"].str.startswith(HOM_REF_GTS, na=False)
+
+        if self.haploid_chroms:
+            haploid_hom_ref = pd.Series(
+                [
+                    self._is_haploid_hom_ref(chrom, pos, sample_field)
+                    for chrom, pos, sample_field in zip(
+                        self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
+                    )
+                ],
+                index=self.df.index,
+            )
+            hom_ref = hom_ref | haploid_hom_ref
+
+        self.df = self.df[~hom_ref].copy(deep=True)
 
     def encode_variants(self) -> None:
         """Encode variants into a unified format using the encoder factory."""
@@ -324,10 +482,16 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
     sample_cols = [col for col in vcf_df.columns if col not in COMMON_COLS]
 
     for sample in sample_cols:
-        try:
-            assert all(row[1] in ("|", "/") for row in vcf_df[sample])
-        except TypeError:
-            logger.info(f"Sample {sample} is not diploid")
+        # Informational, not validation - a non-diploid GT is reported and kept, and it is
+        # get_ref that decides whether it is a legitimate ploidy statement. This was a bare
+        # assert guarded by 'except TypeError', which meant it did the intended thing for a
+        # NaN cell but raised IndexError on the case it names: a haploid GT like '0' has no
+        # index 1
+        gts = [gt_of(row) for row in vcf_df[sample]]
+        if any(not is_haploid_gt(GT) and len(GT) < 2 for GT in gts):
+            logger.info(f"Sample {sample} has GTs that are neither haploid nor diploid")
+        elif any(is_haploid_gt(GT) for GT in gts):
+            logger.info(f"Sample {sample} is not diploid at every locus")
         cols: list[str] = COMMON_COLS + [sample]
         sample_vcf_df = vcf_df[cols].copy(deep=True)
         sample_vcf_df.columns = COMMON_COLS + ["SAMPLE"]

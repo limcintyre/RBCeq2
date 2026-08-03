@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 from rbceq2.core_logic.alleles import Allele, Line
-from rbceq2.core_logic.constants import LOW_WEIGHT
+from rbceq2.core_logic.constants import LOW_WEIGHT, PAR
 from loguru import logger
 from collections import defaultdict
 from icecream import ic
@@ -77,6 +77,9 @@ class Db:
         reference_alleles (dict[str, Allele]):
             Dictionary mapping genotype identifiers to reference Allele objects,
             initialized post-construction.
+        single_copy_types (dict[str, str]):
+            Blood group type -> chromosome, for the blood groups that sit outside PAR on
+            X/Y and can therefore be single copy. Initialized post-construction.
     """
 
     ref: str
@@ -84,11 +87,67 @@ class Db:
     lane_variants: dict[str, Any] = field(init=False)
     antitheticals: dict[str, list[str]] = field(init=False)
     reference_alleles: dict[str, Any] = field(init=False)
+    single_copy_types: dict[str, str] = field(init=False)
 
     def __post_init__(self):
         object.__setattr__(self, "antitheticals", self.get_antitheticals())
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
+        object.__setattr__(self, "single_copy_types", self.get_single_copy_types())
+
+    def get_single_copy_types(self) -> dict[str, str]:
+        """Blood groups that lie outside PAR on X/Y, and so can be single copy.
+
+        Derived from the database rather than from whatever happens to be in a sample's
+        variant pool. A blood group whose only variant was dropped as hom ref still has to
+        report one allele slot for a male - state table row B2 - and there is nothing left
+        in the pool at that point to work it out from.
+
+        Every coordinate a blood group has must agree, and a blood group that straddles a
+        PAR boundary is warned about and left diploid rather than resolved silently. On DB
+        v2.5.0 none do: XG and CD99 are wholly inside PAR1 in both builds, XK, GATA1 and
+        ATP11C wholly outside it, and no other blood group has a chrX coordinate at all.
+        There are no chrY rows.
+
+        Note this says nothing about any particular sample. A female is diploid at these
+        coordinates too; VCF._infer_haploid_chroms supplies the per-sample half.
+
+        Returns:
+            dict[str, str]: ie {'XK': 'X', 'GATA1': 'X', 'ATP11C': 'X'}.
+        """
+        par_for_build = PAR.get(self.ref, {})
+        single_copy: dict[str, str] = {}
+
+        for (chrom, bg_type), sub in self.df.groupby(["Chrom", "type"]):
+            chrom = str(chrom).replace("chr", "")
+            intervals = par_for_build.get(chrom)
+            if intervals is None:
+                continue
+
+            positions = [
+                int(match.group(1))
+                for variant in sub[self.ref].dropna().unique()
+                for token in re.split(r"[,;]", str(variant))
+                if (match := re.match(r"^\s*(\d+)", token))
+            ]
+            if not positions:
+                continue
+
+            outside = {
+                not any(start <= pos <= end for start, end in intervals)
+                for pos in positions
+            }
+            if outside == {True}:
+                single_copy[str(bg_type)] = chrom
+            elif len(outside) > 1:
+                logger.warning(
+                    f"Blood group {bg_type} straddles a PAR boundary on {chrom} in "
+                    f"{self.ref}; treating it as two copies. Ploidy for it needs a "
+                    f"per-variant decision - see issue #40"
+                )
+
+        logger.info(f"Single copy (non-PAR X/Y) blood groups: {sorted(single_copy)}")
+        return single_copy
 
     def get_antitheticals(self) -> dict[str, list[str]]:
         """

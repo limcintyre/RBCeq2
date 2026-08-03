@@ -276,9 +276,6 @@ def main():
         print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
     else: #windows can't handle emojis
         print(f"\nComplete! {len(dfs_geno)} VCFs processed in {time_str}. \nResults saved successfully.")
-    # print(
-    #     f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
-    # )
 
 
 def find_hits(
@@ -297,9 +294,16 @@ def find_hits(
             db.lane_variants,
             db.unique_variants,
             vcf.stem,
+            args.reference_genome,
         )
     else:
-        vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
+        vcf = VCF(
+            vcf,
+            db.lane_variants,
+            db.unique_variants,
+            vcf[-1],
+            args.reference_genome,
+        )
     reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
 
@@ -323,7 +327,9 @@ def find_hits(
         partial(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
-        partial(dp.make_variant_pool, vcf=vcf),
+        partial(
+            dp.make_variant_pool, vcf=vcf, single_copy_types=db.single_copy_types
+        ),
         dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
         partial(dp.modify_allele_pool_if_large_indel),
@@ -420,7 +426,7 @@ def find_hits(
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
-    res = dp.add_refs(db, res, excluded)
+    res = dp.add_refs(db, res, excluded, vcf.haploid_chroms)
 
     # merge FUT 1 and 2
     fut2s = res["FUT2"].genotypes.copy()

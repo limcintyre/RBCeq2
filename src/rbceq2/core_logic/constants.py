@@ -550,6 +550,41 @@ LANE = {  # definition of lane has expanded to include any position that is impl
     },  # 37 (only)
 }
 
+HAPLOID_SECOND_SLOT = "-"
+"""Written in the second slot of a genotype where the sample has one chromosome, ie
+'XK*N.03/-'. Not an allele and never matched against the database - it is the absence of
+a second chromosome, made explicit so a hemizygous male cannot be mistaken in the TSV for
+a homozygous female. User visible and documented; see issue #40."""
+
+PAR = {  # pseudoautosomal regions, inclusive, 1 based, keyed by build then chromosome
+    # X and Y carry the same sequence inside these intervals, so a coordinate in one of
+    # them is present on two chromosomes in every sample and stays diploid. A coordinate
+    # on X or Y outside them is single copy in a male - that is the only place in the
+    # genome where chrom_copies is 1.
+    #
+    # Keyed by build, unlike LANE, which merges GRCh37 and GRCh38 into one dict per
+    # chromosome. LANE can do that because two exact positions never collide. PAR is an
+    # interval, and the union of the two PAR1 ranges (10,001-2,781,479) would put GRCh37
+    # coordinates 2,699,521 to 2,781,479 inside PAR when they are not. No db.tsv
+    # coordinate falls in that window today, which is exactly why merging would go
+    # unnoticed until it did.
+    #
+    # Keys are bare "X"/"Y", not "chrX", because the chr prefix is stripped on read
+    # (VCF.rename_chrom) and variant tokens are already in the stripped form, ie
+    # "X:37686068_G_A".
+    #
+    # Y is here for completeness. db.tsv has 2,050 rows, 80 on chrX and none on chrY, so
+    # nothing reads the Y entries yet.
+    "GRCh37": {
+        "X": ((60_001, 2_699_520), (154_931_044, 155_260_560)),
+        "Y": ((10_001, 2_649_520), (59_034_050, 59_363_566)),
+    },
+    "GRCh38": {
+        "X": ((10_001, 2_781_479), (155_701_383, 156_030_895)),
+        "Y": ((10_001, 2_781_479), (56_887_903, 57_217_415)),
+    },
+}
+
 RHD_ANT_MAP = {
     "RHD*01W.1": "Type1",
     "RHD*01W.1.1": "Type1.1",

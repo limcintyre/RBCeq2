@@ -149,7 +149,7 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_basic_functionality(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant=""):
+        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -182,7 +182,7 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_multiple_alleles(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant=""):
+        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -210,7 +210,7 @@ class TestMakeVariantPool(unittest.TestCase):
         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele4]}
 
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant=""):
+        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1":
@@ -1042,6 +1042,7 @@ class TestRawResults(unittest.TestCase):
                 object.__setattr__(self, "antitheticals", {})
                 object.__setattr__(self, "lane_variants", {})
                 object.__setattr__(self, "reference_alleles", {})
+                object.__setattr__(self, "single_copy_types", {})
 
             def make_alleles(self):
                 return alleles
@@ -1409,6 +1410,8 @@ class MockBloodGroup:
         }
         # A numeric variant pool that the code references
         self.variant_pool_numeric = {}
+        # Allele slots in the result; 2 for every autosomal blood group
+        self.chrom_copies = 2
 
 
 def mock_chunk_geno_list_by_rank(alleles):
@@ -1418,7 +1421,9 @@ def mock_chunk_geno_list_by_rank(alleles):
     return [list(alleles)]
 
 
-def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
+def mock_get_fully_homozygous_alleles(
+    ranked_chunks, variant_pool_numeric, chrom_copies=2
+):
     """
     A naive mock that considers an allele 'HOM' if its genotype string includes 'HOM'.
     Returns a list of lists: each sublist is the set of hom-alleles in that chunk.
@@ -1445,7 +1450,7 @@ def mock_combine_all(alleles, variant_pool_numeric):
     return results
 
 
-def mock_make_pair(reference_alleles, variant_pool_numeric, sub_results):
+def mock_make_pair(reference_alleles, variant_pool_numeric, sub_results, chrom_copies=2):
     """
     If sub_results is a single-allele list, pair it with itself or the reference, etc.
     For testing only.
@@ -2880,6 +2885,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
+                self.chrom_copies = 2
 
         return MockBG()
 
@@ -2927,6 +2933,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
+                self.chrom_copies = 2
 
         return MockBG()
 
@@ -3228,6 +3235,7 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
+                self.chrom_copies = 2
 
         return MockBG()
 
@@ -3372,7 +3380,9 @@ def single_chunk_rank(alleles):
     return [list(alleles)]
 
 
-def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
+def mock_get_fully_homozygous_alleles(
+    ranked_chunks, variant_pool_numeric, chrom_copies=2
+):
     """Trivial logic: an allele is 'hom' if its genotype ends with 'HOM'."""
     result = []
     for chunk in ranked_chunks:
@@ -3381,7 +3391,7 @@ def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
     return result
 
 
-def mock_make_pair(ref_alleles, variant_pool_numeric, sub_results):
+def mock_make_pair(ref_alleles, variant_pool_numeric, sub_results, chrom_copies=2):
     """If single allele => pair with itself, else fallback."""
     al_list = list(sub_results)
     if len(al_list) == 1:
@@ -3425,6 +3435,7 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
                 self.alleles[AlleleState.NORMAL] = []
                 self.filtered_out = {}
                 self.variant_pool_numeric = {}
+                self.chrom_copies = 2
 
         return MockBG()
 
@@ -3482,6 +3493,7 @@ class MockDb(Db):
         object.__setattr__(self, "antitheticals", {})
         object.__setattr__(self, "lane_variants", {})
         object.__setattr__(self, "reference_alleles", {})
+        object.__setattr__(self, "single_copy_types", {})
 
     def make_alleles(self):
         """If you need to return mock alleles, do so here."""

@@ -271,6 +271,7 @@ class BloodGroup:
     variant_pool: dict[str, Zygosity] = field(default_factory=dict)
     variant_pool_phase: dict[str, str] = field(default_factory=dict)
     variant_pool_phase_set: dict[str, str] = field(default_factory=dict)
+    chrom_copies: int = 2
     genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
         default_factory=lambda: defaultdict(dict)
@@ -310,9 +311,26 @@ class BloodGroup:
             Mapping of variants to zygosity states.
         variant_pool_phase (Dict[str, str]): 
             Mapping of variants to phase states, ie 1|0.
-        variant_pool_phase_set (Dict[str, str]): 
+        variant_pool_phase_set (Dict[str, str]):
             Mapping of variants to phase sets ie, 126354.
-        genotypes (List[str]): 
+        chrom_copies (int):
+            How many copies of this region the sample was born with, and therefore how
+            many allele slots the reported genotype has. 2 everywhere except non-PAR X/Y
+            in a sample whose caller emitted haploid GTs there.
+
+            This is a third number, distinct from the two the variant pool already
+            carries. variant_pool is a (locus_copies, token_copies) pool in enum form:
+            Zygosity.HEM is one copy of the locus carrying one copy of the token,
+            Zygosity.NO_COPIES is zero of both. Those two describe what is present at a
+            locus *after* any deletion. chrom_copies describes what the sample inherited
+            and is never changed by a deletion - a het RHD deletion takes a locus from two
+            copies to one, but the result still has two allele slots, one of which is the
+            deletion allele.
+
+            That is why it lives here rather than in the pool. It is a property of the
+            region, not of a token; writing it onto every token would be copying one fact
+            once per variant. See issue #40.
+        genotypes (List[str]):
             List of genotypes associated with the blood group.
         phenotypes (List[str]): 
             List of phenotypes associated with the blood group.
