@@ -162,15 +162,26 @@ class TestVCFMethods(unittest.TestCase):
         }
         self.assertEqual(leaked, {})
 
-    def test_remove_home_ref_keeps_haploid_zero(self) -> None:
-        """Haploid '0' must NOT be treated as hom ref.
+    def test_remove_home_ref_drops_haploid_zero(self) -> None:
+        """Haploid '0' IS hom ref, wherever it is.
 
-        It is hom ref only if the region is genuinely single-copy, which needs the ploidy
-        model that issue #40 tracks. Dropping it here would hide the case instead of
-        resolving it, so it is deliberately left to fail loudly downstream.
+        Reversed in v2.4.5. It used to be kept so it would fail loudly downstream, on the
+        grounds that whether the region is single copy was undecided. That turned out to
+        be the wrong thing to wait for: the caller has said the copies it can see are
+        reference, so the ALT token has zero copies under every reading of what the
+        haploidy means, and raising about a row that carries no allele helped nobody.
+
+        The ploidy evidence is not lost with the row - _infer_locus_ploidy records it
+        first, which is what a mixed coding is detected from later.
         """
         vcf_obj = VCF([self._df_with_gts(["0"])], {}, set(), sample="test_sample")
-        self.assertEqual(len(vcf_obj.df), 1)
+        self.assertEqual(len(vcf_obj.df), 0)
+
+    def test_haploid_zero_is_still_recorded_as_ploidy_evidence(self) -> None:
+        """Dropping the row must not drop the fact that the locus was haploid."""
+        vcf_obj = VCF([self._df_with_gts(["0"])], {}, set(), sample="test_sample")
+        self.assertEqual(len(vcf_obj.df), 0)
+        self.assertTrue(any(vcf_obj.haploid_loci.values()))
 
     def test_rename_chrom(self) -> None:
         """Check rename_chrom removes the 'chr' prefix."""

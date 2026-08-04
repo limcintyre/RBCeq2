@@ -163,11 +163,29 @@ class TestRemoveHomRefHaploid(unittest.TestCase):
                   unique_variants=set(), sample="s", reference_genome="GRCh38")
         self.assertEqual(len(vcf.df), 0)
 
-    def test_haploid_zero_is_kept_on_an_autosome(self) -> None:
-        """Dropping it would bury the Axiom RHD case instead of rejecting it by name."""
+    def test_haploid_zero_is_dropped_on_an_autosome_too(self) -> None:
+        """D3. Reversed in v2.4.5.
+
+        It used to be kept so the copy number case would be rejected by name rather than
+        buried. Now that a gene reported consistently at one copy is read as one copy,
+        there is nothing left to reject: the caller has said the copy it can see is
+        reference, so the token has zero copies exactly as '0/0' does.
+        """
         vcf = VCF([one_row_df("chr1", "25272548", "0")], lane_variants={},
                   unique_variants=set(), sample="s", reference_genome="GRCh38")
-        self.assertEqual(len(vcf.df), 1)
+        self.assertEqual(len(vcf.df), 0)
+
+    def test_dropping_the_row_keeps_the_ploidy_evidence(self) -> None:
+        """The row goes, the fact that it was haploid does not.
+
+        This is the whole reason _infer_locus_ploidy is a separate pass that runs first.
+        Without it, a gene called entirely wildtype at one copy would be indistinguishable
+        from a gene nobody typed by the time anything could ask.
+        """
+        vcf = VCF([one_row_df("chr1", "25272548", "0")], lane_variants={},
+                  unique_variants=set(), sample="s", reference_genome="GRCh38")
+        self.assertEqual(vcf.haploid_loci.get("1"), frozenset({25272548}))
+        self.assertEqual(vcf.diploid_loci.get("1"), None)
 
     def test_diploid_hom_ref_still_dropped(self) -> None:
         for GT in ("0/0", "0|0"):

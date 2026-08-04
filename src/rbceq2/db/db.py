@@ -58,6 +58,33 @@ def load_db() -> str:
         raise
 
 
+def subtype_of(genotype: str) -> str:
+    """The ISBT subtype an allele name belongs to.
+
+    Everything up to the first dot, ie the gene and the numbered background with any
+    trailing allele number removed. Used where the evidence supports naming a group of
+    alleles but not one of them - see Db.get_gene_absent_subtypes.
+
+    Args:
+        genotype (str): An ISBT allele name, ie 'RHD*01N.01'.
+
+    Returns:
+        str: The subtype, ie 'RHD*01N'. Returned unchanged if there is nothing to strip.
+
+    Example:
+        >>> subtype_of("RHD*01N.01")
+        'RHD*01N'
+        >>> subtype_of("XK*N.01.001")
+        'XK*N'
+        >>> subtype_of("GYPB*01N")
+        'GYPB*01N'
+    """
+    gene, star, rest = genotype.partition("*")
+    if not star:
+        return genotype
+    return f"{gene}*{rest.split('.')[0]}"
+
+
 @dataclass(slots=True, frozen=True)
 class Db:
     """A data class representing a genomic database configuration.
@@ -80,6 +107,13 @@ class Db:
         single_copy_types (dict[str, str]):
             Blood group type -> chromosome, for the blood groups that sit outside PAR on
             X/Y and can therefore be single copy. Initialized post-construction.
+        loci_by_type (dict[str, dict[str, frozenset[int]]]):
+            Blood group type -> chromosome -> the positions the database defines for it.
+            Initialized post-construction.
+        gene_absent_subtypes (dict[str, str]):
+            Blood group type -> the subtype naming 'no copy of this gene', for the blood
+            groups where the database answers that unambiguously. Initialized
+            post-construction.
     """
 
     ref: str
@@ -88,12 +122,129 @@ class Db:
     antitheticals: dict[str, list[str]] = field(init=False)
     reference_alleles: dict[str, Any] = field(init=False)
     single_copy_types: dict[str, str] = field(init=False)
+    loci_by_type: dict[str, dict[str, frozenset[int]]] = field(init=False)
+    gene_absent_subtypes: dict[str, str] = field(init=False)
 
     def __post_init__(self):
         object.__setattr__(self, "antitheticals", self.get_antitheticals())
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
         object.__setattr__(self, "single_copy_types", self.get_single_copy_types())
+        object.__setattr__(self, "loci_by_type", self.get_loci_by_type())
+        object.__setattr__(
+            self, "gene_absent_subtypes", self.get_gene_absent_subtypes()
+        )
+
+    def get_loci_by_type(self) -> dict[str, dict[str, frozenset[int]]]:
+        """Every position the database defines, grouped by blood group and chromosome.
+
+        Used to ask whether a caller reported *the whole gene* at one copy rather than a
+        single locus - see locus_copies_for_bg. The question has to be asked over the
+        database's loci rather than over the sample's variant pool, because by the time
+        the pool exists the hom ref rows have been dropped and a gene called entirely
+        wildtype looks identical to a gene nobody typed.
+
+        Returns:
+            dict[str, dict[str, frozenset[int]]]: ie {'RHD': {'1': frozenset({25272548,
+            ...})}}.
+        """
+        loci: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+
+        for chrom, bg_type, variants in zip(
+            self.df["Chrom"], self.df["type"], self.df[self.ref]
+        ):
+            if pd.isna(variants):
+                continue
+            chrom = str(chrom).replace("chr", "")
+            for token in re.split(r"[,;]", str(variants)):
+                if match := re.match(r"^\s*(\d+)", token):
+                    loci[str(bg_type)][chrom].add(int(match.group(1)))
+
+        return {
+            bg_type: {chrom: frozenset(pos) for chrom, pos in by_chrom.items()}
+            for bg_type, by_chrom in loci.items()
+        }
+
+    def get_gene_absent_subtypes(self) -> dict[str, str]:
+        """Blood group type -> the subtype that names 'this gene is not there'.
+
+        Copy number evidence says a copy of a gene is missing. It does not say which
+        deletion did it, and never will - a copy number integer carries no breakpoints. So
+        the answer is given at subtype resolution rather than allele resolution: 'RHD*01N'
+        rather than 'RHD*01N.01'. That is as specific as the evidence supports, it
+        collapses the eighteen XK entries that share one token to a single string, and it
+        is stable as the database grows, which is the point. New whole gene deletions
+        arriving from long read SV calling land as further 'RHD*01N.xx' entries and change
+        nothing here.
+
+        A blood group is only answered where the database is unambiguous about it. Two
+        things disqualify one, and they are different:
+
+        - More than one candidate subtype. The database is saying a missing copy could be
+          either, and choosing between them would be inventing biology.
+        - Any allele that is *both* marked a hybrid and defined solely by a deletion. Where
+          a deletion at this locus can fuse two genes rather than remove one, the gene is
+          not absent at all - a chimera is present - and copy number alone cannot tell the
+          two apart. This is the glycophorin cluster. Note it disqualifies the blood group
+          rather than filtering the allele out: the ambiguity is in what the evidence can
+          support, not in the database.
+
+        Gene conversion is deliberately not a disqualifier, and this is the distinction
+        that keeps RH working. A conversion rewrites sequence without changing how many
+        copies are present, so it cannot be what a missing copy is. The database says so
+        structurally rather than in prose - RHD's hybrid alleles all carry an insertion
+        token beside the deletion, so none of them is defined by a deletion alone.
+
+        Blood groups with no answer here are not an error. They report the missing copy as
+        UNNAMED_SECOND_SLOT, which is the honest result when the input lacks the data to
+        call it accurately.
+
+        Returns:
+            dict[str, str]: ie {'RHD': 'RHD*01N', 'XK': 'XK*N'}. Omits the blood groups the
+            database cannot answer for.
+        """
+        candidates: dict[str, set[str]] = defaultdict(set)
+        fusable: set[str] = set()
+        # Absent in the trimmed frames the tests build. No Note means nothing is known to
+        # be a fusion, which is the safe reading here - it can only widen the set of blood
+        # groups reported as '?'.
+        notes = (
+            self.df["Note"]
+            if "Note" in self.df.columns
+            else pd.Series([None] * len(self.df), index=self.df.index)
+        )
+
+        for genotype, bg_type, variants, note in zip(
+            self.df["Genotype"], self.df["type"], self.df[self.ref], notes
+        ):
+            if pd.isna(variants):
+                continue
+            tokens = [tok for tok in re.split(r"[,;]", str(variants)) if tok.strip()]
+            if not tokens or not all(
+                re.match(r"^\s*\d+_(?:DEL|del)_\d+", tok) for tok in tokens
+            ):
+                continue
+            if not pd.isna(note) and any(
+                word in str(note).lower() for word in ("hybrid", "fusion", "conversion")
+            ):
+                fusable.add(str(bg_type))
+            else:
+                candidates[str(bg_type)].add(subtype_of(str(genotype)))
+
+        absent = {
+            bg_type: next(iter(subtypes))
+            for bg_type, subtypes in candidates.items()
+            if len(subtypes) == 1 and bg_type not in fusable
+        }
+
+        undecided = sorted((set(candidates) | fusable) - set(absent))
+        if undecided:
+            logger.info(
+                f"Blood groups where copy number alone cannot name a missing gene copy, "
+                f"so it is reported as '?': {undecided}"
+            )
+        logger.info(f"Gene absent subtypes: {absent}")
+        return absent
 
     def get_single_copy_types(self) -> dict[str, str]:
         """Blood groups that lie outside PAR on X/Y, and so can be single copy.

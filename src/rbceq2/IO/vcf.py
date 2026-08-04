@@ -101,6 +101,10 @@ class VCF:
             optional so the many test constructions of VCF keep working unchanged.
         haploid_chroms (frozenset[str]):
             Chromosomes this sample's caller reported as single copy outside PAR.
+        haploid_loci (dict[str, frozenset[int]]):
+            Chromosome -> positions this sample's caller wrote a haploid GT at.
+        diploid_loci (dict[str, frozenset[int]]):
+            Chromosome -> positions this sample's caller wrote a diploid GT at.
     """
 
     input_vcf: pl.DataFrame | pd.DataFrame
@@ -113,6 +117,8 @@ class VCF:
     variants: dict[str, str] = field(init=False)
     phase_sets: dict[str, dict[int, tuple[int, int]]] = field(init=False)
     haploid_chroms: frozenset[str] = field(init=False)
+    haploid_loci: dict[str, frozenset[int]] = field(init=False)
+    diploid_loci: dict[str, frozenset[int]] = field(init=False)
 
     def __post_init__(self):
         """Handle initialization after data class creation."""
@@ -122,6 +128,9 @@ class VCF:
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
         # depends on the answer, and remove_home_ref is where that row gets dropped.
         object.__setattr__(self, "haploid_chroms", self._infer_haploid_chroms())
+        haploid_loci, diploid_loci = self._infer_locus_ploidy()
+        object.__setattr__(self, "haploid_loci", haploid_loci)
+        object.__setattr__(self, "diploid_loci", diploid_loci)
         self.remove_home_ref()
         self.encode_variants()
         self.add_loci()
@@ -245,22 +254,71 @@ class VCF:
             )
         return frozenset(haploid)
 
-    def _is_haploid_hom_ref(self, chrom: str, pos: Any, sample_field: Any) -> bool:
-        """True for a haploid '0' at a coordinate this sample carries once.
+    def _infer_locus_ploidy(
+        self,
+    ) -> tuple[dict[str, frozenset[int]], dict[str, frozenset[int]]]:
+        """Which loci this sample's caller wrote haploid GTs at, and which diploid.
 
-        The single-copy equivalent of '0/0': one chromosome, and it is reference. Split
-        out of remove_home_ref so the row-wise test stays readable next to the vectorised
-        startswith it sits beside.
+        Raw observation, no interpretation. What a haploid GT *means* depends on where it
+        is - constitutional haploidy outside PAR, gene copy number on an autosome, a caller
+        error inside PAR - and answering that needs the database's gene boundaries, which
+        this layer does not have. So the reading is done here and the meaning in
+        locus_copies_for_bg, which has both halves.
+
+        Has to run before remove_home_ref, and this is the whole reason it is a separate
+        pass rather than something read off the variant pool later. A gene called entirely
+        wildtype has every row dropped, so by pool time 'one copy, and it is reference' and
+        'nobody typed this gene' are the same empty set. Here they are still distinct.
+
+        Deliberately records both halves rather than just the haploid one. The question
+        downstream is whether a gene is *consistently* single copy, and a gene with some
+        haploid and some diploid loci is a contradiction that must not be read as copy
+        number - knowing only where the haploid GTs were could not tell the two apart.
+
+        Returns:
+            tuple[dict[str, frozenset[int]], dict[str, frozenset[int]]]: haploid loci and
+            diploid loci, each chromosome -> positions.
         """
-        if chrom not in self.haploid_chroms:
-            return False
-        GT = gt_of(sample_field)
-        if GT != "0":
-            return False
-        try:
-            return is_single_copy(chrom, int(pos), self.reference_genome)
-        except (TypeError, ValueError):
-            return False
+        haploid: dict[str, set[int]] = defaultdict(set)
+        diploid: dict[str, set[int]] = defaultdict(set)
+
+        for chrom, pos, sample_field in zip(
+            self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
+        ):
+            GT = gt_of(sample_field)
+            if not GT:
+                continue
+            try:
+                position = int(pos)
+            except (TypeError, ValueError):
+                continue
+            target = haploid if is_haploid_gt(GT) else diploid
+            target[str(chrom)].add(position)
+
+        return (
+            {chrom: frozenset(pos) for chrom, pos in haploid.items()},
+            {chrom: frozenset(pos) for chrom, pos in diploid.items()},
+        )
+
+    def _is_haploid_hom_ref(self, sample_field: Any) -> bool:
+        """True for a haploid '0', anywhere.
+
+        The single-copy equivalent of '0/0'. Split out of remove_home_ref so the row-wise
+        test stays readable next to the vectorised startswith it sits beside.
+
+        Deliberately asks nothing about the coordinate, unlike everything else here that
+        touches ploidy. Whether a haploid GT means one chromosome, one copy of a gene, or a
+        caller having a bad day is undecided at this point and needs the database to
+        settle. It does not need settling: under every one of those readings the caller has
+        said the copies it can see are reference, so the ALT token has zero copies and
+        absence is the right encoding. This is the one ploidy question that can be answered
+        without knowing which question it is.
+
+        Dropping the row does not lose the ploidy evidence. _infer_locus_ploidy has already
+        recorded that this locus was haploid, which is what a mixed coding is detected from
+        later.
+        """
+        return gt_of(sample_field) == "0"
 
     def remove_home_ref(self) -> None:
         """Remove homozygous reference calls from the DataFrame.
@@ -275,29 +333,22 @@ class VCF:
         dataset emits '0|0' (they all write hom ref unphased even in phased VCFs), so the
         bug was latent rather than observed.
 
-        Haploid '0' is matched too, but only where this sample is single copy - non-PAR
-        X/Y with haploid GTs elsewhere in the same region (see _infer_haploid_chroms).
-        There it means exactly what '0/0' means: the chromosomes present are reference, so
-        the token has zero copies and absence is the right encoding. Everywhere else a
-        haploid '0' is left in place to be rejected by name in get_ref, because on an
-        autosome it is a statement about copy number that this code cannot yet act on -
-        state table rows D3 and E1.
+        Haploid '0' is matched too, and since v2.4.5 anywhere rather than only outside PAR
+        on X/Y. It means exactly what '0/0' means wherever it appears: the copies the
+        caller can see are reference, so the token has zero copies. Until v2.4.4 an
+        autosomal one was left in place to be rejected by name in get_ref, which was a
+        raise about a row carrying no allele - state table row D3. The reading of what the
+        haploidy *means* still happens later and elsewhere; see _is_haploid_hom_ref.
         """
         hom_ref = self.df["SAMPLE"].str.startswith(HOM_REF_GTS, na=False)
 
-        if self.haploid_chroms:
-            haploid_hom_ref = pd.Series(
-                [
-                    self._is_haploid_hom_ref(chrom, pos, sample_field)
-                    for chrom, pos, sample_field in zip(
-                        self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
-                    )
-                ],
-                index=self.df.index,
-            )
-            hom_ref = hom_ref | haploid_hom_ref
+        haploid_hom_ref = pd.Series(
+            [self._is_haploid_hom_ref(sample_field) for sample_field in self.df["SAMPLE"]],
+            index=self.df.index,
+            dtype=bool,
+        )
 
-        self.df = self.df[~hom_ref].copy(deep=True)
+        self.df = self.df[~(hom_ref | haploid_hom_ref)].copy(deep=True)
 
     def encode_variants(self) -> None:
         """Encode variants into a unified format using the encoder factory."""
@@ -780,12 +831,26 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
+            # Every VCF field is text, and inferring types from the first rows gets it
+            # wrong in a way that is silent rather than loud. A file whose leading rows
+            # are haploid genotypes - which is what a caller encoding gene copy number
+            # produces - infers the sample column as an integer, and then every ordinary
+            # '0/0' further down the file is unparseable and lands as null. Reading
+            # everything as text removes the whole class.
+            infer_schema_length=0,
             schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
         )
     except pl.exceptions.ComputeError:
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
+            # Every VCF field is text, and inferring types from the first rows gets it
+            # wrong in a way that is silent rather than loud. A file whose leading rows
+            # are haploid genotypes - which is what a caller encoding gene copy number
+            # produces - infers the sample column as an integer, and then every ordinary
+            # '0/0' further down the file is unparseable and lands as null. Reading
+            # everything as text removes the whole class.
+            infer_schema_length=0,
             schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
             truncate_ragged_lines=True,
         )

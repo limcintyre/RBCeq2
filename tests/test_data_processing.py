@@ -23,7 +23,6 @@ from rbceq2.core_logic.data_procesing import (
     SomeHomMultiVariantStrategy,
     add_refs,
     combine_all,
-    filter_vcf_metrics,
     find_what_was_excluded_due_to_rank,
     get_fully_homozygous_alleles,
     get_genotypes,
@@ -35,8 +34,6 @@ from rbceq2.core_logic.data_procesing import (
     parse_GT,
     process_genetic_data,
     raw_results,
-    remove_alleles_with_low_base_quality,
-    remove_alleles_with_low_read_depth,
     remove_alleles_with_no_call_variants,
     _modify_variant_pool_with_large_indel,
     modify_allele_pool_if_large_indel,
@@ -149,7 +146,9 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_basic_functionality(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -182,7 +181,9 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_multiple_alleles(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -210,7 +211,9 @@ class TestMakeVariantPool(unittest.TestCase):
         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele4]}
 
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict, variant="", chrom_copies=2):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1":
@@ -1169,227 +1172,6 @@ class TestMakeBloodGroups(unittest.TestCase):
         result = make_blood_groups(res, sample)
         self.assertEqual(len(result), 1)
         self.assertEqual(result["A"].alleles[AlleleState.RAW], [])
-
-
-class TestFilterVcfMetrics(unittest.TestCase):
-    def test_all_pass(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        alleles = [allele1, allele2]
-        variant_metrics = {
-            "var1": {"DP": "35"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, alleles)
-
-    def test_some_fail(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        alleles = [allele1, allele2]
-        variant_metrics = {
-            "var1": {"DP": "25"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertIn("var1:25.0", filtered_out)
-        self.assertIn(allele1, filtered_out["var1:25.0"])
-        self.assertEqual(passed_filtering, [allele2])
-
-    def test_no_defining_variants(self):
-        allele = Allele(
-            genotype="A*03",
-            phenotype="Phenotype C",
-            defining_variants=frozenset(),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub3",
-        )
-        alleles = [allele]
-        variant_metrics = {}
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, [allele])
-
-    def test_microarray(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        alleles = [allele]
-        variant_metrics = {"var1": {"DP": "10"}}
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = True
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, [allele])
-
-
-class TestRemoveAllelesWithLowReadDepth(unittest.TestCase):
-    def test_remove_low_read_depth(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        bg = BloodGroup(
-            type="BG1",
-            alleles={AlleleState.FILT: [allele1, allele2]},
-            sample="Sample1",
-        )
-        variant_metrics = {
-            "var1": {"DP": "25"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        min_read_depth = 30
-        microarray = False
-        result_bg = remove_alleles_with_low_read_depth(
-            {1: bg}, variant_metrics, min_read_depth, microarray
-        )[1]
-        self.assertEqual(result_bg.alleles[AlleleState.FILT], [allele2])
-        self.assertIn("insufficient_read_depth", result_bg.filtered_out)
-        self.assertIn("var1:25.0", result_bg.filtered_out["insufficient_read_depth"])
-        self.assertIn(
-            allele1, result_bg.filtered_out["insufficient_read_depth"]["var1:25.0"]
-        )
-
-
-class TestRemoveAllelesWithLowBaseQuality(unittest.TestCase):
-    def test_remove_low_base_quality(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        bg = BloodGroup(
-            type="BG1",
-            alleles={AlleleState.FILT: [allele1, allele2]},
-            sample="Sample1",
-        )
-        variant_metrics = {
-            "var1": {"GQ": "20"},
-            "var2": {"GQ": "40"},
-        }
-        min_base_quality = 30
-        microarray = False
-        result_bg = remove_alleles_with_low_base_quality(
-            {1: bg}, variant_metrics, min_base_quality, microarray
-        )[1]
-        self.assertEqual(result_bg.alleles[AlleleState.FILT], [allele2])
-        self.assertIn("insufficient_min_base_quality", result_bg.filtered_out)
-        self.assertIn(
-            "var1:20.0", result_bg.filtered_out["insufficient_min_base_quality"]
-        )
-        self.assertIn(
-            allele1,
-            result_bg.filtered_out["insufficient_min_base_quality"]["var1:20.0"],
-        )
 
 
 # Minimal mocks or stubs for BloodGroup and the helper functions

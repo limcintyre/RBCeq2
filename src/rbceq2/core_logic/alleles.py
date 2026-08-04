@@ -272,6 +272,7 @@ class BloodGroup:
     variant_pool_phase: dict[str, str] = field(default_factory=dict)
     variant_pool_phase_set: dict[str, str] = field(default_factory=dict)
     chrom_copies: int = 2
+    locus_copies: int | None = None
     genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
         default_factory=lambda: defaultdict(dict)
@@ -330,6 +331,22 @@ class BloodGroup:
             That is why it lives here rather than in the pool. It is a property of the
             region, not of a token; writing it onto every token would be copying one fact
             once per variant. See issue #40.
+        locus_copies (int | None):
+            How many copies of this *gene* are still present, as opposed to how many
+            chromosomes the sample was born with. None means no caller said, which is the
+            overwhelmingly common case and the behaviour before v2.4.5; it is not the same
+            as 2, and is kept distinct so 'nobody measured' cannot be read as 'measured,
+            two'.
+
+            Set only where a caller encodes gene copy number as GT ploidy and does so
+            consistently across every database locus in the gene - see
+            locus_copies_for_bg. A gene at one copy on two chromosomes is the case
+            chrom_copies alone cannot express: two allele slots, one of which holds no
+            gene at all. That second slot is a reporting decision and is written by
+            get_genotypes, not carried in the pair.
+
+            locus_copies < chrom_copies is the interesting state. Equal is ordinary
+            diploidy. Greater is impossible and is rejected rather than normalised.
         genotypes (List[str]):
             List of genotypes associated with the blood group.
         phenotypes (List[str]): 

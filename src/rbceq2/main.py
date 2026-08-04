@@ -155,7 +155,13 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--RH",
         action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Long read only!",
+        help=(
+            "Generate results for RHD and RHCE. Only use this if your VCF actually "
+            "carries information RH can be called from: long reads with structural "
+            "variant calls, or copy number for the RH genes encoded as genotype ploidy. "
+            "Short read data without either will mismap between the two paralogues and "
+            "the results will be wrong."
+        ),
         default=False,
     )
 
@@ -255,12 +261,22 @@ def main():
                 sep = "##############"
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
-    df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
+    # sort_index, not decoration: imap_unordered yields samples in whatever order the
+    # workers finish, and from_dict(orient='index') keeps insertion order, so without this
+    # the same VCFs and the same database produce the same cells in a different order every
+    # run - hard rule 2. Sorting here rather than switching to an ordered imap keeps the
+    # throughput (no head of line blocking on one slow sample) and additionally makes the
+    # output independent of the order the input files were listed in.
+    df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index").sort_index()
     df_geno = df_geno.replace("", "Undetermined/Undetermined")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
-    df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
+    df_pheno_numeric = pd.DataFrame.from_dict(
+        dfs_pheno_numeric, orient="index"
+    ).sort_index()
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
-    df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
+    df_pheno_alpha = pd.DataFrame.from_dict(
+        dfs_pheno_alphanumeric, orient="index"
+    ).sort_index()
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
@@ -328,7 +344,10 @@ def find_hits(
             dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
         ),
         partial(
-            dp.make_variant_pool, vcf=vcf, single_copy_types=db.single_copy_types
+            dp.make_variant_pool,
+            vcf=vcf,
+            single_copy_types=db.single_copy_types,
+            loci_by_type=db.loci_by_type,
         ),
         dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
@@ -420,13 +439,17 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
-        dp.get_genotypes,
+        partial(
+            dp.get_genotypes,
+            reference_alleles=db.reference_alleles,
+            gene_absent_subtypes=db.gene_absent_subtypes,
+        ),
         #dp.add_CD_to_XG,
     ]
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
-    res = dp.add_refs(db, res, excluded, vcf.haploid_chroms)
+    res = dp.add_refs(db, res, excluded, vcf)
 
     # merge FUT 1 and 2
     fut2s = res["FUT2"].genotypes.copy()

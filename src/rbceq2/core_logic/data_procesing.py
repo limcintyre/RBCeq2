@@ -12,6 +12,7 @@ from rbceq2.core_logic.constants import (
     AlleleState,
     HAPLOID_SECOND_SLOT,
     SYNTHESISED_HOM_REF_GT,
+    UNNAMED_SECOND_SLOT,
 )
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
@@ -409,9 +410,70 @@ def chrom_copies_for_bg(
     return 2
 
 
+def locus_copies_for_bg(
+    bg: BloodGroup, vcf: VCF, loci_by_type: dict[str, dict[str, frozenset[int]]]
+) -> int | None:
+    """How many copies of this gene the caller says are present, or None if it did not say.
+
+    Some callers encode gene copy number as GT ploidy, writing a haploid GT across a gene
+    the sample carries once. That is a statement about the *gene*, not about the sample's
+    chromosomes, and the two have different answers: one copy of RHD is still two allele
+    slots, one of them holding no gene at all. Reading it as chromosome ploidy would report
+    'RHD*01/-' and lose a chromosome the sample has.
+
+    The evidence required is agreement across the whole gene: every database locus the VCF
+    actually reported for this blood group has to be haploid. One haploid GT among diploid
+    neighbours is a caller quirk, not a copy number, and is left to be rejected by name in
+    get_ref - the same treatment as before. Requiring agreement is what keeps this from
+    firing on stray malformed rows, and it needs no flag and no per-gene list: a caller that
+    encodes copy number this way does it consistently, and one that does not never trips it.
+
+    Deliberately returns None rather than 2 for 'no evidence'. Nothing here can distinguish
+    a gene at two copies from a gene nobody typed, and recording the second as the first
+    would be the same class of mistake as reading './.' as wildtype.
+
+    Note this asks only about the gene. Whether the *sample* has one chromosome there is
+    chrom_copies_for_bg's question, and the two are read together at output: a gene at one
+    copy on one chromosome is ordinary hemizygosity, on two chromosomes it is a missing
+    copy that needs naming.
+
+    Args:
+        bg (BloodGroup): The blood group being built.
+        vcf (VCF): The VCF this sample came from, carrying the per locus ploidy.
+        loci_by_type (dict[str, dict[str, frozenset[int]]]): Blood group -> chromosome ->
+        positions, from Db.
+
+    Returns:
+        int | None: 1 where the caller reported the gene consistently single copy, None
+        where it said nothing or contradicted itself.
+    """
+    by_chrom = loci_by_type.get(bg.type)
+    if not by_chrom:
+        return None
+
+    haploid = diploid = 0
+    for chrom, positions in by_chrom.items():
+        haploid += len(positions & vcf.haploid_loci.get(chrom, frozenset()))
+        diploid += len(positions & vcf.diploid_loci.get(chrom, frozenset()))
+
+    if not haploid:
+        return None
+    if diploid:
+        logger.warning(
+            f"{bg.sample}: {bg.type} has {haploid} haploid and {diploid} diploid "
+            f"genotypes, so the copy number is contradictory and is not being read as "
+            f"one. See issue #40"
+        )
+        return None
+    return 1
+
+
 @apply_to_dict_values
 def make_variant_pool(
-    bg: BloodGroup, vcf: VCF, single_copy_types: dict[str, str] | None = None
+    bg: BloodGroup,
+    vcf: VCF,
+    single_copy_types: dict[str, str] | None = None,
+    loci_by_type: dict[str, dict[str, frozenset[int]]] | None = None,
 ) -> BloodGroup:
     """Construct or update a variant pool for a BloodGroup from VCF data.
 
@@ -493,12 +555,13 @@ def make_variant_pool(
         return matches
 
     bg.chrom_copies = chrom_copies_for_bg(bg, vcf, single_copy_types or {})
+    bg.locus_copies = locus_copies_for_bg(bg, vcf, loci_by_type or {})
 
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
         zygosity = {
-            var: get_ref(vcf.variants[var], var, bg.chrom_copies)
+            var: get_ref(vcf.variants[var], var, bg.chrom_copies, bg.locus_copies)
             for var in allele.defining_variants
         }
         variant_pool = variant_pool | zygosity
@@ -1082,7 +1145,12 @@ def parse_GT(GT: str) -> tuple[str, ...]:
     return tuple(re.split(r"[/|]", GT))
 
 
-def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) -> str:
+def get_ref(
+    ref_dict: dict[str, str],
+    variant: str = "",
+    chrom_copies: int = 2,
+    locus_copies: int | None = None,
+) -> str:
     """Determine the zygosity from a reference dictionary containing genotype
     information.
 
@@ -1106,19 +1174,26 @@ def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) 
     SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here and is not
     affected.
 
-    A haploid GT is only interpreted where chrom_copies is 1, ie non-PAR X/Y in a sample
-    whose caller wrote haploid GTs there. Then '1' is Hemizygous, '.' is No_data, and '0'
-    never arrives because remove_home_ref has already dropped it the way it drops '0/0'.
+    A haploid GT is interpreted where either count is 1, and they are different claims
+    reaching the same zygosity. chrom_copies is 1 outside PAR on X/Y, where the sample
+    carries one chromosome. locus_copies is 1 where a caller reported one copy of the gene
+    consistently across it, which since v2.4.5 covers autosomes - state table rows D2 and
+    D3. Either way '1' is Hemizygous and '.' is No_data; '0' never arrives, because
+    remove_home_ref drops it the way it drops '0/0'.
 
-    Hemizygous is the honest label - one chromosome carrying one copy of the token - but
-    it is not what the pairing machinery needs, so the *numeric* value comes from
-    BloodGroup.len_dict via chrom_copies rather than from the enum. See
-    make_variant_pool, which is where the normalisation is applied and explained.
+    Hemizygous is the honest label - one copy of the locus carrying one copy of the token -
+    but it is not what the pairing machinery needs, so the *numeric* value comes from
+    BloodGroup.len_dict via chrom_copies rather than from the enum. See make_variant_pool,
+    which is where the normalisation is applied and explained.
 
-    A haploid GT anywhere else is still rejected, and the two rejections are deliberately
-    separate errors. Inside PAR it is a caller error: PAR is two copies in every sample
-    (state table B5). On an autosome it is a statement about how many copies of a *locus*
-    are present.
+    What the two cases differ in is the *shape of the result*, not the zygosity, and that
+    difference is settled at output rather than here. One chromosome gives one allele slot;
+    one copy of a gene on two chromosomes gives two, the second holding no gene at all. See
+    get_genotypes.
+
+    A haploid GT with neither count at 1 is still rejected. That is a locus whose
+    neighbours in the same gene were diploid, so the file is claiming one copy and two at
+    once and there is nothing to prefer between them.
 
     Multi-allelic genotypes are rejected rather than guessed at - the VCF needs splitting
     with 'bcftools norm -m -both' first. The '.' check runs before the biallelic check, so
@@ -1132,14 +1207,17 @@ def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) 
         chrom_copies (int): Copies of the region the sample was born with. 2 unless the
         VCF layer found haploid GTs outside PAR on this chromosome. Optional so existing
         callers keep working.
+        locus_copies (int | None): Copies of the gene the caller reported, from
+        locus_copies_for_bg. None means it did not say, which is the common case.
+        Optional so existing callers keep working.
 
     Returns:
         str: A string indicating the zygosity as 'Homozygous', 'Heterozygous',
         'Hemizygous' or 'No_data'.
 
     Raises:
-        BeyondLogicError: If the genotype is haploid where the region has two copies, or
-        is multi-allelic.
+        BeyondLogicError: If the genotype is haploid where neither the region nor the gene
+        has one copy, or is multi-allelic.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
     GT = ref_dict["GT"]
@@ -1149,7 +1227,7 @@ def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) 
 
     alleles = parse_GT(GT)
 
-    if len(alleles) == 1 and chrom_copies == 1:
+    if len(alleles) == 1 and 1 in (chrom_copies, locus_copies):
         if alleles[0] == ".":
             return Zygosity.NO_DATA
         if alleles[0] == "0":
@@ -1169,14 +1247,18 @@ def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) 
     if len(alleles) != 2:
         raise BeyondLogicError(
             message=(
-                "Haploid genotypes are only supported outside the pseudoautosomal "
-                "regions of X/Y, where the sample really does carry one copy. A haploid "
-                "GT inside PAR, or on an autosome, is a statement about locus copy "
-                "number rather than about ploidy and has a different correct answer - "
-                "see issue #40. If this is an array export encoding RHD copy number, "
-                "that mapping is not decided yet."
+                "A haploid genotype needs either one chromosome or one copy of the gene, "
+                "and this locus has neither. Outside the pseudoautosomal regions of X/Y "
+                "the sample carries one chromosome; where a caller encodes gene copy "
+                "number as GT ploidy it writes haploid genotypes consistently across the "
+                "whole gene. A single haploid genotype among diploid ones in the same "
+                "gene is claiming one copy and two at once, so it is rejected rather "
+                "than guessed at - see issue #40."
             ),
-            context=f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}",
+            context=(
+                f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}, "
+                f"locus_copies: {locus_copies}"
+            ),
         )
 
     if "." in alleles:
@@ -1198,11 +1280,20 @@ def get_ref(ref_dict: dict[str, str], variant: str = "", chrom_copies: int = 2) 
 
 
 @apply_to_dict_values
-def get_genotypes(bg: BloodGroup) -> BloodGroup:
+def get_genotypes(
+    bg: BloodGroup,
+    reference_alleles: dict[str, Any] | None = None,
+    gene_absent_subtypes: dict[str, str] | None = None,
+) -> BloodGroup:
     """Generate genotype combinations for a given blood group from allele pairs.
 
     Args:
         bg (BloodGroup): The blood group object containing alleles.
+        reference_alleles (dict[str, Any] | None): Blood group -> reference Allele, from
+        Db. Needed only to recognise the reference slot when a gene copy is missing.
+        Optional so existing callers keep working.
+        gene_absent_subtypes (dict[str, str] | None): Blood group -> the subtype naming a
+        missing gene copy, from Db. Optional so existing callers keep working.
 
     Returns:
         BloodGroup: The blood group object with updated genotypes based on allele
@@ -1211,31 +1302,69 @@ def get_genotypes(bg: BloodGroup) -> BloodGroup:
     This function processes 'pairs' and 'co_existing' alleles to create sorted genotype
     strings.
 
-    Where bg.chrom_copies is 1 the two slots hold the same allele - one chromosome
-    carrying it, which the pairing machinery represents as a duplicate - and the second
-    slot is written as HAPLOID_SECOND_SLOT rather than repeating the allele. 'XK*N.03/-'
-    says there is no second chromosome; 'XK*N.03/XK*N.03' would be indistinguishable in
-    the TSV from a female homozygote, and a bare 'XK*N.03' would break every consumer that
-    splits a genotype on '/'. The pair itself is left alone, so phenotype, filters and the
-    exclusion trail all still see an ordinary two-allele pair - the haploid shape is a
-    reporting decision and lives only here.
+    Two different single copy states are rendered here, and keeping them apart is the whole
+    point of there being two numbers. Both are *reporting* decisions: the pair itself is
+    left alone in each case, so phenotype, filters and the exclusion trail all still see an
+    ordinary two-allele pair.
+
+    Where bg.chrom_copies is 1 the two slots hold the same allele - one chromosome carrying
+    it, which the pairing machinery represents as a duplicate - and the second slot is
+    written as HAPLOID_SECOND_SLOT. 'XK*N.03/-' says there is no second chromosome;
+    'XK*N.03/XK*N.03' would be indistinguishable in the TSV from a female homozygote, and a
+    bare 'XK*N.03' would break every consumer that splits a genotype on '/'.
+
+    Where bg.locus_copies is 1 but chrom_copies is 2 the sample has two chromosomes and one
+    of them carries no copy of the gene. The pairing machinery has nothing to put there -
+    an array reports copy number without a deletion record, so no deletion allele was ever
+    built - and pairs the real allele with the reference instead, which asserts wildtype on
+    a chromosome there is evidence against. So the reference slot is replaced: by the
+    database's subtype for a missing copy where it has one, and by UNNAMED_SECOND_SLOT
+    where it does not. Subtype rather than allele because a copy number carries no
+    breakpoints and cannot say which deletion it was.
 
     Example:
         XK, male, X:37686068 G>A called '1':
             pair       -> Pair(XK*N.16, XK*N.16)
             genotypes  -> ['XK*N.16/-']
+
+        RHD, one gene copy, 1:25272598 G>A called '1':
+            pair       -> Pair(RHD*01, RHD*09.01)
+            genotypes  -> ['RHD*09.01/RHD*01N']
     """
+    reference = (reference_alleles or {}).get(bg.type)
+    reference_genotype = getattr(reference, "genotype", None)
+    absent_slot = (gene_absent_subtypes or {}).get(bg.type, UNNAMED_SECOND_SLOT)
+    missing_copy = bg.locus_copies == 1 and bg.chrom_copies == 2
 
     def make_list_of_lists(alleles):
         return [pair.genotypes for pair in alleles]
 
     def render(genotypes: list[str]) -> str:
-        """Join a pair's genotypes, collapsing the duplicated slot when haploid.
+        """Join a pair's genotypes, collapsing a slot the sample does not have.
 
         pair.genotypes is already sorted by Pair._ordered, so it is not re-sorted here.
         """
         if bg.chrom_copies == 1 and len(set(genotypes)) == 1:
             return f"{genotypes[0]}/{HAPLOID_SECOND_SLOT}"
+        if missing_copy:
+            # dict.fromkeys rather than a set: the duplicate has to go, but the order of
+            # what is left has to stay reproducible. Pair.alleles is a frozenset, so the
+            # only ordering guarantee here is the one Pair._ordered already applied.
+            present = list(
+                dict.fromkeys(
+                    geno for geno in genotypes if geno != reference_genotype
+                )
+            )
+            if len(present) < 2:
+                # The ordinary shape: one real allele plus the reference slot that the
+                # missing copy displaces, or the duplicate the pairing machinery writes
+                # when one copy carries the allele and there is nothing to pair it with.
+                return f"{(present or genotypes)[0]}/{absent_slot}"
+            logger.warning(
+                f"{bg.sample}: {bg.type} has one gene copy but a pair of two "
+                f"non-reference alleles ({'/'.join(present)}), which needs both on the "
+                f"one copy. Reporting the pair as called; see issue #40"
+            )
         return "/".join(sorted(genotypes))
 
     if bg.alleles[AlleleState.CO] is not None:
@@ -1251,119 +1380,31 @@ def get_genotypes(bg: BloodGroup) -> BloodGroup:
     return bg
 
 
-def filter_vcf_metrics(
-    alleles: list[Allele],
-    variant_metrics: dict[str, dict[str, str]],
-    metric_name: str,
-    metric_threshold: float,
-    microarray: bool,
-) -> tuple[defaultdict[str, list[Allele]], list[Allele]]:
-    """Filter out alleles based on a specified read depth metric.
-
-    Iterates through each allele's defining variants and compares the specified metric
-    (e.g., "DP" for read depth) to a threshold value. For microarray data, the read depth
-    is set to a constant value of 30.0. Alleles whose read depth falls below the threshold
-    are collected in `filtered_out`; all others are placed in `passed_filtering`.
-
-    Args:
-        alleles (list[Allele]):
-            A list of allele objects to be evaluated.
-        variant_metrics (dict[str, dict[str, str]]):
-            A nested dictionary where the key is a variant identifier and the value
-            is a dictionary of metrics (e.g., {"DP": "45", ...}).
-        metric_name (str):
-            The name of the metric to evaluate (e.g., "DP" for read depth).
-        metric_threshold (float):
-            The threshold value for the chosen metric. Alleles below this value
-            are excluded.
-        microarray (bool):
-            If True, overrides the chosen metric by setting read depth to 30.0.
-
-    Returns:
-        tuple[defaultdict[str, list[Allele]], list[Allele]]:
-            A tuple containing two elements:
-            1. `filtered_out`: A defaultdict where each key is
-               "variant:read_depth" and each value is a list of alleles
-               that did not meet the threshold.
-            2. `passed_filtering`: A list of alleles that passed the threshold.
-
-    Raises:
-        KeyError:
-            If a required variant or metric is missing in `variant_metrics`.
-    """
-    # TODO large dels will have depth zero
-    filtered_out = defaultdict(list)
-    passed_filtering = []
-    metric_threshold = float(metric_threshold)
-    for allele in alleles:
-        if allele.big_variants:
-            passed_filtering.append(allele)
-            continue
-        keep = True
-        for variant in allele.defining_variants:
-            read_depth = float(variant_metrics[variant][metric_name])
-            if microarray:  # TODO !!
-                read_depth = 30.0  # for microarray
-            else:
-                read_depth = float(variant_metrics[variant][metric_name])
-            if read_depth < metric_threshold:
-                filtered_out[f"{variant}:{str(read_depth)}"].append(allele)
-                keep = False
-        if keep:
-            passed_filtering.append(allele)
-
-    return filtered_out, passed_filtering
-
-
-@apply_to_dict_values
-def remove_alleles_with_low_read_depth(
-    bg: BloodGroup,
-    variant_metrics: dict[str, str],
-    min_read_depth: int,
-    microarray: bool,
-) -> BloodGroup:
-    """
-    Remove alleles from a BloodGroup object that have defining variants with read depth
-    below a specified minimum threshold.
-
-    Args:
-        bg (BloodGroup): The BloodGroup object containing alleles to filter.
-        variant_metrics (dict[str, dict[str, int]]): A dictionary containing variant
-        metrics with read depth information.
-        min_read_depth (int): The minimum read depth threshold.
-
-    Returns:
-        BloodGroup: The BloodGroup object with alleles filtered based on read depth.
-    """
-
-    filtered_out, passed_filtering = filter_vcf_metrics(
-        bg.alleles[AlleleState.FILT], variant_metrics, "DP", min_read_depth, microarray
-    )
-    if filtered_out:
-        vars_affected = ",".join(filtered_out.keys())
-        message = f"Read Depth. Sample: {bg.sample}, BG: {bg.type}, variant/s: {vars_affected}"
-        logger.warning(message)
-    bg.filtered_out["insufficient_read_depth"] = filtered_out
-    bg.alleles[AlleleState.FILT] = passed_filtering
-    return bg
-
-
 @apply_to_dict_values
 def only_keep_alleles_if_FILTER_PASS(
     bg: BloodGroup, df: pd.DataFrame, no_filter: bool
 ) -> BloodGroup:
-    """
-    Remove alleles from a BloodGroup object that have defining variants with read depth
-    below a specified minimum threshold.
+    """Keep only alleles whose every defining variant was called FILTER == PASS.
+
+    The one place quality is enforced. Everything else is delegated upstream deliberately,
+    so an allele needing a variant the caller flagged is dropped here and the blood group
+    reverts to whatever the remaining alleles support - usually the reference. '_ref'
+    tokens are skipped, having no FILTER of their own.
+
+    Note FILTER does not always mean call quality. On some platforms PASS/FAIL marks which
+    of several probesets is the recommended one for a marker, so a FAIL row can be a
+    perfectly good call that is dropped here anyway, under a name that sounds like QC.
+    Worth checking what it means before trusting it on a new input type.
 
     Args:
         bg (BloodGroup): The BloodGroup object containing alleles to filter.
-        variant_metrics (dict[str, dict[str, int]]): A dictionary containing variant
-        metrics with read depth information.
-        min_read_depth (int): The minimum read depth threshold.
+        df (pd.DataFrame): The sample's VCF rows, used to look up each variant's FILTER.
+        no_filter (bool): Skip the check entirely and promote every raw allele, ie the
+        --no_filter flag.
 
     Returns:
-        BloodGroup: The BloodGroup object with alleles filtered based on read depth.
+        BloodGroup: The BloodGroup with alleles[FILT] set, and anything dropped recorded
+        under filtered_out['FILTER_not_PASS'].
     """
     if no_filter:
         bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
@@ -1395,44 +1436,6 @@ def only_keep_alleles_if_FILTER_PASS(
         for allele in bg.alleles[AlleleState.RAW]
         if allele not in passed_filtering
     ]
-    bg.alleles[AlleleState.FILT] = passed_filtering
-
-    return bg
-
-
-@apply_to_dict_values
-def remove_alleles_with_low_base_quality(
-    bg: BloodGroup,
-    variant_metrics: dict[str, str],
-    min_base_quality: int,
-    microarray: bool,
-) -> BloodGroup:
-    """
-    Remove alleles from a BloodGroup object that have defining variants with base
-    quality below a specified minimum threshold.
-
-    Args:
-        bg (BloodGroup): The BloodGroup object containing alleles to filter.
-        variant_metrics (dict[str, dict[str, int]]): A dictionary containing variant
-        metrics with read depth information.
-        min_base_quality (int): The minimum base_quality threshold.
-
-    Returns:
-        BloodGroup: The BloodGroup object with alleles filtered based on read depth.
-    """
-
-    filtered_out, passed_filtering = filter_vcf_metrics(
-        bg.alleles[AlleleState.FILT],
-        variant_metrics,
-        "GQ",
-        min_base_quality,
-        microarray,
-    )
-    if filtered_out:
-        vars_affected = ",".join(filtered_out.keys())
-        message = f"Base Quality. Sample: {bg.sample}, BG: {bg.type}, variant/s: {vars_affected}"
-        logger.warning(message)
-    bg.filtered_out["insufficient_min_base_quality"] = filtered_out
     bg.alleles[AlleleState.FILT] = passed_filtering
 
     return bg
@@ -1862,24 +1865,30 @@ def add_refs(
     db: Db,
     res: dict[str, BloodGroup],
     exclude,
-    haploid_chroms: frozenset[str] = frozenset(),
+    vcf: VCF | None = None,
 ) -> dict[str, BloodGroup]:
     """Add reference genotypes to existing results or create new entries for them.
 
     A blood group only reaches here with no alleles of its own, so the genotype string is
-    built directly rather than by get_genotypes. That means the haploid rendering has to
-    be repeated here: a male with no XK variant at all is hemizygous *reference*, which is
-    'XK*01/-' and not 'XK*01/XK*01'. State table row B2, and the case that has no evidence
-    left in the variant pool to work it out from - remove_home_ref dropped the only row.
+    built directly rather than by get_genotypes. That means both single copy renderings
+    have to be repeated here, and this is the case with no evidence left in the variant
+    pool to work either out from - remove_home_ref dropped the only rows.
+
+    A male with no XK variant at all is hemizygous *reference*, which is 'XK*01/-' and not
+    'XK*01/XK*01'. State table row B2.
+
+    A gene reported at one copy whose every locus was wildtype is 'RHD*01/RHD*01N' and not
+    'RHD*01/RHD*01'. State table row D3, and the common shape rather than an edge case: a
+    sample missing one copy of a gene is usually ordinary at the loci that remain, so every
+    row is a haploid '0' and every one of them gets dropped.
 
     Args:
         db (Db): The database object containing reference alleles.
         res (Dict[str, BloodGroup]): Dictionary of BloodGroup objects to be updated
         with reference data.
         exclude: Blood groups to skip.
-        haploid_chroms (frozenset[str]): Chromosomes this sample carries once, from
-        VCF.haploid_chroms. Empty means every blood group gets two slots, which is the
-        behaviour before v2.4.4.
+        vcf (VCF | None): The VCF this sample came from, carrying the ploidy evidence.
+        None means every blood group gets two slots, which is the behaviour before v2.4.4.
 
     Returns:
         Dict[str, BloodGroup]: The updated dictionary of BloodGroup objects with added
@@ -1894,11 +1903,7 @@ def add_refs(
         if blood_group in exclude:
             continue
         if blood_group not in res:
-            single_copy = db.single_copy_types.get(blood_group) in haploid_chroms
-            second_slot = (
-                HAPLOID_SECOND_SLOT if single_copy else reference.genotype
-            )
-            res[blood_group] = BloodGroup(
+            bg = BloodGroup(
                 type=blood_group,
                 alleles={
                     AlleleState.RAW: [reference],
@@ -1906,9 +1911,22 @@ def add_refs(
                     AlleleState.NORMAL: [Pair(*[reference] * 2)],
                 },
                 sample="ref",
-                chrom_copies=1 if single_copy else 2,
-                genotypes=[f"{reference.genotype}/{second_slot}"],
             )
+            if vcf is not None:
+                bg.chrom_copies = chrom_copies_for_bg(bg, vcf, db.single_copy_types)
+                bg.locus_copies = locus_copies_for_bg(bg, vcf, db.loci_by_type)
+
+            if bg.chrom_copies == 1:
+                second_slot = HAPLOID_SECOND_SLOT
+            elif bg.locus_copies == 1:
+                second_slot = db.gene_absent_subtypes.get(
+                    blood_group, UNNAMED_SECOND_SLOT
+                )
+            else:
+                second_slot = reference.genotype
+
+            bg.genotypes = [f"{reference.genotype}/{second_slot}"]
+            res[blood_group] = bg
     return res
 
 

@@ -12,7 +12,7 @@
 > [!WARNING]
 > NOT FOR CLINICAL USE
 
-## Version v2.4.3
+## Version v2.4.4
 
 RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
 
@@ -20,7 +20,7 @@ At the highest level RBCeq2 finds all possible alleles, then filters out those t
 
 The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). v2.3.0 focussed on phasing. V2.4.* (current) focuses on large variants and the RH region, using long read sequencing data.
 
-## Database v2.5.0
+## Database v2.5.1
 
 Our database is a TSV (db.tsv). It is a mirror of the official ISBT database. We will use the ISBT API directly once their databse is finished and polished. At the time of writing their antigen states and modifiers are not finished. There are also a few intentional differences, the main one being adjancent SNVs being merged into a single variant in the official ISBT database. 
 

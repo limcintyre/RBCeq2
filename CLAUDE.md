@@ -9,7 +9,7 @@ against ISBT-defined alleles. It builds every possible allele from the observed 
 filters candidates with explicit logic checks until only viable pairs remain. The value
 proposition is the **auditable trail** — every exclusion is recorded with a named reason.
 
-Package `rbceq2` v2.4.3 · database v2.5.0 · Python ≥3.12 · maintained by Australian Red Cross
+Package `rbceq2` v2.4.4 · database v2.5.0 · Python ≥3.12 · maintained by Australian Red Cross
 Lifeblood.
 
 ## Hard rules
@@ -128,15 +128,23 @@ tests/                       one test_*.py per module
 `{BG name: BloodGroup}`. Order matters and is load-bearing — one filter carries the comment
 `has to be after normal filters!!!!!!!`. Broad shape:
 
-1. **Read** — VCF parsed; SVs extracted (`SvReader`) and fuzzy-matched to DB tokens (`SvMatcher`)
+1. **Read** — VCF parsed; ploidy inferred per sample (`VCF._infer_haploid_chroms`, before
+   `remove_home_ref` because it decides whether a haploid `0` is a hom ref call); SVs extracted
+   (`SvReader`) and fuzzy-matched to DB tokens (`SvMatcher`)
 2. **Raw alleles** — every DB allele whose defining variants are all present
-3. **Variant pool** — `make_variant_pool` assigns zygosity per variant token
+3. **Variant pool** — `make_variant_pool` assigns zygosity per variant token, and sets
+   `bg.chrom_copies` from `Db.single_copy_types` × `VCF.haploid_chroms`
 4. **Large-indel adjustment** — `modify_variant_pool_if_large_indel` rewrites HOM→HEM inside deletions
 5. **Phasing** — phase pool built from raw GT strings; unphased alleles removed if `--phased`
 6. **Pairs** — all viable pairs generated from the pool
 7. **Filters** — ~23 named filters, plus Knops co-existing logic
 8. **Phenotype** — antigen merge, modifier weighting, antithetical reconciliation
 9. **Output** — 3 TSVs (genotype, phenotype numeric, phenotype alphanumeric), log, optional PDFs
+
+Pairs stay two-slot all the way through, including for a single-copy region, where both slots
+hold the same allele. The haploid shape is a *reporting* decision and appears only at
+`get_genotypes` and `add_refs`, which write `HAPLOID_SECOND_SLOT` (`-`) into the second slot —
+`XK*N.03/-`. Nothing in the filters or the phenotype engine sees it.
 
 Most stage functions are decorated with `@apply_to_dict_values`, which maps the function over
 every BloodGroup. Write new stages the same way.
@@ -156,6 +164,10 @@ every BloodGroup. Write new stages the same way.
 | weight | genotype rank; **1 is highest**, 1000 is the default/lowest. Nulls outrank non-nulls |
 | HOM / HET / HEM | homozygous / heterozygous / hemizygous |
 | lane variant | a locus where the transcript reference differs from the genome reference |
+| `chrom_copies` | copies of a *region* the sample was born with → **allele slots in the result**. 2, or 1 for non-PAR X/Y in a male. Never changed by a deletion |
+| `locus_copies` | copies of the sequence still present at a locus, ie after a deletion. 0–2. This is what `HEM` (1) and `NO_COPIES` (0) encode |
+| `token_copies` | how many of those carry *this* token. Zero is encoded as absence from the pool |
+| PAR | pseudoautosomal — X/Y regions present twice in everyone. XG and CD99 are inside PAR1 and stay diploid; XK, GATA1 and ATP11C are outside it |
 
 ## Code conventions
 
@@ -174,19 +186,40 @@ every BloodGroup. Write new stages the same way.
 
 Things that look fine and are not. Verify against these before touching related code.
 
-- **`get_ref` (`data_procesing.py:856`) assumes a 3-character GT** and never splits on `/` or
-  `|`. Haploid GTs crash it. It also does `.replace(".", "0")`, which converts absence of data
-  into a positive assertion of wildtype. Open issue #40.
-- **`./.` is overloaded three ways**: genuine no-call, the synthesised `HOM_REF_DUMMY_QUAL`
-  lane row, and (from copy-number-aware callers) zero copies. These mean opposite things.
-- **`remove_home_ref` (`vcf.py:120`) matches `"0/0"` only** — misses `0|0` and haploid `0`.
-- **`filter_vcf_metrics`** evaluates `float(variant_metrics[variant][metric_name])`
-  unconditionally *before* the `if microarray:` branch, so the microarray path still raises on
-  missing DP/GQ. `--microarray` is currently a one-line depth stub carrying a `TODO !!`.
-- **`Zygosity.REF`** is defined and given a `len_dict` value but is never produced or compared
-  anywhere. Probably a vestigial "zero copies" cell.
-- **Bare `assert`s carry real validation** (`data_procesing.py:535, 549, 878`). They vanish
-  under `python -O`. Prefer `BeyondLogicError` when replacing them.
+- **A haploid GT is only a ploidy statement outside PAR on X/Y.** Anywhere else — inside PAR, or
+  on an autosome — it is a statement about *locus* copy number and has a different correct
+  answer, so `get_ref` (`data_procesing.py:1085`) rejects it by name rather than guessing. Some
+  platforms encode gene copy number as GT ploidy, so a haploid GT across a gene with a
+  whole-gene deletion allele means one copy of *that gene*, which is still two allele slots —
+  one of them the deletion allele — **not** one slot. Mapping that needs
+  `ploidy_state_table.md` decisions 2 and 4, which are unmade. Do not route it through the
+  haploid path.
+- **`./.` is overloaded two ways**: a genuine no-call and, from copy-number-aware callers, zero
+  copies. These mean opposite things. The synthesised lane row is *not* one of them any more —
+  it carries `SYNTHESISED_HOM_REF_GT` (`constants.py:23`), which is the only legitimate
+  assertion of wildtype in the codebase.
+- **`Zygosity` is a projection of two numbers, not one label.** `HEM` is one copy of the locus
+  carrying one copy of the token; `NO_COPIES` is zero of both. Neither says how many allele
+  slots the *result* has — that is `BloodGroup.chrom_copies`, a third number, and it is never
+  changed by a deletion. Reading pair shape off a per-token zygosity is the bug issue #40 was.
+- **`filter_vcf_metrics`, `remove_alleles_with_low_read_depth` and
+  `remove_alleles_with_low_base_quality` are dead code** — defined, documented, tested, and
+  never called from anywhere in `src/`. There is no `--microarray`, `--min_read_depth` or
+  `--min_base_quality` flag; all QC is deliberately delegated upstream and enforced only through
+  `FILTER == PASS`. The tests are the sole reason they still pass. Do not wire them back in
+  without asking.
+- **`FILTER` does not always mean call quality.** On some arrays PASS/FAIL is *probeset
+  selection* — which of several probesets is the recommended one for a marker — so a FAIL row
+  may be a perfectly good call. `only_keep_alleles_if_FILTER_PASS` will still drop it and revert
+  to reference under a QC-sounding name. Since all QC is delegated upstream and `FILTER` is the
+  only channel left, check what it means on a new input type before trusting it.
+- **Bare `assert`s carry real validation** (`data_procesing.py:715, 1792`). They vanish under
+  `python -O`. Prefer `BeyondLogicError` when replacing them.
+- **Test doubles drift silently.** `MockBG`, `MockBloodGroup` and `MockDb` in
+  `tests/test_data_processing.py` are hand-rolled classes, not `spec=`'d mocks, so a new field
+  on `BloodGroup` or `Db` breaks 28 tests at once with `AttributeError` rather than being
+  inherited. Same class of problem as the local `Zygosity` stubs that shadow the real enum in
+  three test files.
 - **RH (RHD/RHCE) is long-read only** and explicitly unpolished. Short-read mismapping between
   the paralogs is considered intractable. Do not extend RH support to short read.
 - Fuzzy SV matching was tuned on ~7 unique real SVs and is acknowledged as probably overfit.

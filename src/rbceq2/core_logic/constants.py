@@ -1,8 +1,8 @@
 from enum import Enum, auto
 
 # Define version
-VERSION = "2.4.3"
-DB_VERSION = "2.5.0"
+VERSION = "2.4.4"
+DB_VERSION = "2.5.1"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -555,6 +555,20 @@ HAPLOID_SECOND_SLOT = "-"
 'XK*N.03/-'. Not an allele and never matched against the database - it is the absence of
 a second chromosome, made explicit so a hemizygous male cannot be mistaken in the TSV for
 a homozygous female. User visible and documented; see issue #40."""
+
+UNNAMED_SECOND_SLOT = "?"
+"""Written in the second slot where the sample has two chromosomes but one of them carries
+no copy of the gene, and the database cannot say which allele that absence is, ie
+'GYPB*03/?'.
+
+Deliberately not HAPLOID_SECOND_SLOT. The two make different claims and collapsing them
+would undo the distinction the whole chrom_copies/locus_copies split exists to draw: '-'
+says there is no second chromosome, '?' says there is one and its allele is unnamed.
+Pairing with the reference instead is the option that is actually wrong - it asserts
+wildtype on a chromosome there is positive evidence against.
+
+Not an allele, never matched against the database. User visible and documented; see issue
+#40 and the E1 row of ploidy_state_table.md."""
 
 PAR = {  # pseudoautosomal regions, inclusive, 1 based, keyed by build then chromosome
     # X and Y carry the same sequence inside these intervals, so a coordinate in one of
