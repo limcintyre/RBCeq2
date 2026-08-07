@@ -188,7 +188,7 @@ Things that look fine and are not. Verify against these before touching related 
 
 - **A haploid GT is only a ploidy statement outside PAR on X/Y.** Anywhere else — inside PAR, or
   on an autosome — it is a statement about *locus* copy number and has a different correct
-  answer, so `get_ref` (`data_procesing.py:1085`) rejects it by name rather than guessing. Some
+  answer, so `get_ref` (`data_procesing.py:1148`) rejects it by name rather than guessing. Some
   platforms encode gene copy number as GT ploidy, so a haploid GT across a gene with a
   whole-gene deletion allele means one copy of *that gene*, which is still two allele slots —
   one of them the deletion allele — **not** one slot. Mapping that needs
@@ -202,18 +202,12 @@ Things that look fine and are not. Verify against these before touching related 
   carrying one copy of the token; `NO_COPIES` is zero of both. Neither says how many allele
   slots the *result* has — that is `BloodGroup.chrom_copies`, a third number, and it is never
   changed by a deletion. Reading pair shape off a per-token zygosity is the bug issue #40 was.
-- **`filter_vcf_metrics`, `remove_alleles_with_low_read_depth` and
-  `remove_alleles_with_low_base_quality` are dead code** — defined, documented, tested, and
-  never called from anywhere in `src/`. There is no `--microarray`, `--min_read_depth` or
-  `--min_base_quality` flag; all QC is deliberately delegated upstream and enforced only through
-  `FILTER == PASS`. The tests are the sole reason they still pass. Do not wire them back in
-  without asking.
 - **`FILTER` does not always mean call quality.** On some arrays PASS/FAIL is *probeset
   selection* — which of several probesets is the recommended one for a marker — so a FAIL row
   may be a perfectly good call. `only_keep_alleles_if_FILTER_PASS` will still drop it and revert
   to reference under a QC-sounding name. Since all QC is delegated upstream and `FILTER` is the
   only channel left, check what it means on a new input type before trusting it.
-- **Bare `assert`s carry real validation** (`data_procesing.py:715, 1792`). They vanish under
+- **Bare `assert`s carry real validation** (`data_procesing.py:778, 1795`). They vanish under
   `python -O`. Prefer `BeyondLogicError` when replacing them.
 - **Test doubles drift silently.** `MockBG`, `MockBloodGroup` and `MockDb` in
   `tests/test_data_processing.py` are hand-rolled classes, not `spec=`'d mocks, so a new field

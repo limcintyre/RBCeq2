@@ -3,11 +3,7 @@ import unittest
 from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-
-
-class Zygosity:
-    HOM = "Homozygous"
-    HET = "Heterozygous"
+from rbceq2.core_logic.utils import Zygosity
 
 
 class TestAllele(unittest.TestCase):

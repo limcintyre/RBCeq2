@@ -3,9 +3,11 @@
 import argparse
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
+from traceback import format_exc
 from typing import Callable
 import os
 import pandas as pd
@@ -215,7 +217,7 @@ def main():
         actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
         if actually_multi_vcf:
             intervals = build_intervals(db_df, args.reference_genome)
-            multi_vcf = read_vcf(str(args.vcf), intervals)
+            multi_vcf = read_vcf(str(args.vcf), intervals, db.unique_variants)
             logger.info("Multi sample VCF passed")
             filtered_multi_vcf = filter_VCF_to_BG_variants(
                 multi_vcf, db.unique_variants
@@ -238,9 +240,10 @@ def main():
     dfs_pheno_alphanumeric = {}
     # (blood group, variant) -> samples where the caller made no call there
     no_calls: dict[tuple[str, str], set[str]] = defaultdict(set)
+    failures: list[SampleFailure] = []
     with Pool(processes=int(args.processes)) as pool:
         find_hits_db = partial(
-            find_hits,
+            find_hits_or_failure,
             db,
             args=args,
             allele_relationships=allele_relationships,
@@ -248,6 +251,17 @@ def main():
             ant_mapping=mapping,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
+            if isinstance(results, SampleFailure):
+                failures.append(results)
+                logger.error(
+                    f"Sample {results.sample} failed and was skipped: {results.error}"
+                )
+                # At ERROR, not DEBUG. A failure is exactly when the traceback is wanted,
+                # and the reason can be an assertion with no message at all - 'AssertionError:'
+                # on its own says nothing without the line it came from. Verbose, but only
+                # ever once per failed sample.
+                logger.error(f"{results.sample} traceback:\n{results.traceback}")
+                continue
             if results is not None:
                 sample, genos, numeric_phenos, alphanumeric_phenos, bgs, _ = results
                 dfs_geno[sample] = genos
@@ -260,6 +274,17 @@ def main():
                 record_filtered_data(results, args.reference_genome)
                 sep = "##############"
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
+
+    if not dfs_geno:
+        # Every sample failed, so there is nothing to write and an empty TSV would look
+        # like a clean run that found nothing. Stop instead, having already logged each
+        # failure individually above.
+        for failure in failures:
+            logger.error(f"{failure.sample}: {failure.error}")
+        message = f"All {len(failures)} sample/s failed. No results written."
+        logger.error(message)
+        print(f"\n{message} See the log for the reason against each sample.")
+        sys.exit(1)
 
     # sort_index, not decoration: imap_unordered yields samples in whatever order the
     # workers finish, and from_dict(orient='index') keeps insertion order, so without this
@@ -286,12 +311,109 @@ def main():
     # anything once every sample has been seen.
     report_no_call_summary(no_calls, len(dfs_geno))
 
+    report_failures(failures)
+
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
     if sys.stdout.encoding and sys.stdout.encoding.lower().startswith('utf'):
         print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
     else: #windows can't handle emojis
         print(f"\nComplete! {len(dfs_geno)} VCFs processed in {time_str}. \nResults saved successfully.")
+
+    if failures:
+        # Results for the samples that worked are already written. The non zero exit is so
+        # a partial run is not mistaken for a complete one by anything reading the exit
+        # code - which is the signal a crash used to give, back when one bad file took the
+        # whole batch down.
+        sys.exit(1)
+
+
+def report_failures(failures: list["SampleFailure"]) -> None:
+    """Name every skipped sample once more, at the end.
+
+    Deliberately repeated rather than left to the per sample errors already logged. With
+    --debug those are buried under the filter trace of every sample that worked, and the
+    thing a user needs is a short list of what they have to look at - which they should not
+    have to reconstruct by grepping. Same reasoning as report_no_call_summary, which sits
+    beside this.
+
+    Args:
+        failures (list[SampleFailure]): Samples that raised, in completion order.
+    """
+    if not failures:
+        return
+    logger.warning(
+        f"{len(failures)} sample/s failed and were skipped. The results that were written "
+        f"do not include them:"
+    )
+    for failure in sorted(failures, key=lambda f: f.sample):
+        logger.warning(f"  {failure.sample}: {failure.error}")
+    print(
+        f"\n⚠ {len(failures)} sample/s failed and were skipped - see the log. "
+        f"The other results were written normally."
+        if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("utf")
+        else f"\n{len(failures)} sample/s failed and were skipped - see the log. "
+        f"The other results were written normally."
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SampleFailure:
+    """One sample that could not be processed, carried back instead of raised.
+
+    Attributes:
+        sample (str): The sample the failure belongs to.
+        error (str): The exception, rendered where it happened.
+        traceback (str): The full traceback, for the log.
+    """
+
+    sample: str
+    error: str
+    traceback: str
+
+
+def sample_name_of(vcf: tuple[pd.DataFrame, str] | Path) -> str:
+    """The sample a work item belongs to, without needing it to have been read yet.
+
+    find_hits derives the same name from the same two shapes, but only after the read has
+    succeeded. A failure has to be attributable even when it happened before that, which is
+    the common case - a malformed file fails while being parsed.
+    """
+    return vcf.stem if isinstance(vcf, Path) else str(vcf[-1])
+
+
+def find_hits_or_failure(
+    db: Db,
+    vcf: tuple[pd.DataFrame, str] | Path,
+    **kwargs,
+) -> object:
+    """Run find_hits, returning a SampleFailure rather than raising.
+
+    One bad file used to take the whole batch with it: an exception in a worker propagates
+    out of imap_unordered, and by the time it surfaces the pool is being torn down, so the
+    samples still queued are lost too. For a lab handing over 500 VCFs that is 500 lost
+    results for one bad input, and the failure is more reachable now that a multi-sample
+    export is a target - one sample with a mixed ploidy coding is enough.
+
+    Caught here, per task, rather than around the loop in main. A try/except there would see
+    the first failure and still lose everything after it, because the pool does not survive
+    the exception.
+
+    Deliberately catches Exception and not BaseException: KeyboardInterrupt and SystemExit
+    must still stop the run.
+
+    The exception is *not* swallowed. It comes back to the parent, is logged against its
+    sample with the full traceback, counted in the run summary, and makes the process exit
+    non zero. What changes is that the other samples still get results.
+    """
+    try:
+        return find_hits(db, vcf, **kwargs)
+    except Exception as error:  # noqa: BLE001 - deliberately broad, see docstring
+        return SampleFailure(
+            sample=sample_name_of(vcf),
+            error=f"{type(error).__name__}: {error}",
+            traceback=format_exc(),
+        )
 
 
 def find_hits(
@@ -304,7 +426,9 @@ def find_hits(
 ) -> pd.DataFrame | None:
     intervals = build_intervals(db.df, args.reference_genome)
     if isinstance(vcf, Path):
-        vcf_filtered_by_500kb_padded_bed = read_vcf(str(vcf), intervals)
+        vcf_filtered_by_500kb_padded_bed = read_vcf(
+            str(vcf), intervals, db.unique_variants
+        )
         vcf = VCF(
             vcf_filtered_by_500kb_padded_bed,
             db.lane_variants,

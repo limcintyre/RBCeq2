@@ -1,6 +1,7 @@
 import unittest
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
+from rbceq2.core_logic.utils import Zygosity
 from rbceq2.core_logic.co_existing import (
     add_co_existing_allele_and_ref,
     add_co_existing_alleles,
@@ -151,11 +152,6 @@ ALLELE_RELATIONSHIPS = {
         "KN*02_isin_KN*02.10": True,
     }
 }
-
-
-class Zygosity:
-    HOM = "Homozygous"
-    HET = "Heterozygous"
 
 
 class TestAddCoExistingAllelesNotAllHom(unittest.TestCase):

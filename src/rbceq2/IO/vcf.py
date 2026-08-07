@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 import pandas as pd
-import re
 from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
@@ -507,19 +506,6 @@ class VCF:
         return vcf_variants
 
 
-def all_ints_zero_or_one(text: str) -> bool:
-    """Check if all integers in string are 0 or 1.
-
-    Args:
-        text (str): Input string to check.
-
-    Returns:
-        bool: True if all integers are 0 or 1, False otherwise.
-    """
-    ints = re.findall(r"\d+", text)
-    return all(num in ("0", "1") for num in ints)
-
-
 def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
     """Split multi-sample VCF DataFrame into individual sample DataFrames.
 
@@ -787,7 +773,67 @@ def variant_in_intervals(
     return False
 
 
-def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFrame:
+def row_is_wanted(
+    chrom: str,
+    pos: int,
+    ref: str,
+    alt: str,
+    fmt: str,
+    unique_variants: set[str],
+) -> bool:
+    """Will filter_VCF_to_BG_variants keep this row? Answered from the raw line.
+
+    Everything that function decides *after* parsing is decidable *before* it, and doing it
+    here rather than there is the difference between parsing thousands of rows and parsing
+    hundreds of thousands. The set kept is a superset of what it goes on to select, so the
+    end result is identical - this only stops rows being parsed to be thrown away.
+
+    Why it matters: read_vcf's interval test keeps anything within 500kb of a database
+    position, which is sparse for a genotyping array but dense for a jointly called cohort.
+    One 3,209 sample cohort parsed 379,547 rows x 3,218 columns to keep 459, which is tens
+    of GB in one process before the Pool is even created - so --processes could not affect
+    it. With this it parses 1,868.
+
+    The four clauses mirror filter_VCF_to_BG_variants exactly:
+
+    - at a database locus                      -> its unique_variants set
+    - REF or ALT longer than 50 characters     -> its large_vars
+    - ALT symbolic, ie '<DEL>'                 -> its massive_vars
+    - chr9 and phased                          -> its find_phased_neighbors
+
+    The last is the awkward one and the reason this is not simply 'is it a database locus'.
+    find_phased_neighbors rescues ABO c.261delG by taking the two phased loci either side of
+    two fixed positions, and how far away those are depends on how sparse phasing is there.
+    Windowing chr9 by position was measured against ten phased files and even 100kb picked a
+    different set on one of them, so the test is on the PS field rather than on distance:
+    every row that function could possibly select is kept, and no guess is involved.
+
+    Args:
+        chrom (str): Chromosome, 'chr' prefix already stripped.
+        pos (int): 1 based position.
+        ref (str): REF field.
+        alt (str): ALT field.
+        fmt (str): FORMAT field.
+        unique_variants (set[str]): Database loci as 'chrom:pos'.
+
+    Returns:
+        bool: True if the row can still be needed once the frame is parsed.
+    """
+    return (
+        f"{chrom}:{pos}" in unique_variants
+        or len(ref) > 50
+        or len(alt) > 50
+        or "<" in alt
+        or ">" in alt
+        or (chrom == "9" and "PS" in fmt)
+    )
+
+
+def read_vcf(
+    vcf_path: str,
+    intervals: dict[str, list[Interval]],
+    unique_variants: set[str] | None = None,
+) -> pl.DataFrame:
     """Stream a VCF, keep only relevant lines, return as Polars DataFrame.
     read a VCF file using polars while preserving the header and sample names.
 
@@ -795,8 +841,22 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
     and skips meta-information lines (starting with "##"). It then constructs a
     CSV-formatted string and parses it with polars.
 
+    Two filters, not one, and the second is optional. The interval test is a coarse bound -
+    anything within 500kb of a database position - and on its own it is only cheap when the
+    caller wrote sparsely. Supplying unique_variants adds the fine test, row_is_wanted,
+    which is the same decision filter_VCF_to_BG_variants makes once the frame exists. It
+    changes nothing about the result and a great deal about how much is parsed to get there;
+    see row_is_wanted for the measurements.
+
+    Optional so that every existing caller and test keeps the old behaviour untouched. Omit
+    it and the interval test is all that applies, exactly as before.
+
     Args:
-        file_path (str): Path to the VCF file (can be gzipped).
+        vcf_path (str): Path to the VCF file (can be gzipped).
+        intervals (dict[str, list[Interval]]): Per chromosome windows around database
+            positions, from build_intervals.
+        unique_variants (set[str] | None): Database loci as 'chrom:pos'. None skips the
+            fine filter and keeps every row inside the intervals.
 
     Returns:
         pl.DataFrame: DataFrame containing the VCF data."""
@@ -820,8 +880,20 @@ def read_vcf(vcf_path: str, intervals: dict[str, list[Interval]]) -> pl.DataFram
                 chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
             except:
                 raise
-            if variant_in_intervals(chrom, pos, intervals):
-                rows.append(line)
+            if not variant_in_intervals(chrom, pos, intervals):
+                continue
+            if unique_variants is not None and not row_is_wanted(
+                chrom,
+                pos,
+                fields[3],
+                fields[4],
+                # A sites-only VCF has no FORMAT column. Nothing is phased in one either,
+                # so an empty string is the right answer rather than an IndexError.
+                fields[8] if len(fields) > 8 else "",
+                unique_variants,
+            ):
+                continue
+            rows.append(line)
 
     if header is None:
         raise VcfMissingHeaderError(filename=vcf_path)
