@@ -410,6 +410,11 @@ def chrom_copies_for_bg(
     return 2
 
 
+# How many dissenting positions locus_copies_for_bg names before it summarises the rest.
+# Enough to go and look at every one of them, few enough to stay one log line.
+MAX_DISSENTERS_LOGGED = 6
+
+
 def locus_copies_for_bg(
     bg: BloodGroup, vcf: VCF, loci_by_type: dict[str, dict[str, frozenset[int]]]
 ) -> int | None:
@@ -428,6 +433,23 @@ def locus_copies_for_bg(
     firing on stray malformed rows, and it needs no flag and no per-gene list: a caller that
     encodes copy number this way does it consistently, and one that does not never trips it.
 
+    Only a *disagreement* is worth a warning, and disagreement means the two readings
+    are genuinely competing. A gene the caller wrote diploid with a couple of haploid
+    rows in it is not competing with anything - it is a diploid gene and a caller having
+    a bad day, the ordinary case, and it takes the same silent None as a gene nobody
+    typed. The warning is kept for the other shape: the gene is mostly haploid, so the
+    caller does look like it was reporting a copy number, and unanimity is the only thing
+    standing in the way. That is the case where the conservative answer may be costing a
+    real call, so it names the dissenting positions - they are the whole diagnosis, and
+    there are few of them by construction.
+
+    A tie says neither, and stays quiet. On a sparsely called input a tie is usually one
+    locus against one, which is not evidence of a copy number.
+
+    Note this is a decision about what to *say*, not about what to return. Unanimity
+    still governs the result, unchanged, and the quiet case returns exactly what it
+    returned when it was loud.
+
     Deliberately returns None rather than 2 for 'no evidence'. Nothing here can distinguish
     a gene at two copies from a gene nobody typed, and recording the second as the first
     would be the same class of mistake as reading './.' as wildtype.
@@ -441,7 +463,8 @@ def locus_copies_for_bg(
         bg (BloodGroup): The blood group being built.
         vcf (VCF): The VCF this sample came from, carrying the per locus ploidy.
         loci_by_type (dict[str, dict[str, frozenset[int]]]): Blood group -> chromosome ->
-        positions, from Db.
+        the positions that can vote on its copy number, from Db. Small variant positions
+        only - see Db.get_loci_by_type for why a breakpoint must not be one of them.
 
     Returns:
         int | None: 1 where the caller reported the gene consistently single copy, None
@@ -451,19 +474,28 @@ def locus_copies_for_bg(
     if not by_chrom:
         return None
 
-    haploid = diploid = 0
+    haploid: list[tuple[str, int]] = []
+    diploid: list[tuple[str, int]] = []
     for chrom, positions in by_chrom.items():
-        haploid += len(positions & vcf.haploid_loci.get(chrom, frozenset()))
-        diploid += len(positions & vcf.diploid_loci.get(chrom, frozenset()))
+        for pos in positions & vcf.haploid_loci.get(chrom, frozenset()):
+            haploid.append((chrom, pos))
+        for pos in positions & vcf.diploid_loci.get(chrom, frozenset()):
+            diploid.append((chrom, pos))
 
     if not haploid:
         return None
     if diploid:
-        logger.warning(
-            f"{bg.sample}: {bg.type} has {haploid} haploid and {diploid} diploid "
-            f"genotypes, so the copy number is contradictory and is not being read as "
-            f"one. See issue #40"
-        )
+        if len(haploid) > len(diploid):
+            dissenters = sorted(diploid)[:MAX_DISSENTERS_LOGGED]
+            shown = ", ".join(f"{chrom}:{pos}" for chrom, pos in dissenters)
+            if len(diploid) > len(dissenters):
+                shown += f" and {len(diploid) - len(dissenters)} more"
+            logger.warning(
+                f"{bg.sample}: {bg.type} has {len(haploid)} haploid and "
+                f"{len(diploid)} diploid genotypes, so the copy number is "
+                f"contradictory and is not being read as one. The gene reads as "
+                f"single copy apart from {shown}. See issue #40"
+            )
         return None
     return 1
 

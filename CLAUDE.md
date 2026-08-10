@@ -209,11 +209,50 @@ Things that look fine and are not. Verify against these before touching related 
   only channel left, check what it means on a new input type before trusting it.
 - **Bare `assert`s carry real validation** (`data_procesing.py:778, 1795`). They vanish under
   `python -O`. Prefer `BeyondLogicError` when replacing them.
+- **An antithetical blood group is not always two subtypes, and the open question is narrower
+  than it looks.** `antithetical_modifying_SNP_is_HOM` (`filters/geno.py`) once assumed one
+  subtype per antigen — true for DO, FY, JK, KEL, KN and LU, **false for GYPB and A4GALT, which
+  have three each**. GYPB carries `*03`, `*04` and `*06`.
+
+  Three subtypes is not by itself a problem. The `len(putative_mod_SNPs) == 1` gate normally
+  rules the case out, so the filter does nothing and the sample is fine. The guard therefore
+  sits *after* the homozygosity test, where it only fires if a group with more than two
+  subtypes also reaches the point of excluding pairs. **That combination has never been
+  observed.** Five samples in a densely called short read cohort reach three subtypes and all
+  pass, because the union was 7 or 9 rather than 1.
+
+  So the live question is not "can a blood group have three subtypes" (yes) but "can three
+  subtypes converge on a single modifying SNP that is homozygous" — which has **no real example
+  to take to the lab scientists**, and is why the guard stays in place waiting for one rather
+  than being widened or removed. If it ever fires, its `context` carries the sample, blood
+  group, subtypes and SNP: that error is the whole evidence, so do not reduce it.
+
+  Expect the population at risk to grow rather than shrink. `GYPB*06` needs five defining
+  variants, so a probe based platform never builds it and the array and long read sets show
+  nothing; ~2.4% of the short read cohort called it.
+- **The database is hand curated, so whitespace turns up in it.** `prepare_db` calls
+  `strip_stray_whitespace` on load for exactly this reason, and warns about what it trimmed so
+  the fix lands in `db.tsv` rather than being papered over each run. It found 32 cells across
+  `Coding`, `Protein`, `Sub_type` and `Note`. The one that mattered was `'GYPB*04 '` on seven
+  rows, which forks one subtype into two everywhere `Sub_type` is used as a dictionary key.
+  Also: since pandas 3 a text column reads back as `StringDtype`, **not** `object`, so
+  `dtype == object` no longer finds string columns — that idiom silently does nothing now.
 - **Test doubles drift silently.** `MockBG`, `MockBloodGroup` and `MockDb` in
   `tests/test_data_processing.py` are hand-rolled classes, not `spec=`'d mocks, so a new field
   on `BloodGroup` or `Db` breaks 28 tests at once with `AttributeError` rather than being
   inherited. Same class of problem as the local `Zygosity` stubs that shadow the real enum in
   three test files.
+- **A structural token's position is not a locus of the gene that carries the allele.** On a
+  gene conversion allele the `DEL` is in this gene's coordinates and the paired `INS` is in
+  the *donor's* — `RHD*01N.43` is `25272547_DEL_18244` in RHD plus `25402595_INS_18269` in
+  RHCE, and `RHCE*03.02` is the exact mirror. So anything that groups positions by blood
+  group from the raw tokens leaks across a paralogue pair. `get_loci_by_type` did, which put
+  6 RHCE positions in RHD's set, 7 RHD positions in RHCE's, and made them share 8; since
+  `locus_copies_for_bg` wants agreement across a gene, one borrowed position refused both
+  genes on every sample. It now skips `_looks_like_sv_token`, which separates RHD
+  (25272548-25328922) from RHCE (25362527-25420796) with nothing telling it where the genes
+  are. Breakpoint coordinates are deliberately imprecise anyway — a GT landing on one is a
+  coincidence, not evidence.
 - **RH (RHD/RHCE) is long-read only** and explicitly unpolished. Short-read mismapping between
   the paralogs is considered intractable. Do not extend RH support to short read.
 - Fuzzy SV matching was tuned on ~7 unique real SVs and is acknowledged as probably overfit.

@@ -8,6 +8,7 @@ from typing import Any, Iterable
 import pandas as pd
 from rbceq2.core_logic.alleles import Allele, Line
 from rbceq2.core_logic.constants import LOW_WEIGHT, PAR
+from rbceq2.core_logic.large_variants import _looks_like_sv_token
 from loguru import logger
 from collections import defaultdict
 from icecream import ic
@@ -108,8 +109,11 @@ class Db:
             Blood group type -> chromosome, for the blood groups that sit outside PAR on
             X/Y and can therefore be single copy. Initialized post-construction.
         loci_by_type (dict[str, dict[str, frozenset[int]]]):
-            Blood group type -> chromosome -> the positions the database defines for it.
-            Initialized post-construction.
+            Blood group type -> chromosome -> the positions that can testify about how
+            many copies of it are present. Small variant positions only; a structural
+            token's position is a breakpoint or a donor coordinate rather than a locus,
+            and on a paralogue pair it names the other gene. Initialized
+            post-construction.
         gene_absent_subtypes (dict[str, str]):
             Blood group type -> the subtype naming 'no copy of this gene', for the blood
             groups where the database answers that unambiguously. Initialized
@@ -136,7 +140,7 @@ class Db:
         )
 
     def get_loci_by_type(self) -> dict[str, dict[str, frozenset[int]]]:
-        """Every position the database defines, grouped by blood group and chromosome.
+        """The positions that can testify about a blood group's copy number.
 
         Used to ask whether a caller reported *the whole gene* at one copy rather than a
         single locus - see locus_copies_for_bg. The question has to be asked over the
@@ -144,9 +148,47 @@ class Db:
         the pool exists the hom ref rows have been dropped and a gene called entirely
         wildtype looks identical to a gene nobody typed.
 
+        Structural tokens are excluded, and that is the whole point of this function
+        rather than an optimisation. **A breakpoint is not a locus.** The position on a
+        structural token is where an event starts or where its replacement sequence was
+        taken from; it is not somewhere a caller genotypes, and it is deliberately
+        imprecise - sizes are rounded to the nearest kb because breakpoints wobble. A
+        position like that landing in the ploidy vote is a coincidence, not evidence.
+
+        For a paralogue pair it is worse than noise, because the coordinate belongs to
+        the *other* gene. A gene conversion allele records the segment removed from this
+        gene in this gene's coordinates and the donor segment in the donor's, so the two
+        halves of one allele name two different genes:
+
+            RHD*01N.43    25272547_DEL_18244   (in RHD)   25402595_INS_18269  (in RHCE)
+            RHCE*03.02    25402595_DEL_18269   (in RHCE)  25272547_INS_18244  (in RHD)
+
+        Counting both put 6 RHCE positions into RHD's set and 7 RHD positions into
+        RHCE's, and made the two sets share 8. A sample with one gene at one copy and
+        the other at two then has each gene voting with a handful of the other's
+        genotypes, and locus_copies_for_bg wants agreement across the gene, so a single
+        borrowed dissenter refuses the whole gene. That is what the RH refusals were.
+
+        Nothing here knows where a gene starts or ends, and it does not need to.
+        Dropping structural tokens leaves RHD at 25272548-25328922 and RHCE at
+        25362527-25420796: the two genes, disjoint, recovered from the token grammar
+        alone.
+
+        The predicate is large_variants' own, deliberately, rather than a second opinion
+        about what counts as structural. It is stricter than paralogue leakage needs -
+        it also drops ordinary local indels of ten bases or more - and that is the right
+        way to be wrong here, because every position it drops is one fewer vote, and
+        votes only ever make this function *more* willing to claim a copy number.
+
+        Three blood groups - ABCC1, ATP11C and CD99 - are defined by nothing but a whole
+        gene deletion, so they end up with no positions at all and can never be read as
+        single copy. That is the honest answer rather than a loss: one breakpoint cannot
+        show agreement across a gene, and with a single position 'every locus agrees' is
+        satisfied by any one row that happens to land on it.
+
         Returns:
             dict[str, dict[str, frozenset[int]]]: ie {'RHD': {'1': frozenset({25272548,
-            ...})}}.
+            ...})}}. Blood groups defined only by structural tokens are absent.
         """
         loci: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
 
@@ -157,7 +199,10 @@ class Db:
                 continue
             chrom = str(chrom).replace("chr", "")
             for token in re.split(r"[,;]", str(variants)):
-                if match := re.match(r"^\s*(\d+)", token):
+                token = token.strip()
+                if _looks_like_sv_token(token):
+                    continue
+                if match := re.match(r"^(\d+)", token):
                     loci[str(bg_type)][chrom].add(int(match.group(1)))
 
         return {
@@ -465,6 +510,72 @@ def _is_null_genotype(genotype: str) -> bool:
     return "N." in geno_upper or geno_upper.endswith("N") or geno_upper == "KEL*02M.05"
 
 
+def strip_stray_whitespace(df: pd.DataFrame) -> pd.DataFrame:
+    """Trim leading and trailing whitespace from every column name and text cell.
+
+    The database is hand curated, so a stray space is a matter of when rather than whether,
+    and it is invisible in every tool anyone reads the file with. Nothing in a TSV of allele
+    names, coordinates and phenotypes means anything different with a space on the end, so
+    trimming is always safe - which is why this fixes rather than rejects.
+
+    It is not cosmetic. Every one of these values is compared or grouped as a string
+    somewhere: `Sub_type` is a dictionary key in prepare_db's weight backfill and in
+    filters/geno.py, `Genotype` is split on '*' to derive the blood group, `Antithetical` is
+    matched against 'Yes'. A trailing space silently forks one group into two, and the
+    failure is a wrong answer rather than an error.
+
+    Found in practice on `Sub_type` for seven GYPB*04N rows, where it split GYPB*04 into two
+    subtypes. That instance changed no result - the affected rows took their weight from
+    another branch, and it was not what made antithetical_modifying_SNP_is_HOM fail - but it
+    was one edit away from mattering.
+
+    Warns rather than staying silent: the file is the source of truth, so the fix belongs in
+    it, and nobody will make it if the run quietly compensates.
+
+    Args:
+        df (pd.DataFrame): The database as read, before any column is derived from another.
+
+    Returns:
+        pd.DataFrame: The same frame with column names and text cells trimmed.
+    """
+    renamed = {
+        column: column.strip()
+        for column in df.columns
+        if isinstance(column, str) and column != column.strip()
+    }
+    if renamed:
+        logger.warning(
+            f"Database column name/s have stray whitespace and were trimmed on load: "
+            f"{ {old: new for old, new in renamed.items()} }. Please fix db.tsv"
+        )
+        df = df.rename(columns=renamed)
+
+    for column in df.columns:
+        values = df[column]
+        # Not 'dtype == object'. Since pandas 3 a text column reads back as StringDtype,
+        # not object, so that test skips every column this is meant to clean and the guard
+        # silently does nothing. Both are accepted because which one you get depends on the
+        # pandas version rather than on the data.
+        if not (
+            pd.api.types.is_object_dtype(values)
+            or pd.api.types.is_string_dtype(values)
+        ):
+            continue
+        trimmed = values.map(lambda v: v.strip() if isinstance(v, str) else v)
+        changed = (values != trimmed) & values.notna()
+        if changed.any():
+            examples = sorted({str(v) for v in values[changed]})[:4]
+            logger.warning(
+                f"Database column '{column}' has {int(changed.sum())} value/s with stray "
+                f"leading or trailing whitespace, trimmed on load: "
+                f"{[repr(e) for e in examples]}. Please fix db.tsv - these are compared as "
+                f"strings, so a space silently splits one value into two"
+            )
+            df[column] = trimmed
+
+    return df
+
+
 def prepare_db() -> pd.DataFrame:
     """Read and prepare the database from a TSV file, applying necessary transformations.
 
@@ -487,6 +598,9 @@ def prepare_db() -> pd.DataFrame:
     logger.info("Preparing database from loaded content...")
     df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
     logger.debug(f"Initial DataFrame shape: {df.shape}")
+
+    # Before anything is derived from a column or grouped by one - see the docstring.
+    df = strip_stray_whitespace(df)
 
     df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
     update_dict = df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()

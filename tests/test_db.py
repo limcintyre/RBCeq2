@@ -10,6 +10,7 @@ from rbceq2.db.db import (
     compare_antigen_profiles,
     DbDataConsistencyChecker,  # New import
     prepare_db,  # New import
+    strip_stray_whitespace,
     # Keep existing antigen parsing helpers if they are directly tested or needed for test setup
     # For now, assuming they are not directly tested here, but used by compare_antigen_profiles
     # _NUM_ID_RE, _ALPHA_CANON_RE, _canonical_alpha, Antigen, AntigenParser, NumericParser, AlphaParser
@@ -205,6 +206,60 @@ class TestDb(unittest.TestCase):
 #     "SID": {"1": "Sd(a"}, "VEL": {"1": "Vel"}, "XK": {"1": "kx"},
 #     "YT": {"1": "Yt(a", "2": "Yt(b", "3": "YTEG", "4": "YTLI", "5": "YTOT"},
 # }
+
+
+class TestStripStrayWhitespace(unittest.TestCase):
+    """The database is hand curated, so a stray space is a matter of when, not whether."""
+
+    def test_trailing_space_in_a_cell_is_trimmed(self):
+        df = pd.DataFrame({"Sub_type": ["GYPB*04", "GYPB*04 "]})
+        out = strip_stray_whitespace(df)
+        self.assertEqual(list(out["Sub_type"]), ["GYPB*04", "GYPB*04"])
+
+    def test_that_is_the_point_two_groups_become_one(self):
+        """The failure mode being guarded: one value silently forked into two."""
+        df = pd.DataFrame({"Sub_type": ["GYPB*04", "GYPB*04 ", " GYPB*04"]})
+        self.assertEqual(df["Sub_type"].nunique(), 3)
+        self.assertEqual(strip_stray_whitespace(df)["Sub_type"].nunique(), 1)
+
+    def test_leading_space_too(self):
+        df = pd.DataFrame({"Genotype": [" FY*01"]})
+        self.assertEqual(list(strip_stray_whitespace(df)["Genotype"]), ["FY*01"])
+
+    def test_column_names_are_trimmed(self):
+        df = pd.DataFrame({"Sub_type ": ["FY*01"]})
+        self.assertIn("Sub_type", strip_stray_whitespace(df).columns)
+
+    def test_internal_whitespace_is_left_alone(self):
+        """Only the ends. A space inside a phenotype string is real content."""
+        df = pd.DataFrame({"Phenotype": ["Fy(a+), Fy(b-)"]})
+        self.assertEqual(
+            list(strip_stray_whitespace(df)["Phenotype"]), ["Fy(a+), Fy(b-)"]
+        )
+
+    def test_non_string_cells_survive(self):
+        """Numeric columns and nulls pass through untouched, alongside a trimmed one."""
+        df = pd.DataFrame({"Weight_of_genotype": [1, 2, None], "x": ["a ", None, "b"]})
+        out = strip_stray_whitespace(df)
+        pd.testing.assert_series_equal(
+            out["Weight_of_genotype"], df["Weight_of_genotype"]
+        )
+        self.assertEqual(out["x"].tolist()[0], "a")
+        self.assertTrue(pd.isna(out["x"].tolist()[1]))
+
+    def test_clean_frame_is_unchanged(self):
+        df = pd.DataFrame({"Genotype": ["FY*01", "FY*02"], "n": [1, 2]})
+        pd.testing.assert_frame_equal(strip_stray_whitespace(df.copy()), df)
+
+    def test_the_real_database_is_clean_once_loaded(self):
+        """prepare_db applies it, so nothing downstream should ever see stray whitespace."""
+        df = prepare_db()
+        for column in df.columns:
+            if df[column].dtype != object:
+                continue
+            values = df[column].dropna()
+            stripped = values.map(lambda v: v.strip() if isinstance(v, str) else v)
+            self.assertTrue((values == stripped).all(), f"{column} has stray whitespace")
 
 
 class TestAntigenProfileComparison(unittest.TestCase):

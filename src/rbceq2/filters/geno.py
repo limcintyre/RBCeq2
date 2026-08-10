@@ -6,6 +6,7 @@ from functools import partial
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import LOW_WEIGHT, AlleleState
 from rbceq2.core_logic.utils import (
+    BeyondLogicError,
     Zygosity,
     apply_to_dict_values,
     check_available_variants,
@@ -17,7 +18,6 @@ from rbceq2.filters.shared_filter_functionality import (
     all_hom,
     check_var,
 )
-
 
 def split_pair_by_ref(pair: Pair) -> tuple[Allele, Allele]:
     """Split a pair of alleles into reference and non-reference.
@@ -208,7 +208,6 @@ def antithetical_modifying_SNP_is_HOM(
                             d[allele.sub_type].add(variant)
 
             if len(d) > 1:
-                assert len(d) == 2
                 putative_mod_SNPs = set.union(*d.values())
                 if len(putative_mod_SNPs) == 1:
                     modifying_SNP = putative_mod_SNPs.pop()
@@ -216,6 +215,29 @@ def antithetical_modifying_SNP_is_HOM(
                 modifying_SNP is not None
                 and bg.variant_pool[modifying_SNP] == Zygosity.HOM
             ):
+                if len(d) != 2:
+                    # Deliberately placed after the homozygosity test rather than before
+                    # it. An antithetical system having more than two subtypes is not by
+                    # itself a problem - GYPB has three and it is fine, because the single
+                    # modifying SNP test below normally rules the case out and nothing
+                    # happens. It is only unclear when a group with more than two subtypes
+                    # *also* reaches the point of removing pairs, and that has never been
+                    # seen. This carries the context because when it does happen the error
+                    # is the entire evidence: there is no known case to reproduce from, so
+                    # whoever hits it first has to be able to hand it over as it stands.
+                    raise BeyondLogicError(
+                        message=(
+                            "An antithetical blood group with more than two subtypes has "
+                            "reached the point of excluding pairs, and which subtype the "
+                            "modifying SNP belongs to is ambiguous. This has no known "
+                            "real example - please report the context below."
+                        ),
+                        context=(
+                            f"sample: {bg.sample}, BG: {bg.type}, "
+                            f"subtypes: {sorted(d)}, modifying SNP: {modifying_SNP}, "
+                            f"zygosity: {bg.variant_pool.get(modifying_SNP)}"
+                        ),
+                    )
                 for pair in bg.alleles[allele_state]:
                     for allele in pair:
                         if allele.number_of_defining_variants == 1:

@@ -19,6 +19,7 @@ the second as the first loses a chromosome the sample has.
 import unittest
 
 import pandas as pd
+from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import (
@@ -374,6 +375,203 @@ class TestAddRefsMissingCopy(unittest.TestCase):
         """Every pre-v2.4.5 call of add_refs, and the three-argument test calls."""
         self.assertEqual(add_refs(self.db, {}, [], None)["RHD"].genotypes,
                          ["RHD*01/RHD*01"])
+
+
+class TestLociByTypeExcludesStructuralTokens(unittest.TestCase):
+    """A breakpoint is not a locus, read off the real database.
+
+    A structural token's position is where an event starts or where its replacement
+    sequence came from. Nobody genotypes it, and on a paralogue pair it names the other
+    gene, so it must not be one of the positions that votes on copy number.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.db = Db(ref="GRCh38", df=prepare_db())
+
+    def test_the_paralogues_share_no_position(self) -> None:
+        """Counting every token position made these two sets share eight."""
+        rhd = self.db.loci_by_type["RHD"]["1"]
+        rhce = self.db.loci_by_type["RHCE"]["1"]
+        self.assertEqual(rhd & rhce, frozenset())
+
+    def test_the_paralogues_do_not_straddle_each_other(self) -> None:
+        """Nothing here knows where a gene starts, and it does not need to.
+
+        Dropping structural tokens is enough on its own to separate the two genes into
+        adjacent blocks - which is the check that the rule is picking up real biology
+        rather than just happening to delete the dissenters.
+        """
+        rhd = self.db.loci_by_type["RHD"]["1"]
+        rhce = self.db.loci_by_type["RHCE"]["1"]
+        self.assertLess(max(rhd), min(rhce))
+
+    def test_a_donor_coordinate_does_not_vote_for_the_borrower(self) -> None:
+        """RHD*01N.43 is 25272547_DEL_18244 in RHD plus 25402595_INS_18269 in RHCE.
+
+        25402595 is an RHCE locus - RHCE*01N.13 and RHCE*02N.03 both define an ordinary
+        SNP there. It was RHD's single diploid dissenter.
+        """
+        self.assertNotIn(25402595, self.db.loci_by_type["RHD"]["1"])
+        self.assertIn(25402595, self.db.loci_by_type["RHCE"]["1"])
+
+    def test_the_mirror_case_holds_too(self) -> None:
+        """RHCE*01.44 carries 25301518_INS_1940, and 25301518 is an RHD locus."""
+        self.assertNotIn(25301518, self.db.loci_by_type["RHCE"]["1"])
+        self.assertIn(25301518, self.db.loci_by_type["RHD"]["1"])
+
+    def test_an_ordinary_snp_still_votes(self) -> None:
+        """25317062_T_C, on RHD*01N.43 beside the two structural tokens."""
+        self.assertIn(25317062, self.db.loci_by_type["RHD"]["1"])
+
+    def test_a_ref_token_still_votes(self) -> None:
+        """'no change from reference' is a locus like any other, and D3 needs it."""
+        self.assertIn(25408711, self.db.loci_by_type["RHCE"]["1"])
+
+    def test_a_gene_defined_only_by_a_deletion_has_no_voters(self) -> None:
+        """ABCC1's whole database entry is one whole gene deletion.
+
+        Absent rather than present-and-empty, and that is the honest answer: one
+        breakpoint cannot show agreement across a gene, and with a single position
+        'every locus agrees' is satisfied by whatever one row lands on it.
+        """
+        for bg_type in ("ABCC1", "ATP11C", "CD99"):
+            with self.subTest(bg_type=bg_type):
+                self.assertNotIn(bg_type, self.db.loci_by_type)
+
+
+class TestRhIsNoLongerRefusedOutright(unittest.TestCase):
+    """The regression. Both RH genes were refused on every sample of a cohort.
+
+    The log was 'RHD has 204 haploid and 1 diploid genotypes' and 'RHCE has 3 haploid
+    and 95 diploid'. The single RHD dissenter was 25402595, and one of the three RHCE
+    ones was 25301518 - each borrowed from the other gene, each enough on its own to
+    refuse a gene that wants agreement across all of it.
+
+    Built here as the shape that produced it: one gene at one copy, its neighbour at
+    two. The cohort itself is not needed to reproduce it - the database is.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.db = Db(ref="GRCh38", df=prepare_db())
+
+    def _vcf_rhd_haploid_rhce_diploid(self) -> VCF:
+        rows = [("chr1", str(pos), "1") for pos in self.db.loci_by_type["RHD"]["1"]]
+        rows += [("chr1", str(pos), "0/1") for pos in self.db.loci_by_type["RHCE"]["1"]]
+        return a_vcf(sorted(rows, key=lambda row: int(row[1])))
+
+    def test_the_single_copy_gene_is_read_as_one_copy(self) -> None:
+        vcf = self._vcf_rhd_haploid_rhce_diploid()
+        self.assertEqual(
+            locus_copies_for_bg(a_bg("RHD"), vcf, self.db.loci_by_type), 1
+        )
+
+    def test_its_two_copy_neighbour_is_still_not(self) -> None:
+        """RHCE's shape is the opposite one, and refusing it is the right answer."""
+        vcf = self._vcf_rhd_haploid_rhce_diploid()
+        self.assertIsNone(
+            locus_copies_for_bg(a_bg("RHCE"), vcf, self.db.loci_by_type)
+        )
+
+
+class TestTheContradictionWarning(unittest.TestCase):
+    """1b. Which contradictions are worth saying out loud.
+
+    Unanimity still decides the result. This is only about the warning, which fired on
+    every sample of a cohort and so trained people to ignore it.
+    """
+
+    loci = {"RHD": {"1": frozenset({25272548, 25272595, 25284574, 25284578, 25290660})}}
+
+    def _run(self, rows: list[tuple[str, str, str]]) -> tuple[int | None, list[str]]:
+        messages: list[str] = []
+        sink = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            result = locus_copies_for_bg(a_bg("RHD"), a_vcf(rows), self.loci)
+        finally:
+            logger.remove(sink)
+        return result, messages
+
+    def test_a_gene_that_is_mostly_haploid_is_worth_saying(self) -> None:
+        """Unanimity is all that stands in the way, so it may be costing a call."""
+        result, messages = self._run(
+            [
+                ("chr1", "25272548", "1"),
+                ("chr1", "25272595", "1"),
+                ("chr1", "25284574", "1"),
+                ("chr1", "25284578", "0/1"),
+            ]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(len(messages), 1)
+
+    def test_and_it_names_the_dissenters(self) -> None:
+        """They are the whole diagnosis - the point is to go and look at them."""
+        _, messages = self._run(
+            [
+                ("chr1", "25272548", "1"),
+                ("chr1", "25272595", "1"),
+                ("chr1", "25284574", "1"),
+                ("chr1", "25284578", "0/1"),
+            ]
+        )
+        self.assertIn("1:25284578", messages[0])
+        self.assertNotIn("1:25272548", messages[0])
+
+    def test_a_gene_that_is_mostly_diploid_is_not(self) -> None:
+        """A diploid gene and a caller having a bad day. The ordinary case."""
+        result, messages = self._run(
+            [
+                ("chr1", "25272548", "0/1"),
+                ("chr1", "25272595", "0/1"),
+                ("chr1", "25284574", "0/1"),
+                ("chr1", "25284578", "1"),
+            ]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(messages, [])
+
+    def test_a_tie_is_not_evidence_of_a_copy_number(self) -> None:
+        """Deliberate, and the judgement call in this rule.
+
+        A tie says the two readings are equally supported, which is a mess rather than a
+        copy number. On a sparsely called input a tie is usually one locus against one,
+        and warning there would put the noise straight back.
+        """
+        result, messages = self._run(
+            [("chr1", "25272548", "1"), ("chr1", "25272595", "0/1")]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(messages, [])
+
+    def test_the_result_does_not_depend_on_any_of_this(self) -> None:
+        """Whether it speaks or not, unanimity decides, exactly as before."""
+        loud, _ = self._run(
+            [
+                ("chr1", "25272548", "1"),
+                ("chr1", "25272595", "1"),
+                ("chr1", "25284574", "0/1"),
+            ]
+        )
+        quiet, _ = self._run(
+            [
+                ("chr1", "25272548", "1"),
+                ("chr1", "25272595", "0/1"),
+                ("chr1", "25284574", "0/1"),
+            ]
+        )
+        self.assertIsNone(loud)
+        self.assertIsNone(quiet)
+
+    def test_agreement_still_says_nothing_at_all(self) -> None:
+        result, messages = self._run(
+            [("chr1", "25272548", "1"), ("chr1", "25272595", "1")]
+        )
+        self.assertEqual(result, 1)
+        self.assertEqual(messages, [])
 
 
 if __name__ == "__main__":
