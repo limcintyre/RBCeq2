@@ -1269,10 +1269,16 @@ def get_ref(
         if alleles[0] != "1":
             raise BeyondLogicError(
                 message=(
-                    "Multi-allelic genotypes are not supported. Please split the VCF "
-                    "first, ie 'bcftools norm -m -both'."
+                    "Multi-allelic genotypes are not supported. A haploid genotype "
+                    "names an alternate allele this row does not have, so the row was "
+                    "not split into one alternate per row. Please split the VCF first, "
+                    "ie 'bcftools norm -m -both'."
                 ),
-                context=f"variant: {variant}, GT: {GT}",
+                context=(
+                    f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}, "
+                    f"locus_copies: {locus_copies}"
+                ),
+                raised_by="get_ref/multi_allelic_haploid_GT",
             )
         return Zygosity.HEM
 
@@ -1291,6 +1297,7 @@ def get_ref(
                 f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}, "
                 f"locus_copies: {locus_copies}"
             ),
+            raised_by="get_ref/haploid_GT_where_neither_count_is_one",
         )
 
     if "." in alleles:
@@ -1299,10 +1306,13 @@ def get_ref(
     if not set(alleles) <= {"0", "1"}:
         raise BeyondLogicError(
             message=(
-                "Multi-allelic genotypes are not supported. Please split the VCF "
-                "first, ie 'bcftools norm -m -both'."
+                "Multi-allelic genotypes are not supported. A diploid genotype names an "
+                "alternate allele this row does not have, so the row was not split into "
+                "one alternate per row. Please split the VCF first, ie "
+                "'bcftools norm -m -both'."
             ),
             context=f"variant: {variant}, GT: {GT}",
+            raised_by="get_ref/multi_allelic_diploid_GT",
         )
 
     allele1, allele2 = alleles

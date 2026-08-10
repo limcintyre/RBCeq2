@@ -242,6 +242,15 @@ Things that look fine and are not. Verify against these before touching related 
   on `BloodGroup` or `Db` breaks 28 tests at once with `AttributeError` rather than being
   inherited. Same class of problem as the local `Zygosity` stubs that shadow the real enum in
   three test files.
+- **A multi-allelic row is one row but several pool entries, each with its own genotype.**
+  `SmallVariantEncoder` emits one token per ALT, comma joined in ALT order, and
+  `get_variants` fans them out and rewrites the genotype per alternate — `1/2` becomes `1/0`
+  for the first token and `0/1` for the second, so `get_ref` and the phased filters only ever
+  see `0` and `1`. Consequences: `vcf.variants` does **not** map one-to-one onto rows; a token
+  recoding to hom ref is dropped, so an ALT the sample lacks is absent rather than present at
+  zero; and the recode is applied *only* to rows with more than one ALT, so a single-ALT row
+  with a GT like `2/2` still raises rather than being silently zeroed. Mixed SV/small
+  multi-allelic rows (`ALT=<DEL>,G`) are **not** handled — one encoder claims the whole row.
 - **A structural token's position is not a locus of the gene that carries the allele.** On a
   gene conversion allele the `DEL` is in this gene's coordinates and the paired `INS` is in
   the *donor's* — `RHD*01N.43` is `25272547_DEL_18244` in RHD plus `25402595_INS_18269` in

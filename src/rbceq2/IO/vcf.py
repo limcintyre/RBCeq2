@@ -1,6 +1,7 @@
 import gzip
 import io
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 import pandas as pd
@@ -45,6 +46,56 @@ def is_haploid_gt(GT: str) -> bool:
     PAR is a caller error, not a ploidy statement.
     """
     return bool(GT) and "/" not in GT and "|" not in GT
+
+
+def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:
+    """Rewrite a genotype so it describes one alternate allele of a multi-allelic row.
+
+    A row with two alternates carries one genotype describing both, ie '1/2' for a sample
+    heterozygous for each. The encoder already splits such a row into one token per
+    alternate, but a token is a statement about *its* alternate only, so it needs a
+    genotype that says how many copies of that one the sample has. This is that rewrite:
+    the named index becomes 1, every other index becomes 0, '.' is left alone, and the
+    separator is preserved so a phased genotype stays phased.
+
+        '1/2' index 1 -> '1/0'      '1/2' index 2 -> '0/1'
+        '2/2' index 1 -> '0/0'      '2/2' index 2 -> '1/1'
+        '1|2' index 1 -> '1|0'      '1|2' index 2 -> '0|1'
+        './2' index 2 -> './1'      '2'   index 2 -> '1'
+
+    This is what makes the rest of the pipeline work unchanged rather than needing to
+    learn about multi-allelic sites. get_ref sees only 0 and 1 again, so its existing
+    zygosity logic is correct as written; and the phased filters compare phase strings
+    literally - `phase == "1|0"` - so recoding is also what stops two different
+    alternates at one position from both carrying '1|2' and comparing as though they
+    were in phase with each other.
+
+    Recoding to hom ref is meaningful and is the caller's to act on: '2/2' read for
+    index 1 gives '0/0', which says the sample has zero copies of that alternate. See
+    get_variants, which drops the token rather than storing it, the same rule
+    remove_home_ref applies to a row.
+
+    Deliberately not applied to a row with a single alternate. There the only valid
+    index is 1, so the rewrite would be a no-op for every well formed genotype and would
+    silently turn a malformed one - '2/2' where there is no second alternate - into
+    '0/0' and drop it. That is input worth raising about, so it is left to reach get_ref.
+
+    Args:
+        GT (str): The genotype as written, ie '1/2', '1|2', '2'.
+        alt_index (int): Which alternate this token is, 1 based, matching the order the
+            alternates appear in the ALT column.
+
+    Returns:
+        str: The genotype rewritten for that alternate.
+    """
+    if not GT:
+        return GT
+    separator = "|" if "|" in GT else "/"
+    recoded = [
+        call if call == "." else ("1" if call == str(alt_index) else "0")
+        for call in re.split(r"[/|]", GT)
+    ]
+    return separator.join(recoded)
 
 
 def is_single_copy(chrom: str, pos: int, reference_genome: str) -> bool:
@@ -482,6 +533,25 @@ class VCF:
         add_lane_variants synthesise the '_ref' partner for a lane locus. Skipping only
         here would leave the locus looking called and no '_ref' token would be made.
 
+        This is also where a multi-allelic row becomes usable. The encoder has already
+        emitted one token per alternate, in ALT column order, comma joined - so the split
+        below is not a string convenience, it is the alternates. What each token was
+        missing is a genotype of its own: until v2.4.6 they all took the row's genotype
+        unchanged, so both tokens of a '1/2' were handed '1/2' and get_ref refused it as
+        multi-allelic. Each now gets its own recoded genotype and its own metrics dict.
+
+        The dicts were shared before, which nothing depended on but which meant a write
+        through one token's metrics would have reached the other's.
+
+        A token recoding to hom ref is dropped rather than stored, which is the row level
+        rule of remove_home_ref applied per alternate: '2/2' read for the first alternate
+        is '0/0', the sample has none of it, and absence from the pool is how zero copies
+        is encoded.
+
+        Rows with one alternate keep the old path exactly, sharing no code with the split
+        one - see recode_gt_for_alt_index for why rewriting them would be worse than
+        leaving them alone.
+
         Returns:
             dict[str, str]: A dictionary of variants and their associated metrics.
         """
@@ -498,8 +568,16 @@ class VCF:
             if mapped_metrics["GT"] in HOM_REF_GTS:
                 continue
             if "," in variant:
-                for variant in variant.split(","):
-                    vcf_variants[variant] = mapped_metrics
+                for alt_index, alt_variant in enumerate(variant.split(","), start=1):
+                    per_alt_metrics = dict(mapped_metrics)
+                    per_alt_metrics["GT"] = recode_gt_for_alt_index(
+                        mapped_metrics["GT"], alt_index
+                    )
+                    if per_alt_metrics["GT"] in HOM_REF_GTS or (
+                        per_alt_metrics["GT"] == "0"
+                    ):
+                        continue
+                    vcf_variants[alt_variant] = per_alt_metrics
             else:
                 vcf_variants[variant] = mapped_metrics
 

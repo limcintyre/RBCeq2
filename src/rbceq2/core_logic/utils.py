@@ -49,31 +49,57 @@ def collapse_variant(variant: str) -> str:
 class BeyondLogicError(Exception):
     """Custom exception for scenarios beyond logical comprehension.
 
+    Several of these read alike by the time they reach a log. The class lives here in
+    utils, the batch runner reports failures as 'BeyondLogicError: <message>', and two
+    raise sites can share wording - 'Multi-allelic genotypes are not supported' is raised
+    in two places in get_ref alone, for two different reasons. The result is a message
+    that says what went wrong but not which check said so, and a stack that points at
+    utils. So raise sites can name themselves, and the name leads the formatted message:
+
+        [get_ref/multi_allelic_diploid_GT] Multi-allelic genotypes are not supported...
+
+    The name is a stable slug rather than a sentence, so it can be grepped for in a log
+    and searched for in the source. Optional, so every existing raise keeps working.
+
     Attributes:
         message (str): Explanation of the error.
         context (str | None): Additional context or metadata to describe the issue.
+        raised_by (str | None): Which check raised this, as 'function/reason'.
     """
 
-    def __init__(self, message: str, context: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        context: str | None = None,
+        raised_by: str | None = None,
+    ):
         """Initialize BeyondLogicError with a message and optional context.
 
         Args:
             message (str): The error message describing the beyond logic situation.
             context (str | None): Optional context to provide more information.
+            raised_by (str | None): Optional 'function/reason' slug identifying the
+                raise site, so two checks that word their message alike stay
+                distinguishable in a log.
         """
         self.message = message
         self.context = context
+        self.raised_by = raised_by
         super().__init__(self._format_error())
 
     def _format_error(self) -> str:
         """Format the error message.
 
         Returns:
-            str: Formatted error message including context if available.
+            str: Formatted error message including the raise site and context if
+            available.
         """
+        formatted = self.message
+        if self.raised_by:
+            formatted = f"[{self.raised_by}] {formatted}"
         if self.context:
-            return f"{self.message} | Context: {self.context}"
-        return self.message
+            return f"{formatted} | Context: {self.context}"
+        return formatted
 
     def __str__(self) -> str:
         """Return string representation of the error.
