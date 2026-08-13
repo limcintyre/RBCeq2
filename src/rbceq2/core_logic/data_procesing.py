@@ -704,11 +704,27 @@ def _modify_variant_pool_with_large_indel(
 ) -> dict:
     """Internal helper to adjust variant zygosity when large deletions are present.
 
-    On a single-copy region a deletion is Hemizygous, not Homozygous - there is one
-    chromosome and the deletion is on it - but it still removes every copy of everything
-    inside it, so it takes the 'hom' branch here. Without that, an XK whole-gene deletion
-    in a male (McLeod, and the reason XK*N.01 exists) trips the het assert below. See
-    issue #40.
+    A deletion reaches here labelled HOM, HET or HEM, and HEM is the one that means two
+    opposite things. It is one copy of the locus carrying one copy of the token, which
+    says nothing on its own about how many copies there were to start with, so the region
+    has to supply that:
+
+        chrom_copies == 1   the only chromosome carries the deletion, so everything
+                            inside it is gone - the 'hom' reading. An XK whole gene
+                            deletion in a male (McLeod, and the reason XK*N.01 exists).
+        chrom_copies == 2   one chromosome of two carries it, so a variant inside can sit
+                            on the other - the 'het' reading. This is what a copy number
+                            aware caller writes for a heterozygous deletion, a haploid
+                            '1' rather than '0/1'.
+
+    Both are named explicitly. Until v2.4.6 only the first was, and the second tripped a
+    bare assert - so an ordinary heterozygous deletion from a copy number aware caller
+    crashed the sample, or, under 'python -O', silently did not. See issue #40.
+
+    What remains genuinely beyond logic is a deletion that is *neither*: it removed some
+    copies but not all, so it has to be on one chromosome of two, and if it is not het by
+    either reading then the number of surviving copies of the variants inside it cannot be
+    worked out. That raises, and it raises by name.
 
     Args:
         variant_pool (dict): Dictionary mapping variant strings to zygosity values.
@@ -742,7 +758,10 @@ def _modify_variant_pool_with_large_indel(
     # Determine zygosity values based on pool type
     if is_phase_pool:
         hom_value = "1/1"
-        het_value = ("1|0", "0|1")
+        # A tuple in both branches, so the membership test below means membership. It was
+        # a bare string in the zygosity branch, where 'in' is substring matching, and it
+        # gave the right answer only because 'Heterozygous' contains itself.
+        het_values = ("1|0", "0|1")
         hem_value = "1"
         # The phase pool has no equivalent of 'no copies'. Phase is a property of a
         # chromosome that exists, so there is nothing honest to write inside a hom
@@ -752,7 +771,7 @@ def _modify_variant_pool_with_large_indel(
         no_copies_value = None
     else:
         hom_value = Zygosity.HOM
-        het_value = Zygosity.HET
+        het_values = (Zygosity.HET,)
         hem_value = Zygosity.HEM
         no_copies_value = Zygosity.NO_COPIES
 
@@ -769,6 +788,15 @@ def _modify_variant_pool_with_large_indel(
         del_zygosity = variant_pool.get(big_del)
         big_del_is_hom = del_zygosity == hom_value or (
             chrom_copies == 1 and del_zygosity == hem_value
+        )
+        # The mirror of the line above, and the other half of what a haploid GT on a
+        # deletion means. HEM is one copy of the locus carrying one copy of the token, so
+        # what it says about a *deletion* depends entirely on how many copies there were
+        # to start with: on one chromosome the only copy is gone, which is the hom
+        # reading above; on two, one of two is gone, which is what HET says. The label is
+        # the same and the two readings are opposite, so both need naming.
+        big_del_is_het = del_zygosity in het_values or (
+            chrom_copies == 2 and del_zygosity == hem_value
         )
 
         for variant, zygosity in variant_pool.items():
@@ -806,8 +834,28 @@ def _modify_variant_pool_with_large_indel(
                             f"Heterozygous variant detected where hemizygousity expected "
                             f"{sample} {bg_type} {variant}"
                         )
-                    if not is_phase_pool:
-                        assert variant_pool[big_del] in het_value
+                    if not is_phase_pool and not big_del_is_het:
+                        raise BeyondLogicError(
+                            message=(
+                                "A variant inside a deletion that is neither homozygous "
+                                "nor heterozygous. Reaching here means the deletion "
+                                "removed some copies but not all of them, so it has to "
+                                "be on one chromosome of two, and this one is neither - "
+                                "so how many copies of the variant survive cannot be "
+                                "worked out. Most likely the deletion has no genotype in "
+                                "the pool at all, or the call at it was dropped."
+                            ),
+                            context=(
+                                f"sample: {sample}, blood group: {bg_type}, deletion: "
+                                f"{big_del}, deletion zygosity: {del_zygosity}, "
+                                f"variant: {variant}, variant zygosity: {zygosity}, "
+                                f"chrom_copies: {chrom_copies}"
+                            ),
+                            raised_by=(
+                                "_modify_variant_pool_with_large_indel/"
+                                "deletion_neither_hom_nor_het"
+                            ),
+                        )
             else:
                 # Variant outside deletion range
                 new_variant_pool[variant] = zygosity
@@ -1381,10 +1429,18 @@ def get_genotypes(
     def make_list_of_lists(alleles):
         return [pair.genotypes for pair in alleles]
 
-    def render(genotypes: list[str]) -> str:
+    def render(genotypes: list[str], co_existing: bool = False) -> str:
         """Join a pair's genotypes, collapsing a slot the sample does not have.
 
         pair.genotypes is already sorted by Pair._ordered, so it is not re-sorted here.
+
+        co_existing says whether this pair came from the Knops path, and it is only
+        consulted for the two-non-reference-alleles case, where the same shape means
+        opposite things. Co-existing alleles sit on one chromosome by definition, so two
+        of them at one gene copy is the ordinary result. Off that path it is impossible,
+        and cant_have_2_non_ref_alleles_cuz_only_1_gene_copy has already excluded it by
+        name - so reaching here means that filter did not run or did not catch it, which
+        is worth saying rather than quietly writing the pair out as this used to.
         """
         if bg.chrom_copies == 1 and len(set(genotypes)) == 1:
             return f"{genotypes[0]}/{HAPLOID_SECOND_SLOT}"
@@ -1402,16 +1458,20 @@ def get_genotypes(
                 # missing copy displaces, or the duplicate the pairing machinery writes
                 # when one copy carries the allele and there is nothing to pair it with.
                 return f"{(present or genotypes)[0]}/{absent_slot}"
-            logger.warning(
-                f"{bg.sample}: {bg.type} has one gene copy but a pair of two "
-                f"non-reference alleles ({'/'.join(present)}), which needs both on the "
-                f"one copy. Reporting the pair as called; see issue #40"
-            )
+            if not co_existing:
+                logger.warning(
+                    f"{bg.sample}: {bg.type} has one gene copy but a pair of two "
+                    f"non-reference alleles ({'/'.join(present)}), which needs both on "
+                    f"the one copy. It should have been excluded by "
+                    f"cant_have_2_non_ref_alleles_cuz_only_1_gene_copy and was not, so "
+                    f"it is being reported as called; see issue #40"
+                )
         return "/".join(sorted(genotypes))
 
     if bg.alleles[AlleleState.CO] is not None:
         bg.genotypes = [
-            render(co) for co in make_list_of_lists(bg.alleles[AlleleState.CO])
+            render(co, co_existing=True)
+            for co in make_list_of_lists(bg.alleles[AlleleState.CO])
         ]
     else:
         bg.genotypes = [

@@ -578,6 +578,66 @@ def cant_not_include_null(bg: BloodGroup) -> BloodGroup:
 
 
 @apply_to_dict_values
+def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGroup:
+    """Two different non-reference alleles need two gene copies to sit on.
+
+    Where a caller reported one copy of the gene on two chromosomes, one chromosome
+    carries the gene and the other carries no gene at all. So there is exactly one place
+    for a real allele, and a pair naming two different ones is claiming both are on it.
+
+    Until v2.4.6 this was noticed at the reporting layer and warned about, then the pair
+    was written out as called anyway - the one impossible result the pipeline knowingly
+    reported. A warning is not an audit trail: it does not say which pair, it is not in
+    filtered_out, and it does not reach the debug trace or the PDF. Now the pair is
+    excluded by name like every other impossible pair.
+
+    Two things it deliberately leaves alone:
+
+    - **Co-existing alleles.** Two alleles on one chromosome is exactly what co-existing
+      *means*, so on the Knops path the shape is legitimate rather than impossible, and
+      it is what gets reported when it is present. Skipped entirely rather than filtered
+      and then ignored, so it cannot empty NORMAL and trigger the reverted-to-reference
+      warning for a blood group whose answer was never coming from NORMAL.
+    - **The same allele twice.** The pairing machinery writes a duplicate where one copy
+      carries an allele and there is nothing to pair it with, and get_genotypes collapses
+      that to 'allele/absent_slot'. One allele, one copy, no contradiction - which is why
+      this counts *distinct* genotypes rather than alleles.
+
+    Nothing here fires unless a caller reported gene copy number, so on an input without
+    that channel locus_copies is None and this is a no-op.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs.
+
+    Returns:
+        BloodGroup: The updated BloodGroup, with impossible pairs moved to filtered_out
+        under 'cant_have_2_non_ref_alleles_cuz_only_1_gene_copy'.
+    """
+    if bg.locus_copies != 1 or bg.chrom_copies != 2:
+        return bg
+    # .get, not [], on both: bg.alleles is a plain dict and the states it holds depend on
+    # how far down the pipeline the blood group is.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    if not bg.alleles.get(AlleleState.NORMAL):
+        return bg
+
+    to_remove = []
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        non_ref = {
+            allele.genotype for allele in pair.alleles if not allele.reference
+        }
+        if len(non_ref) > 1:
+            to_remove.append(pair)
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_have_2_non_ref_alleles_cuz_only_1_gene_copy"
+        )
+
+    return bg
+
+
+@apply_to_dict_values
 def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     """
     Ensures that heterozygous variants are utilized in allele pairs if they can form

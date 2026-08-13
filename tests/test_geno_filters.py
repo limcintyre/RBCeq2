@@ -13,6 +13,7 @@ from rbceq2.filters.geno import (
     flatten_alleles,
     split_pair_by_ref,
     antithetical_modifying_SNP_is_HOM,
+    cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
 )
 
 
@@ -807,6 +808,121 @@ class TestFilterPairsByContext(unittest.TestCase):
             filtered_out=defaultdict(list),
         )
         filter_pairs_by_context({1: self.bg})
+
+
+class TestCantHave2NonRefAllelesCuzOnly1GeneCopy(unittest.TestCase):
+    """One gene copy on two chromosomes leaves one place for a real allele.
+
+    The pair naming two different ones is claiming both are on it. Until v2.4.6 this was
+    warned about at the reporting layer and then written out as called - the one
+    impossible result the pipeline knowingly reported.
+    """
+
+    FILTER = "cant_have_2_non_ref_alleles_cuz_only_1_gene_copy"
+
+    def _allele(self, genotype, reference=False, variants=("1:1_A_G",)):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type="RHD*01",
+        )
+
+    def _bg(self, pairs, locus_copies=1, chrom_copies=2, co=None):
+        alleles = {AlleleState.NORMAL: pairs, AlleleState.CO: co}
+        return BloodGroup(
+            type="RHD",
+            alleles=alleles,
+            sample="s1",
+            locus_copies=locus_copies,
+            chrom_copies=chrom_copies,
+            filtered_out=defaultdict(list),
+        )
+
+    def setUp(self):
+        self.ref = self._allele("RHD*01", reference=True, variants=("1:1_ref",))
+        self.alt1 = self._allele("RHD*09.01", variants=("1:1_A_G",))
+        self.alt2 = self._allele("RHD*15", variants=("1:2_C_T",))
+        self.two_non_ref = Pair(allele1=self.alt1, allele2=self.alt2)
+        self.one_non_ref = Pair(allele1=self.ref, allele2=self.alt1)
+        self.duplicate = Pair(allele1=self.alt1, allele2=self.alt1)
+
+    def test_two_distinct_non_reference_alleles_are_excluded(self):
+        bg = self._bg([self.two_non_ref, self.one_non_ref])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertNotIn(self.two_non_ref, bg.alleles[AlleleState.NORMAL])
+
+    def test_the_exclusion_is_recorded_under_the_filter_name(self):
+        """The whole point - a warning is not an audit trail."""
+        bg = self._bg([self.two_non_ref, self.one_non_ref])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.two_non_ref, bg.filtered_out[self.FILTER])
+
+    def test_a_pair_with_the_reference_is_kept(self):
+        """One real allele plus the slot the missing copy displaces. Ordinary."""
+        bg = self._bg([self.two_non_ref, self.one_non_ref])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.one_non_ref, bg.alleles[AlleleState.NORMAL])
+
+    def test_the_same_allele_twice_is_kept(self):
+        """The duplicate the pairing machinery writes. One allele, one copy."""
+        bg = self._bg([self.duplicate])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.duplicate, bg.alleles[AlleleState.NORMAL])
+
+    def test_two_gene_copies_are_untouched(self):
+        """The ordinary sample. Two alleles, two places to put them."""
+        bg = self._bg([self.two_non_ref], locus_copies=None)
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.two_non_ref, bg.alleles[AlleleState.NORMAL])
+        self.assertEqual(bg.filtered_out[self.FILTER], [])
+
+    def test_one_chromosome_is_untouched(self):
+        """XK in a male is one slot, not two, and get_genotypes renders it with '-'."""
+        bg = self._bg([self.two_non_ref], locus_copies=1, chrom_copies=1)
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.two_non_ref, bg.alleles[AlleleState.NORMAL])
+
+    def test_co_existing_alleles_are_left_alone(self):
+        """Two alleles on one chromosome is what co-existing means."""
+        bg = self._bg([self.two_non_ref], co=[self.two_non_ref])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertIn(self.two_non_ref, bg.alleles[AlleleState.NORMAL])
+        self.assertEqual(bg.filtered_out[self.FILTER], [])
+
+    def test_an_input_with_no_copy_number_channel_is_a_no_op(self):
+        """locus_copies is None on every input that does not encode it."""
+        bg = self._bg([self.two_non_ref], locus_copies=None)
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertEqual(bg.filtered_out[self.FILTER], [])
+
+    def test_an_empty_blood_group_does_not_raise(self):
+        bg = self._bg([])
+
+        cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
 
 
 if __name__ == "__main__":
