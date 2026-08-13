@@ -563,6 +563,7 @@ def find_hits(
         filt_co.filter_co_existing_in_other_allele,
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
+        filt.cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
         partial(
             dp.get_genotypes,
             reference_alleles=db.reference_alleles,

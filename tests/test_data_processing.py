@@ -481,6 +481,125 @@ class TestLargeIndelNoCopies(unittest.TestCase):
         self.assertNotIn(Zygosity.NO_COPIES, result.values())
 
 
+class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
+    """C6. HEM on a deletion means two opposite things and the region decides which.
+
+    HEM is one copy of the locus carrying one copy of the token, which says nothing on
+    its own about how many copies there were to start with. On one chromosome the only
+    copy is gone; on two, one of two is gone. A copy number aware caller writes a haploid
+    '1' rather than '0/1' for an ordinary heterozygous deletion, so the second reading is
+    the common one and it used to trip a bare assert.
+    """
+
+    DEL = "1:25272547_DEL_59419"   # RHD whole gene deletion, spans to 1:25331966
+    INNER_REF = "1:25317062_ref"
+    INNER_ALT = "1:25317062_A_G"
+
+    def test_hem_deletion_on_two_chromosomes_is_the_het_reading(self):
+        """One of two copies gone, so a hom variant inside drops to one copy."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", chrom_copies=2
+        )
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+        self.assertEqual(result[self.DEL], Zygosity.HEM)
+
+    def test_hem_deletion_on_one_chromosome_is_still_the_hom_reading(self):
+        """Regression guard - XK in a male must keep taking the hom branch."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", chrom_copies=1
+        )
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.NO_COPIES)
+
+    def test_a_het_variant_under_a_hem_deletion_no_longer_crashes(self):
+        """The case the bare assert refused. It warns, which it already did."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_ALT: Zygosity.HET}
+        messages = []
+        sink = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            result = _modify_variant_pool_with_large_indel(
+                pool, "s", "RHD", chrom_copies=2
+            )
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(result[self.INNER_ALT], Zygosity.HET)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("hemizygousity expected", messages[0])
+
+    def test_an_ordinary_het_deletion_is_unchanged(self):
+        """The reading that always worked."""
+        pool = {self.DEL: Zygosity.HET, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+
+    def test_a_deletion_that_is_neither_raises_by_name(self):
+        """Still beyond logic - but a BeyondLogicError, not a bare assert.
+
+        NO_DATA on the deletion. It removed some copies but not all, so it is on one
+        chromosome of two, and this is neither reading - so how many copies of the
+        variant survive cannot be worked out.
+        """
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+
+        with self.assertRaises(BeyondLogicError) as ctx:
+            _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
+
+        self.assertIn(
+            "_modify_variant_pool_with_large_indel/deletion_neither_hom_nor_het",
+            str(ctx.exception),
+        )
+
+    def test_the_raise_carries_enough_to_act_on(self):
+        """A bare assert carried none of this."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+
+        with self.assertRaises(BeyondLogicError) as ctx:
+            _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
+
+        for expected in ("s9", "RHD", self.DEL, self.INNER_REF, Zygosity.NO_DATA):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, str(ctx.exception))
+
+    def test_it_survives_python_dash_oh(self):
+        """The whole point of not being an assert. -O strips assert, not raise."""
+        import subprocess
+        import sys
+
+        code = (
+            "from rbceq2.core_logic.data_procesing import "
+            "_modify_variant_pool_with_large_indel as f;"
+            "from rbceq2.core_logic.utils import Zygosity, BeyondLogicError;"
+            "pool={'1:25272547_DEL_59419': Zygosity.NO_DATA,"
+            " '1:25317062_ref': Zygosity.HET};"
+            "\ntry:\n f(pool, 's', 'RHD')\n print('NO RAISE')\n"
+            "except BeyondLogicError:\n print('RAISED')"
+        )
+        out = subprocess.run(
+            [sys.executable, "-O", "-c", code], capture_output=True, text=True
+        )
+        self.assertIn("RAISED", out.stdout)
+
+    def test_the_phase_pool_never_reaches_the_check(self):
+        """Deliberate - a phase string is not a zygosity and cannot answer this."""
+        pool = {self.DEL: "0/1", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result[self.INNER_REF], "1")
+
+
 class TestModifyAllelePoolIfLargeIndel(unittest.TestCase):
     """The allele side of C4 - what the pool marking is for."""
 
