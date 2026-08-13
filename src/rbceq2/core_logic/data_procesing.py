@@ -763,6 +763,7 @@ def _modify_variant_pool_with_large_indel(
         # gave the right answer only because 'Heterozygous' contains itself.
         het_values = ("1|0", "0|1")
         hem_value = "1"
+        no_data_values = ("./.", ".|.", ".")
         # The phase pool has no equivalent of 'no copies'. Phase is a property of a
         # chromosome that exists, so there is nothing honest to write inside a hom
         # deletion. None means 'leave the phase alone' - the zygosity pool is what records
@@ -773,11 +774,25 @@ def _modify_variant_pool_with_large_indel(
         hom_value = Zygosity.HOM
         het_values = (Zygosity.HET,)
         hem_value = Zygosity.HEM
+        no_data_values = (Zygosity.NO_DATA,)
         no_copies_value = Zygosity.NO_COPIES
 
     new_variant_pool = {}
 
     for big_del, no_seq_variant in big_dels:
+        # An uncalled deletion is not evidence of anything, so nothing inside it is
+        # adjusted. This is what a jointly called cohort produces and a per sample file
+        # does not: the cohort carries a row for every structural variant *any* sample
+        # had, so a sample without this one gets './.' rather than no row at all. Both
+        # encodings describe the same sample and have to reach the same answer, and
+        # skipping is what makes them agree - it leaves the pool exactly as the per
+        # sample file would have left it by simply not having the row.
+        #
+        # Deliberately not read as 'the deletion is absent' either. './.' is the caller
+        # declining to call, which is a different claim from a confident reference call,
+        # and the difference is the whole reason NO_DATA exists.
+        if variant_pool.get(big_del) in no_data_values:
+            continue
         start = get_start_pos(no_seq_variant)
         length = no_seq_variant.split("_")[-1]
         length = int(length[:-2]) * 1000 if length.endswith("kb") else int(length)
@@ -842,8 +857,9 @@ def _modify_variant_pool_with_large_indel(
                                 "removed some copies but not all of them, so it has to "
                                 "be on one chromosome of two, and this one is neither - "
                                 "so how many copies of the variant survive cannot be "
-                                "worked out. Most likely the deletion has no genotype in "
-                                "the pool at all, or the call at it was dropped."
+                                "worked out. An uncalled deletion is skipped before this "
+                                "point, so the remaining way to get here is a deletion "
+                                "sitting inside another one."
                             ),
                             context=(
                                 f"sample: {sample}, blood group: {bg_type}, deletion: "

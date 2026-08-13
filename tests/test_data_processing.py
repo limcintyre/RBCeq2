@@ -545,11 +545,11 @@ class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
     def test_a_deletion_that_is_neither_raises_by_name(self):
         """Still beyond logic - but a BeyondLogicError, not a bare assert.
 
-        NO_DATA on the deletion. It removed some copies but not all, so it is on one
-        chromosome of two, and this is neither reading - so how many copies of the
+        A deletion inside another deletion. It removed some copies but not all, so it is
+        on one chromosome of two, and this is neither reading - so how many copies of the
         variant survive cannot be worked out.
         """
-        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+        pool = {self.DEL: Zygosity.NO_COPIES, self.INNER_REF: Zygosity.HET}
 
         with self.assertRaises(BeyondLogicError) as ctx:
             _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
@@ -561,12 +561,12 @@ class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
 
     def test_the_raise_carries_enough_to_act_on(self):
         """A bare assert carried none of this."""
-        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+        pool = {self.DEL: Zygosity.NO_COPIES, self.INNER_REF: Zygosity.HET}
 
         with self.assertRaises(BeyondLogicError) as ctx:
             _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
 
-        for expected in ("s9", "RHD", self.DEL, self.INNER_REF, Zygosity.NO_DATA):
+        for expected in ("s9", "RHD", self.DEL, self.INNER_REF, Zygosity.NO_COPIES):
             with self.subTest(expected=expected):
                 self.assertIn(expected, str(ctx.exception))
 
@@ -579,7 +579,7 @@ class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
             "from rbceq2.core_logic.data_procesing import "
             "_modify_variant_pool_with_large_indel as f;"
             "from rbceq2.core_logic.utils import Zygosity, BeyondLogicError;"
-            "pool={'1:25272547_DEL_59419': Zygosity.NO_DATA,"
+            "pool={'1:25272547_DEL_59419': Zygosity.NO_COPIES,"
             " '1:25317062_ref': Zygosity.HET};"
             "\ntry:\n f(pool, 's', 'RHD')\n print('NO RAISE')\n"
             "except BeyondLogicError:\n print('RAISED')"
@@ -598,6 +598,67 @@ class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
         )
 
         self.assertEqual(result[self.INNER_REF], "1")
+
+
+class TestAnUncalledDeletionAdjustsNothing(unittest.TestCase):
+    """A './.' deletion is the caller declining to call, so nothing inside it moves.
+
+    This is the shape a jointly called cohort produces and a per sample file does not.
+    The cohort carries a row for every structural variant *any* sample had, so a sample
+    without this one gets './.' rather than no row at all. Both encodings describe the
+    same sample, so both have to reach the same answer.
+
+    Found by running five samples through both encodings: every one of them died in the
+    joint form, at GYPB, on 4:143991719_del_103kb with the deletion at No_data.
+    """
+
+    DEL = "1:25272547_DEL_59419"
+    INNER_REF = "1:25317062_ref"
+
+    def test_a_homozygous_variant_inside_it_is_not_demoted(self):
+        """The per sample file has no row at all here, and leaves this Homozygous."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result.get(self.INNER_REF, Zygosity.HOM), Zygosity.HOM)
+
+    def test_it_does_not_raise(self):
+        """It used to, via a bare assert with no message at all."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+
+        _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+    def test_no_copies_is_not_written_inside_it(self):
+        """'Not called' is not 'deleted'. Only a called hom deletion empties a locus."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertNotIn(Zygosity.NO_COPIES, result.values())
+
+    def test_a_called_deletion_beside_an_uncalled_one_still_applies(self):
+        """Skipping one deletion must not disarm another."""
+        other_del = "1:25272600_DEL_59419"
+        pool = {
+            self.DEL: Zygosity.NO_DATA,
+            other_del: Zygosity.HET,
+            self.INNER_REF: Zygosity.HOM,
+        }
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+
+    def test_the_phase_pool_skips_it_too(self):
+        """Converting a phase inside an uncalled deletion would be the same mistake."""
+        pool = {self.DEL: "./.", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result.get(self.INNER_REF, "1/1"), "1/1")
 
 
 class TestModifyAllelePoolIfLargeIndel(unittest.TestCase):
