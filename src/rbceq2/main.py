@@ -42,6 +42,7 @@ from rbceq2.IO.record_data import (
 )
 from rbceq2.IO.vcf import (
     VCF,
+    PloidyScan,
     filter_VCF_to_BG_variants,
     read_vcf,
     check_if_multi_sample_vcf,
@@ -200,6 +201,9 @@ def main():
     db = Db(ref=args.reference_genome, df=db_df)
     logger.info("Db object initialized.")
 
+    # Only a cohort read in main can be scanned here; the per file path scans its own
+    # file inside find_hits, where it is already reading it.
+    haploid_by_sample: dict[str, frozenset[str]] = {}
     if args.vcf.is_dir():
         patterns = ["*.vcf", "*.vcf.gz"]
         vcfs = [file for pattern in patterns for file in args.vcf.glob(pattern)]
@@ -217,7 +221,16 @@ def main():
         actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
         if actually_multi_vcf:
             intervals = build_intervals(db_df, args.reference_genome)
-            multi_vcf = read_vcf(str(args.vcf), intervals, db.unique_variants)
+            # Read once, and take the constitutional ploidy evidence on the way past -
+            # the read filter is about to discard the rows carrying it. See PloidyScan.
+            ploidy_scan = PloidyScan(args.reference_genome)
+            multi_vcf = read_vcf(
+                str(args.vcf), intervals, db.unique_variants, ploidy_scan
+            )
+            haploid_by_sample = {
+                sample: frozenset(chroms)
+                for sample, chroms in ploidy_scan.haploid_chroms.items()
+            }
             logger.info("Multi sample VCF passed")
             filtered_multi_vcf = filter_VCF_to_BG_variants(
                 multi_vcf, db.unique_variants
@@ -249,6 +262,7 @@ def main():
             allele_relationships=allele_relationships,
             excluded=exclude,
             ant_mapping=mapping,
+            haploid_by_sample=haploid_by_sample,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
             if isinstance(results, SampleFailure):
@@ -423,11 +437,14 @@ def find_hits(
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
     ant_mapping: Mapping[str, Mapping[str, str]],
+    haploid_by_sample: dict[str, frozenset[str]] | None = None,
 ) -> pd.DataFrame | None:
     intervals = build_intervals(db.df, args.reference_genome)
     if isinstance(vcf, Path):
+        # One file, so the scan has one entry and read_vcf has named its column 'SAMPLE'.
+        ploidy_scan = PloidyScan(args.reference_genome)
         vcf_filtered_by_500kb_padded_bed = read_vcf(
-            str(vcf), intervals, db.unique_variants
+            str(vcf), intervals, db.unique_variants, ploidy_scan
         )
         vcf = VCF(
             vcf_filtered_by_500kb_padded_bed,
@@ -435,14 +452,17 @@ def find_hits(
             db.unique_variants,
             vcf.stem,
             args.reference_genome,
+            ploidy_scan.for_sample("SAMPLE"),
         )
     else:
+        # Split out of a cohort, so the scan was done once in main over the whole file.
         vcf = VCF(
             vcf,
             db.lane_variants,
             db.unique_variants,
             vcf[-1],
             args.reference_genome,
+            (haploid_by_sample or {}).get(vcf[-1]),
         )
     reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())

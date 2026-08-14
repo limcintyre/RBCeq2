@@ -29,6 +29,7 @@ from rbceq2.core_logic.data_procesing import (
     get_genotypes,
 )
 from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
+from rbceq2.IO.vcf import PloidyScan
 from rbceq2.IO.vcf import VCF, gt_of, is_haploid_gt, is_single_copy
 
 
@@ -150,10 +151,34 @@ class TestInferHaploidChroms(unittest.TestCase):
                   unique_variants=set(), sample="s")
         self.assertEqual(vcf.haploid_chroms, frozenset())
 
-    def test_haploid_no_call_still_counts_as_evidence(self) -> None:
-        """E4. '.' is one slot that was not measured, not two slots."""
+    def test_a_haploid_no_call_is_not_evidence(self) -> None:
+        """E4, resolved against the reading this test used to assert.
+
+        It used to say "'.' is one slot that was not measured, not two slots" - the
+        arity of the genotype carrying the ploidy even where the content is missing.
+        Defensible, and the state table left it UNRESOLVED. There is now a real example
+        and it goes the other way.
+
+        A female sample in a jointly called cohort had 28,331 called diploid genotypes
+        across non-PAR X and six bare '.'. Under the old reading those six decided it:
+        the sample was reported single copy across X, and XK, ATP11C and GATA1 each lost
+        a chromosome she has. Six degenerate no-calls outvoting twenty-eight thousand
+        calls is not positive evidence, which is what this inference is supposed to
+        require.
+
+        The distinction that survives is between the two haploid genotypes rather than
+        between haploid and diploid: a caller does not write '0' or '1' by accident, so
+        those stay decisive on their own, and a bare '.' now says nothing.
+        """
         vcf = self._vcf(one_row_df("chrX", "37686068", "."))
-        self.assertEqual(vcf.haploid_chroms, frozenset({"X"}))
+        self.assertEqual(vcf.haploid_chroms, frozenset())
+
+    def test_a_haploid_called_allele_is_still_evidence(self) -> None:
+        """The other half of E4 - what a caller does not write by accident."""
+        for GT in ("0", "1"):
+            with self.subTest(GT=GT):
+                vcf = self._vcf(one_row_df("chrX", "37686068", GT))
+                self.assertEqual(vcf.haploid_chroms, frozenset({"X"}))
 
 
 class TestRemoveHomRefHaploid(unittest.TestCase):
@@ -392,6 +417,90 @@ class TestTokenCopiesInvariant(unittest.TestCase):
         """NO_DATA has no len_dict entry, so variant_pool_numeric omits it."""
         bg = self._bg({"X:37686068_G_A": Zygosity.NO_DATA}, 1)
         check_token_copies_fit_chrom_copies(bg)
+
+
+class TestPloidyScan(unittest.TestCase):
+    """Constitutional haploidy read off the raw line, before the filters discard it.
+
+    A sample's haploid genotypes are usually not at a database locus, so row_is_wanted
+    drops every one of them. Measured on one per-sample file: 480 haploid called
+    genotypes outside PAR, 338 surviving the interval test, none surviving row_is_wanted
+    - and the sample, a male, was reported diploid on XK, ATP11C and GATA1.
+    """
+
+    SAMPLES = ["s1", "s2"]
+
+    def _row(self, chrom, pos, *gts):
+        return [chrom, str(pos), ".", "G", "A", ".", "PASS", ".", "GT", *gts]
+
+    def _scan(self, rows, genome="GRCh38"):
+        scan = PloidyScan(genome)
+        for row in rows:
+            scan.observe(row[0].removeprefix("chr"), int(row[1]), self.SAMPLES, row)
+        return scan
+
+    def test_a_haploid_call_outside_par_is_recorded(self) -> None:
+        scan = self._scan([self._row("chrX", 37686068, "1", "0/1")])
+        self.assertEqual(scan.for_sample("s1"), frozenset({"X"}))
+        self.assertEqual(scan.for_sample("s2"), frozenset())
+
+    def test_inside_par_is_not(self) -> None:
+        """A haploid GT there is a caller error, not a ploidy statement."""
+        scan = self._scan([self._row("chrX", 2000000, "1", "1")])
+        self.assertEqual(scan.for_sample("s1"), frozenset())
+
+    def test_an_autosome_is_not(self) -> None:
+        """Gene copy number on an autosome is a different question - see get_ref."""
+        scan = self._scan([self._row("chr1", 25272548, "1", "1")])
+        self.assertEqual(scan.for_sample("s1"), frozenset())
+
+    def test_a_no_call_is_not(self) -> None:
+        """The same rule as _infer_haploid_chroms - see gt_names_an_allele."""
+        scan = self._scan([self._row("chrX", 37686068, ".", "./.")])
+        self.assertEqual(scan.for_sample("s1"), frozenset())
+
+    def test_a_haploid_reference_call_still_counts(self) -> None:
+        """'0' is a ploidy statement even though it carries no ALT."""
+        scan = self._scan([self._row("chrX", 37686068, "0", "0/0")])
+        self.assertEqual(scan.for_sample("s1"), frozenset({"X"}))
+
+    def test_each_sample_is_judged_separately(self) -> None:
+        """A cohort mixes both codings in one file, one column each."""
+        scan = self._scan([self._row("chrX", 37686068, "1", "0/1")])
+        self.assertEqual(scan.for_sample("s1"), frozenset({"X"}))
+        self.assertEqual(scan.for_sample("s2"), frozenset())
+
+    def test_a_short_row_does_not_raise(self) -> None:
+        """Fewer sample columns than the header promised."""
+        scan = PloidyScan("GRCh38")
+        scan.observe("X", 37686068, self.SAMPLES, self._row("chrX", 37686068, "1"))
+        self.assertEqual(scan.for_sample("s1"), frozenset({"X"}))
+
+    def test_an_unscanned_sample_is_empty_not_missing(self) -> None:
+        self.assertEqual(PloidyScan("GRCh38").for_sample("nobody"), frozenset())
+
+
+class TestObservedHaploidChromsReachesTheVCF(unittest.TestCase):
+    """The scan and the frame are unioned, so either one is enough."""
+
+    def _vcf(self, df, observed=None):
+        return VCF([df], lane_variants={}, unique_variants=set(), sample="s",
+                   reference_genome="GRCh38", observed_haploid_chroms=observed)
+
+    def test_the_scan_supplies_what_the_frame_lost(self) -> None:
+        """The whole point - the frame has a diploid row and nothing else."""
+        vcf = self._vcf(one_row_df("chr1", "25272548", "0/1"),
+                        observed=frozenset({"X"}))
+        self.assertEqual(vcf.haploid_chroms, frozenset({"X"}))
+
+    def test_the_frame_still_works_without_a_scan(self) -> None:
+        """Every caller written before the scan keeps its behaviour."""
+        vcf = self._vcf(one_row_df("chrX", "37686068", "1"))
+        self.assertEqual(vcf.haploid_chroms, frozenset({"X"}))
+
+    def test_neither_source_finding_anything_is_diploid(self) -> None:
+        vcf = self._vcf(one_row_df("chr1", "25272548", "0/1"))
+        self.assertEqual(vcf.haploid_chroms, frozenset())
 
 
 if __name__ == "__main__":

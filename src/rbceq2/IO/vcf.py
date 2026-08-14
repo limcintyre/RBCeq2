@@ -43,9 +43,44 @@ def is_haploid_gt(GT: str) -> bool:
 
     Deliberately a string test and nothing more. Whether a haploid GT is *legitimate*
     depends on the coordinate, and that is is_single_copy's job - a haploid GT inside
-    PAR is a caller error, not a ploidy statement.
+    PAR is a caller error, not a ploidy statement. Whether it carries any information at
+    all is gt_names_an_allele's, and '.' passes this test while failing that one.
     """
     return bool(GT) and "/" not in GT and "|" not in GT
+
+
+def gt_names_an_allele(GT: str) -> bool:
+    """True if a GT states at least one allele rather than declining to call.
+
+    A no-call is not evidence of ploidy in either direction, and it has two spellings
+    that this is the only thing separating from real calls. '.' is haploid by shape and
+    './.' is diploid by shape, so without this test one of them argues for a single copy
+    and the other against it - two ways of writing 'I do not know' landing on opposite
+    sides of the question.
+
+    That is not hypothetical. Six '.' no-calls at non-PAR X coordinates were enough to
+    make _infer_haploid_chroms declare a sample single copy across X, which reported
+    XK, ATP11C and GATA1 with one allele slot and lost a chromosome the sample has - the
+    exact failure the positive-evidence rule was written to avoid, arriving through the
+    one GT that looks like evidence and is not.
+
+    Args:
+        GT (str): A genotype string, ie '0/1', '1', '.', './.'.
+
+    Returns:
+        bool: True if any position in the genotype names an allele.
+
+    Example:
+        >>> gt_names_an_allele("0")
+        True
+        >>> gt_names_an_allele(".")
+        False
+        >>> gt_names_an_allele("./.")
+        False
+        >>> gt_names_an_allele("./1")
+        True
+    """
+    return any(call not in ("", ".") for call in re.split(r"[/|]", GT))
 
 
 def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:
@@ -96,6 +131,71 @@ def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:
         for call in re.split(r"[/|]", GT)
     ]
     return separator.join(recoded)
+
+
+@dataclass
+class PloidyScan:
+    """Collects evidence of constitutional haploidy while a VCF is being read.
+
+    The evidence is there and then it is gone. read_vcf drops rows in two passes - a
+    coarse interval test and then row_is_wanted, which keeps only what the frame will
+    actually need - and a sample's haploid genotypes are usually not at a database locus,
+    so row_is_wanted discards them. Measured on one per-sample file: 480 haploid called
+    genotypes outside PAR, 338 still there after the interval test, **none** after
+    row_is_wanted. The sample is male and was reported diploid on XK, ATP11C and GATA1.
+
+    So this reads the evidence where it still exists rather than moving the inference.
+    The alternative was to make row_is_wanted keep every non-PAR X/Y row, which on one
+    cohort took the retained rows from 5,031 to 25,682 and parsed twenty million extra
+    cells - re-spending most of what the read filter was added to save, to compute one
+    boolean per sample.
+
+    Deliberately a separate object rather than two more arguments to read_vcf. It carries
+    the one input the scan needs and the evidence it produces, so read_vcf keeps four
+    parameters and the whole thing can be tested without reading a file.
+
+    Attributes:
+        reference_genome (str): 'GRCh37' or 'GRCh38', needed to know where PAR is.
+        haploid_chroms (dict[str, set[str]]): Sample name -> chromosomes that sample has
+            a haploid called genotype on, outside PAR. Sample names are the VCF's own
+            column names, which for a single sample file read_vcf has renamed to 'SAMPLE'.
+    """
+
+    reference_genome: str
+    haploid_chroms: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+
+    def observe(self, chrom: str, pos: int, samples: list[str], fields: list[str]) -> None:
+        """Record any haploid called genotype at a coordinate that is single copy.
+
+        Called for every row read, so the cheap tests come first: everything that is not
+        X or Y leaves on the first line, which is the overwhelming majority of a file.
+
+        A no-call is not evidence - see gt_names_an_allele - and neither is a haploid GT
+        inside PAR, which is a caller error rather than a ploidy statement.
+
+        Args:
+            chrom (str): Chromosome, 'chr' prefix already stripped.
+            pos (int): 1 based position.
+            samples (list[str]): The VCF's sample column names, in column order.
+            fields (list[str]): The row's tab separated fields.
+        """
+        if chrom not in ("X", "Y"):
+            return
+        if not is_single_copy(chrom, pos, self.reference_genome):
+            return
+        for offset, sample in enumerate(samples):
+            if chrom in self.haploid_chroms.get(sample, ()):
+                continue
+            index = 9 + offset
+            if index >= len(fields):
+                break
+            GT = gt_of(fields[index])
+            if is_haploid_gt(GT) and gt_names_an_allele(GT):
+                self.haploid_chroms[sample].add(chrom)
+
+    def for_sample(self, sample: str) -> frozenset[str]:
+        """What was seen for one sample, as the frozenset VCF expects."""
+        return frozenset(self.haploid_chroms.get(sample, ()))
 
 
 def is_single_copy(chrom: str, pos: int, reference_genome: str) -> bool:
@@ -162,6 +262,7 @@ class VCF:
     unique_variants: set[str]
     sample: str  # field(init=False)
     reference_genome: str | None = None
+    observed_haploid_chroms: frozenset[str] | None = None
     df: pd.DataFrame = field(init=False)
     loci: set[str] = field(init=False)
     variants: dict[str, str] = field(init=False)
@@ -177,7 +278,25 @@ class VCF:
         self.rename_chrom()
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
         # depends on the answer, and remove_home_ref is where that row gets dropped.
-        object.__setattr__(self, "haploid_chroms", self._infer_haploid_chroms())
+        # Union rather than preference. The scan sees rows the frame never will, and the
+        # frame is what every caller that does not scan still relies on, so neither is
+        # allowed to overrule the other - either one finding a haploid genotype outside
+        # PAR is positive evidence, which is the whole basis of this inference.
+        haploid_chroms = self._infer_haploid_chroms() | (
+            self.observed_haploid_chroms or frozenset()
+        )
+        # Reported here rather than inside _infer_haploid_chroms, because it has to say
+        # what was concluded rather than what one of the two sources found. A sparse file
+        # usually has no haploid rows left by the time the frame exists, so the scan is
+        # the only source and logging from there would go quiet on exactly the samples
+        # this is meant to announce.
+        if haploid_chroms:
+            logger.info(
+                f"{self.sample}: haploid GTs found outside PAR on "
+                f"{','.join(sorted(haploid_chroms))}, so those regions are reported "
+                f"with one allele slot"
+            )
+        object.__setattr__(self, "haploid_chroms", haploid_chroms)
         haploid_loci, diploid_loci = self._infer_locus_ploidy()
         object.__setattr__(self, "haploid_loci", haploid_loci)
         object.__setattr__(self, "diploid_loci", diploid_loci)
@@ -287,7 +406,8 @@ class VCF:
         ):
             if chrom in haploid or chrom not in PAR.get(self.reference_genome, {}):
                 continue
-            if not is_haploid_gt(gt_of(sample_field)):
+            GT = gt_of(sample_field)
+            if not is_haploid_gt(GT) or not gt_names_an_allele(GT):
                 continue
             try:
                 position = int(pos)
@@ -296,12 +416,6 @@ class VCF:
             if is_single_copy(chrom, position, self.reference_genome):
                 haploid.add(chrom)
 
-        if haploid:
-            logger.info(
-                f"{self.sample}: haploid GTs found outside PAR on "
-                f"{','.join(sorted(haploid))}, so those regions are reported with one "
-                f"allele slot"
-            )
         return frozenset(haploid)
 
     def _infer_locus_ploidy(
@@ -336,7 +450,11 @@ class VCF:
             self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
         ):
             GT = gt_of(sample_field)
-            if not GT:
+            # A no-call belongs in neither set. '.' is haploid by shape and './.' is
+            # diploid by shape, so recording them would put two spellings of the same
+            # 'I do not know' on opposite sides of the copy number question - one voting
+            # for a single copy and the other against it.
+            if not GT or not gt_names_an_allele(GT):
                 continue
             try:
                 position = int(pos)
@@ -911,6 +1029,7 @@ def read_vcf(
     vcf_path: str,
     intervals: dict[str, list[Interval]],
     unique_variants: set[str] | None = None,
+    ploidy_scan: PloidyScan | None = None,
 ) -> pl.DataFrame:
     """Stream a VCF, keep only relevant lines, return as Polars DataFrame.
     read a VCF file using polars while preserving the header and sample names.
@@ -935,12 +1054,16 @@ def read_vcf(
             positions, from build_intervals.
         unique_variants (set[str] | None): Database loci as 'chrom:pos'. None skips the
             fine filter and keeps every row inside the intervals.
+        ploidy_scan (PloidyScan | None): Collects constitutional haploidy evidence as the
+            file goes past, before either filter can discard it. None skips the scan
+            entirely, which is what every caller written before it did.
 
     Returns:
         pl.DataFrame: DataFrame containing the VCF data."""
 
     open_func = gzip.open if vcf_path.endswith(".gz") else open
     header = None
+    samples: list[str] = []
     rows: list[str] = []
     with open_func(vcf_path, "rt") as f:
         for line in f:  # TODO Pool
@@ -950,6 +1073,7 @@ def read_vcf(
                 header = line.lstrip("#").strip().split("\t")
                 if len(header) == 10:
                     header[-1] = "SAMPLE"  # for single sample
+                samples = header[9:]
                 continue
 
             # parse variant
@@ -958,6 +1082,10 @@ def read_vcf(
                 chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
             except:
                 raise
+            # Before either filter, because both of them throw this evidence away - see
+            # PloidyScan. Costs one string comparison on every non-X/Y row.
+            if ploidy_scan is not None:
+                ploidy_scan.observe(chrom, pos, samples, fields)
             if not variant_in_intervals(chrom, pos, intervals):
                 continue
             if unique_variants is not None and not row_is_wanted(
