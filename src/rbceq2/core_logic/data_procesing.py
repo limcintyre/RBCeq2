@@ -14,6 +14,7 @@ from rbceq2.core_logic.constants import (
     SYNTHESISED_HOM_REF_GT,
     UNNAMED_SECOND_SLOT,
 )
+from rbceq2.core_logic.filter_semantics import filter_excludes_allele
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
     Zygosity,
@@ -1502,17 +1503,19 @@ def get_genotypes(
 def only_keep_alleles_if_FILTER_PASS(
     bg: BloodGroup, df: pd.DataFrame, no_filter: bool
 ) -> BloodGroup:
-    """Keep only alleles whose every defining variant was called FILTER == PASS.
+    """Keep only alleles whose every defining variant the caller vouched for.
 
-    The one place quality is enforced. Everything else is delegated upstream deliberately,
-    so an allele needing a variant the caller flagged is dropped here and the blood group
-    reverts to whatever the remaining alleles support - usually the reference. '_ref'
-    tokens are skipped, having no FILTER of their own.
+    The one place upstream quality is acted on. Everything else is delegated upstream
+    deliberately, so an allele needing a variant the caller doubted is dropped here and the
+    blood group reverts to whatever the remaining alleles support - usually the reference
+    allele. '_ref' tokens are skipped, having no FILTER of their own.
 
-    Note FILTER does not always mean call quality. On some platforms PASS/FAIL marks which
-    of several probesets is the recommended one for a marker, so a FAIL row can be a
-    perfectly good call that is dropped here anyway, under a name that sounds like QC.
-    Worth checking what it means before trusting it on a new input type.
+    Not every non-PASS value is a doubt about the call, which is why the test is a lookup
+    rather than a comparison with 'PASS'. Some values report a statistic computed across a
+    whole cohort, so on a jointly called file they say nothing about this sample; some mark
+    which of several rows for a marker is the recommended one, which is probeset selection
+    rather than call quality. filter_semantics carries the classification and the caller's
+    own description of each value; an unrecognised value still excludes.
 
     Args:
         bg (BloodGroup): The BloodGroup object containing alleles to filter.
@@ -1528,6 +1531,7 @@ def only_keep_alleles_if_FILTER_PASS(
         bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
         return bg
     passed_filtering = []
+    unclassified: set[str] = set()
     for allele in bg.alleles[AlleleState.RAW]:
         keeper = True
         for variant in allele.defining_variants:
@@ -1543,11 +1547,20 @@ def only_keep_alleles_if_FILTER_PASS(
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
                 raise
-            if filter_value != "PASS":
+            excludes, unknown = filter_excludes_allele(filter_value)
+            unclassified.update(unknown)
+            if excludes:
                 keeper = False
                 break
         if keeper:
             passed_filtering.append(allele)
+
+    for value in sorted(unclassified):
+        logger.warning(
+            f"FILTER value '{value}' is not in filter_values.tsv, so it was read as a "
+            f"reason to exclude. Sample: {bg.sample}, BG: {bg.type}. If it does not mean "
+            "the call is doubtful, classify it there."
+        )
 
     bg.filtered_out["FILTER_not_PASS"] = [
         allele
