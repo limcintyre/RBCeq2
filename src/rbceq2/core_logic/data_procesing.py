@@ -14,6 +14,7 @@ from rbceq2.core_logic.constants import (
     SYNTHESISED_HOM_REF_GT,
     UNNAMED_SECOND_SLOT,
 )
+from rbceq2.core_logic.filter_semantics import filter_excludes_allele
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
     Zygosity,
@@ -763,6 +764,7 @@ def _modify_variant_pool_with_large_indel(
         # gave the right answer only because 'Heterozygous' contains itself.
         het_values = ("1|0", "0|1")
         hem_value = "1"
+        no_data_values = ("./.", ".|.", ".")
         # The phase pool has no equivalent of 'no copies'. Phase is a property of a
         # chromosome that exists, so there is nothing honest to write inside a hom
         # deletion. None means 'leave the phase alone' - the zygosity pool is what records
@@ -773,11 +775,25 @@ def _modify_variant_pool_with_large_indel(
         hom_value = Zygosity.HOM
         het_values = (Zygosity.HET,)
         hem_value = Zygosity.HEM
+        no_data_values = (Zygosity.NO_DATA,)
         no_copies_value = Zygosity.NO_COPIES
 
     new_variant_pool = {}
 
     for big_del, no_seq_variant in big_dels:
+        # An uncalled deletion is not evidence of anything, so nothing inside it is
+        # adjusted. This is what a jointly called cohort produces and a per sample file
+        # does not: the cohort carries a row for every structural variant *any* sample
+        # had, so a sample without this one gets './.' rather than no row at all. Both
+        # encodings describe the same sample and have to reach the same answer, and
+        # skipping is what makes them agree - it leaves the pool exactly as the per
+        # sample file would have left it by simply not having the row.
+        #
+        # Deliberately not read as 'the deletion is absent' either. './.' is the caller
+        # declining to call, which is a different claim from a confident reference call,
+        # and the difference is the whole reason NO_DATA exists.
+        if variant_pool.get(big_del) in no_data_values:
+            continue
         start = get_start_pos(no_seq_variant)
         length = no_seq_variant.split("_")[-1]
         length = int(length[:-2]) * 1000 if length.endswith("kb") else int(length)
@@ -842,8 +858,9 @@ def _modify_variant_pool_with_large_indel(
                                 "removed some copies but not all of them, so it has to "
                                 "be on one chromosome of two, and this one is neither - "
                                 "so how many copies of the variant survive cannot be "
-                                "worked out. Most likely the deletion has no genotype in "
-                                "the pool at all, or the call at it was dropped."
+                                "worked out. An uncalled deletion is skipped before this "
+                                "point, so the remaining way to get here is a deletion "
+                                "sitting inside another one."
                             ),
                             context=(
                                 f"sample: {sample}, blood group: {bg_type}, deletion: "
@@ -1486,17 +1503,19 @@ def get_genotypes(
 def only_keep_alleles_if_FILTER_PASS(
     bg: BloodGroup, df: pd.DataFrame, no_filter: bool
 ) -> BloodGroup:
-    """Keep only alleles whose every defining variant was called FILTER == PASS.
+    """Keep only alleles whose every defining variant the caller vouched for.
 
-    The one place quality is enforced. Everything else is delegated upstream deliberately,
-    so an allele needing a variant the caller flagged is dropped here and the blood group
-    reverts to whatever the remaining alleles support - usually the reference. '_ref'
-    tokens are skipped, having no FILTER of their own.
+    The one place upstream quality is acted on. Everything else is delegated upstream
+    deliberately, so an allele needing a variant the caller doubted is dropped here and the
+    blood group reverts to whatever the remaining alleles support - usually the reference
+    allele. '_ref' tokens are skipped, having no FILTER of their own.
 
-    Note FILTER does not always mean call quality. On some platforms PASS/FAIL marks which
-    of several probesets is the recommended one for a marker, so a FAIL row can be a
-    perfectly good call that is dropped here anyway, under a name that sounds like QC.
-    Worth checking what it means before trusting it on a new input type.
+    Not every non-PASS value is a doubt about the call, which is why the test is a lookup
+    rather than a comparison with 'PASS'. Some values report a statistic computed across a
+    whole cohort, so on a jointly called file they say nothing about this sample; some mark
+    which of several rows for a marker is the recommended one, which is probeset selection
+    rather than call quality. filter_semantics carries the classification and the caller's
+    own description of each value; an unrecognised value still excludes.
 
     Args:
         bg (BloodGroup): The BloodGroup object containing alleles to filter.
@@ -1512,6 +1531,7 @@ def only_keep_alleles_if_FILTER_PASS(
         bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
         return bg
     passed_filtering = []
+    unclassified: set[str] = set()
     for allele in bg.alleles[AlleleState.RAW]:
         keeper = True
         for variant in allele.defining_variants:
@@ -1527,11 +1547,20 @@ def only_keep_alleles_if_FILTER_PASS(
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
                 raise
-            if filter_value != "PASS":
+            excludes, unknown = filter_excludes_allele(filter_value)
+            unclassified.update(unknown)
+            if excludes:
                 keeper = False
                 break
         if keeper:
             passed_filtering.append(allele)
+
+    for value in sorted(unclassified):
+        logger.warning(
+            f"FILTER value '{value}' is not in filter_values.tsv, so it was read as a "
+            f"reason to exclude. Sample: {bg.sample}, BG: {bg.type}. If it does not mean "
+            "the call is doubtful, classify it there."
+        )
 
     bg.filtered_out["FILTER_not_PASS"] = [
         allele
