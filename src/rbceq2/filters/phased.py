@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import ABO_DELG_VARIANTS, AlleleState
 from rbceq2.core_logic.utils import (
     Zygosity,
     apply_to_dict_values,
@@ -1231,6 +1231,14 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
 
+    The ABO c.261delG insertion is one of those, and for a different reason from the rest:
+    the database treats the deletion as the reference sequence, so ABO*A1.01 is a reference
+    allele defined by an *alternate*. Its absence from the pool is then the ordinary state
+    of a group O sample rather than a contradiction, and removing the pair over it would
+    make ABO uncallable for anyone who is not group A or B. Both builds are exempted from
+    ABO_DELG_VARIANTS - the GRCh37 form used to be written here without its chromosome
+    prefix, so it matched no token and the exemption only ever worked on GRCh38.
+
     An empty variant pool is not that case and is skipped. Absence of evidence is not
     evidence that the reference variant is impossible - the pool is empty here because
     every allele the blood group had was removed by a filter, most often because the
@@ -1314,7 +1322,7 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
             for variant in allele.defining_variants:
                 if variant not in all_defining_vars_for_pair:
                     continue
-                if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
+                if variant in ABO_DELG_VARIANTS:
                     continue
                 if variant not in bg.variant_pool:
                     to_remove.append(pair)

@@ -39,15 +39,27 @@ LOW_WEIGHT = 1_000
 #
 # Keyed by variant token, which is build specific, so both forms are listed together: writing
 # them apart is how the GRCh37 form came to be recorded without its chromosome prefix elsewhere
-# in the codebase, where it matches nothing. If this grows much beyond ABO it wants a column in
+# in the codebase, where it matched nothing. If this grows much beyond ABO it wants a column in
 # db.tsv rather than a constant, since curating which loci are pivotal is database work.
+#
+# The tokens live in ABO_DELG_VARIANTS because two unrelated pieces of logic need them and
+# should not be able to drift into each other. no_defining_variant exempts this locus from
+# 'the reference allele needs a variant the pool does not hold, so it is impossible', because
+# here that is a modelling artefact rather than a contradiction - the database treats the
+# deletion as the reference sequence, so ABO*A1.01 is a reference allele defined by an
+# insertion. Adding a locus to CRITICAL_VARIANTS should not silently grant it that exemption.
+ABO_DELG_VARIANTS = frozenset(
+    {
+        "9:133257521_T_TC",  # GRCh38
+        "9:136132908_T_TC",  # GRCh37
+    }
+)
+
 CRITICAL_VARIANTS: dict[str, str] = {
-    "9:133257521_T_TC": (
+    variant: (
         "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
-    ),
-    "9:136132908_T_TC": (
-        "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
-    ),
+    )
+    for variant in ABO_DELG_VARIANTS
 }
 
 
