@@ -31,6 +31,25 @@ HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 
 LOW_WEIGHT = 1_000
 
+# Loci where losing one row decides the answer for a whole blood group, so the loss is worth
+# saying out loud rather than leaving in the exclusion log. The ABO c.261delG insertion is
+# needed by 163 of the database's ABO definitions - across A, B, AB and several O sub-alleles -
+# and only the 43 that rest on its absence remain without it, so a sample whose row here is not
+# trusted reads as group O. Three samples in a densely called long read cohort did exactly that.
+#
+# Keyed by variant token, which is build specific, so both forms are listed together: writing
+# them apart is how the GRCh37 form came to be recorded without its chromosome prefix elsewhere
+# in the codebase, where it matches nothing. If this grows much beyond ABO it wants a column in
+# db.tsv rather than a constant, since curating which loci are pivotal is database work.
+CRITICAL_VARIANTS: dict[str, str] = {
+    "9:133257521_T_TC": (
+        "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
+    ),
+    "9:136132908_T_TC": (
+        "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
+    ),
+}
+
 
 class AlleleState:
     CO = "co_existing"

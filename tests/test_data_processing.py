@@ -15,6 +15,7 @@ from rbceq2.core_logic.constants import (
 )
 from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 from rbceq2.core_logic.data_procesing import (
+    warn_if_critical_variant_not_trusted,
     variant_was_discarded,
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
@@ -3661,5 +3662,67 @@ class TestVariantWasDiscarded(unittest.TestCase):
         """
         self.assertFalse(variant_was_discarded("1:999999_G_A", self.df))
 
+class TestWarnIfCriticalVariantNotTrusted(unittest.TestCase):
+    """One filtered row can remove most of a blood group's definitions at once.
+
+    The ABO c.261delG insertion backs 163 of them; without it only the 43 resting on its
+    absence remain, so the sample reads as group O. Measured on a densely called long read
+    cohort, this fires on 12 of 658 samples and the ABO call genuinely depends on the row in
+    10 of them. The exclusion is already in the log per allele - this says it once, in terms
+    a user reading the genotype can act on.
+    """
+
+    DELG = "9:133257521_T_TC"
+
+    def _bg(self, *variants_per_excluded_allele):
+        bg = MagicMock(spec=BloodGroup)
+        bg.sample = "HG03600.vcf"
+        bg.type = "ABO"
+        bg.filtered_out = defaultdict(list)
+        for variants in variants_per_excluded_allele:
+            allele = MagicMock()
+            allele.defining_variants = frozenset(variants)
+            bg.filtered_out["FILTER_not_PASS"].append(allele)
+        return bg
+
+    def _df(self, filter_value):
+        return pd.DataFrame({"variant": [self.DELG], "FILTER": [filter_value]})
+
+    def test_warns_when_the_locus_was_not_trusted(self):
+        bg = self._bg({self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_called_once()
+        message = log.warning.call_args[0][0]
+        self.assertIn("c.261delG", message)
+        self.assertIn("LowQual", message)
+        self.assertIn("HG03600.vcf", message)
+
+    def test_silent_when_the_row_passed(self):
+        """Reaching filtered_out over some other variant is not this locus's problem."""
+        bg = self._bg({self.DELG, "9:133255926_AC_A"})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("PASS"))
+        log.warning.assert_not_called()
+
+    def test_silent_for_an_ordinary_locus(self):
+        bg = self._bg({"9:133256264_G_A"})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_not_called()
+
+    def test_one_warning_per_locus_however_many_alleles_it_backed(self):
+        bg = self._bg({self.DELG}, {self.DELG, "9:133255801_C_T"}, {self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_called_once()
+        self.assertIn("3 alleles needing it were excluded", log.warning.call_args[0][0])
+
+    def test_counts_read_naturally_for_one_allele(self):
+        bg = self._bg({self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        self.assertIn("1 allele needing it was excluded", log.warning.call_args[0][0])
+        
 if __name__ == "__main__":
     unittest.main()
