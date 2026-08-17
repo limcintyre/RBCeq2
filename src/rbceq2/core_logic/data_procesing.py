@@ -501,6 +501,37 @@ def locus_copies_for_bg(
     return 1
 
 
+def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
+    """Did this token's own VCF row fail the FILTER classification?
+
+    Not the same question as 'is this token absent from the variant pool', and conflating
+    the two is what made a sample read as homozygous reference at a locus the caller called
+    heterozygous with a PASS. A token leaves the pool whenever the only allele carrying it
+    is removed, and that removal may have been over an entirely different variant - GYPA*01
+    needs three positions, so one doubtful call at the third takes two good calls with it.
+    Only a token the caller itself flagged is evidence that a heterozygous partner is gone.
+
+    Returns False for a token with no row rather than raising. The caller is deciding
+    whether to promote a '_ref' token to homozygous, and no row is no evidence for that -
+    unlike only_keep_alleles_if_FILTER_PASS, where a missing row means the allele should
+    never have been built and the raise is the point.
+
+    Args:
+        vcf_var (str): The variant token, ie the name used in the pool.
+        df (pd.DataFrame): The sample's VCF rows.
+
+    Returns:
+        bool: True where the row exists and its FILTER value means the call is doubtful.
+    """
+    try:
+        filter_value = df.query("variant.str.contains(@vcf_var)")["FILTER"].iloc[0]
+    except IndexError:
+        return False
+    excludes, _ = filter_excludes_allele(filter_value)
+
+    return excludes
+
+
 @apply_to_dict_values
 def make_variant_pool(
     bg: BloodGroup,
@@ -605,9 +636,11 @@ def make_variant_pool(
             if not matching:
                 failed = []
                 for allele in bg.filtered_out["FILTER_not_PASS"]:
-                    for variant in allele.defining_variants:
-                        if variant not in variant_pool:
-                            failed.append(variant)
+                    for dropped in allele.defining_variants:
+                        if dropped not in variant_pool and variant_was_discarded(
+                            dropped, vcf.df
+                        ):
+                            failed.append(dropped)
                 matching2 = find_matching_keys(failed, variant)
                 if matching2:  # het pair gone
                     variant_pool[variant] = Zygosity.HOM

@@ -15,6 +15,7 @@ from rbceq2.core_logic.constants import (
 )
 from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 from rbceq2.core_logic.data_procesing import (
+    variant_was_discarded,
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
     SomeHomMultiVariantStrategy,
@@ -3622,6 +3623,43 @@ class TestAddRefs(unittest.TestCase):
         # Now we expect RHCE to remain, because it was pre-existing
         self.assertIs(updated["RHCE"], existing_RHCE)
 
+class TestVariantWasDiscarded(unittest.TestCase):
+    """A token absent from the pool is not the same as a token the caller doubted.
+
+    GYPA*01 needs three positions, so one LowQual call at the third takes two PASS calls
+    out of the pool with it. Promoting the '_ref' partner of one of those PASS calls to
+    homozygous reports the sample as wildtype at a locus called heterozygous - HG01872 and
+    HG03730 in the long read set.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "variant": [
+                    "4:144120554_C_A",
+                    "4:144120555_T_C",
+                    "9:133257521_T_TC",
+                ],
+                "FILTER": ["PASS", "LowQual", "LowQual;RefCall"],
+            }
+        )
+
+    def test_passing_row_was_not_discarded(self):
+        self.assertFalse(variant_was_discarded("4:144120554_C_A", self.df))
+
+    def test_doubted_row_was_discarded(self):
+        self.assertTrue(variant_was_discarded("4:144120555_T_C", self.df))
+
+    def test_any_one_doubt_in_a_joined_field_is_enough(self):
+        self.assertTrue(variant_was_discarded("9:133257521_T_TC", self.df))
+
+    def test_absent_row_is_not_evidence(self):
+        """No row is no evidence for promoting anything, so False rather than a raise.
+
+        Unlike only_keep_alleles_if_FILTER_PASS, where a missing row means the allele
+        should never have been built and raising is the point.
+        """
+        self.assertFalse(variant_was_discarded("1:999999_G_A", self.df))
 
 if __name__ == "__main__":
     unittest.main()
