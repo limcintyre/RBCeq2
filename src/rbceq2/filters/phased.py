@@ -1231,6 +1231,19 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
 
+    An empty variant pool is not that case and is skipped. Absence of evidence is not
+    evidence that the reference variant is impossible - the pool is empty here because
+    every allele the blood group had was removed by a filter, most often because the
+    caller doubted the variants they were built from. Falling back to the reference allele
+    when nothing is left is the convention this tool follows, and it is what a lab
+    scientist does by hand; removing the pair instead turns 'we found nothing' into 'we
+    cannot say', which is a different and stronger claim. Measured on HG02308 KN and
+    HG03673 RHD, both of which reported no call where the reference allele was the answer.
+
+    Note this filter only ever sees a blood group that had alleles - one with no variants
+    at all never enters the pipeline and gets its reference genotype from add_refs - so an
+    empty pool here always means something was taken away.
+
     Args:
         bg: BloodGroup object containing allele pairs and variant pool information.
         phased: Boolean indicating whether the sample variants are phased.
@@ -1286,6 +1299,8 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     """
 
     if not phased:
+        return bg
+    if not bg.variant_pool:
         return bg
     to_remove = []
 

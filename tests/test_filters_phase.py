@@ -9,6 +9,7 @@ from rbceq2.core_logic.utils import Zygosity
 
 # Import the functions to be tested
 from rbceq2.filters.phased import (
+    no_defining_variant,
     _get_allele_phase_info,
     check_phase,
     filter_if_all_HET_vars_on_same_side_and_phased,
@@ -303,6 +304,45 @@ class TestImpossibleAllelesPhased(TestPhasedFilters):
         )
         self.assertNotIn(pair_to_remove, self.mock_bg.alleles[AlleleState.NORMAL])
 
+class TestNoDefiningVariantEmptyPool(TestPhasedFilters):
+    """An empty variant pool is absence of evidence, not evidence of impossibility.
 
+    The filter exists to drop a reference allele the data contradicts - '_ref' at a locus
+    where the alternate is homozygous. When a filter has emptied the blood group the pool
+    is empty too, so every defining variant is 'not in the pool' and the reference pair is
+    removed, turning the conventional fall back to the reference allele into a no call.
+    HG02308 KN and HG03673 RHD both reported no call where the answer was the reference.
+    """
+
+    def _ref_pair(self):
+        ref = MockAllele(
+            genotype="KN*01",
+            defining_variants={"1:207609424_ref", "1:207609571_A_T"},
+            reference=True,
+        )
+        return Pair(ref, ref)
+
+    def test_empty_pool_keeps_the_reference_pair(self):
+        self.mock_bg.alleles[AlleleState.NORMAL] = [self._ref_pair()]
+        self.mock_bg.variant_pool = {}
+        no_defining_variant({1: self.mock_bg}, phased=True)
+        self.mock_bg.remove_pairs.assert_not_called()
+        self.assertEqual(len(self.mock_bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_populated_pool_still_removes_a_contradicted_reference(self):
+        """The behaviour the filter is for is unchanged."""
+        pair = self._ref_pair()
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        # the locus was seen, and the reference token is not what was found there
+        self.mock_bg.variant_pool = {"1:207609571_A_T": Zygosity.HOM}
+        no_defining_variant({1: self.mock_bg}, phased=True)
+        self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
+
+    def test_unphased_is_untouched(self):
+        self.mock_bg.alleles[AlleleState.NORMAL] = [self._ref_pair()]
+        self.mock_bg.variant_pool = {}
+        no_defining_variant({1: self.mock_bg}, phased=False)
+        self.mock_bg.remove_pairs.assert_not_called()
+        
 if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"], exit=False)
