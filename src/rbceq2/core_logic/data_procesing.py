@@ -1649,7 +1649,7 @@ def only_keep_alleles_if_FILTER_PASS(
         under filtered_out['FILTER_not_PASS'].
     """
     if no_filter:
-        bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
+        bg.alleles[AlleleState.FILT] = list(bg.alleles[AlleleState.RAW])
         return bg
     passed_filtering = []
     unclassified: set[str] = set()
