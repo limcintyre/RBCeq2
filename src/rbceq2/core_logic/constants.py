@@ -601,6 +601,21 @@ wildtype on a chromosome there is positive evidence against.
 Not an allele, never matched against the database. User visible and documented; see issue
 #40 and the E1 row of ploidy_state_table.md."""
 
+UNDETERMINED_SLOT = "Undetermined"
+"""Written in a genotype slot the database cannot name, ie 'GYPA*08/Undetermined'.
+
+The sample has two chromosomes and this one carries a copy of the gene, but the variants
+on it match no allele in the database - so there is a real allele there and the tool
+declines to say which. Distinct from both of the other two second slot values:
+HAPLOID_SECOND_SLOT says there is no second chromosome, UNNAMED_SECOND_SLOT says
+there is one and it carries no copy of the gene.
+
+Not a new output value. Both slots have been written this way since the empty genotype
+was first rendered as 'Undetermined/Undetermined', so consumers already meet it; the
+only thing new is that one slot can now be named while the other is not.
+
+Not an allele, never matched against the database. User visible and documented."""
+
 PAR = {  # pseudoautosomal regions, inclusive, 1 based, keyed by build then chromosome
     # X and Y carry the same sequence inside these intervals, so a coordinate in one of
     # them is present on two chromosomes in every sample and stays diploid. A coordinate

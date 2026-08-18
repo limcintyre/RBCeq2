@@ -2,9 +2,12 @@ import unittest
 from collections import defaultdict
 from rbceq2.core_logic.utils import Zygosity
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import AlleleState, UNDETERMINED_SLOT
+from rbceq2.core_logic.data_procesing import get_genotypes
 from rbceq2.filters.geno import (
     ABO_cant_pair_with_ref_cuz_261delG_HET,
+    cant_name_second_slot_cuz_ref_impossible,
+    ref_slot_is_impossible,
     cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
     cant_pair_with_ref_cuz_trumped,
     filter_HET_pairs_by_weight,
@@ -923,6 +926,207 @@ class TestCantHave2NonRefAllelesCuzOnly1GeneCopy(unittest.TestCase):
         cant_have_2_non_ref_alleles_cuz_only_1_gene_copy({1: bg})
 
         self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+
+class TestCantNameSecondSlotCuzRefImpossible(unittest.TestCase):
+    """Rule 4 - one slot named, the other refused.
+
+    Built on the real GYPA case. GYPA is a lane blood group, so the genome reference is
+    GYPA*02 and its defining variants are all '_ref'. A sample heterozygous at 144120554,
+    with the caller doubting 144120555 so GYPA*01 is dropped, and homozygous alternate at
+    144120567, leaves GYPA*08 supported and GYPA*02 impossible - there is no reference
+    copy at 144120567 for it to sit on.
+    """
+
+    FILTER = "cant_name_second_slot_cuz_ref_impossible"
+
+    REF_554 = "4:144120554_ref"
+    REF_555 = "4:144120555_ref"
+    REF_567 = "4:144120567_ref"
+    ALT_567 = "4:144120567_A_G"
+
+    def _allele(self, genotype, variants, reference=False, sub_type="GYPA*01"):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type=sub_type,
+        )
+
+    def _bg(self, pairs, pool=None, co=None):
+        return BloodGroup(
+            type="GYPA",
+            alleles={AlleleState.NORMAL: pairs, AlleleState.CO: co},
+            sample="s1",
+            variant_pool=self.pool if pool is None else pool,
+            filtered_out=defaultdict(list),
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "GYPA*02",
+            (self.REF_554, self.REF_555, self.REF_567),
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        self.mc = self._allele(
+            "GYPA*08",
+            (self.REF_554, self.REF_555, self.ALT_567),
+            sub_type="GYPA*08",
+        )
+        self.other = self._allele("GYPA*11", ("4:144120558_G_T",), sub_type="GYPA*11")
+        # 144120567_ref is missing because the alternate there is homozygous.
+        self.pool = {
+            self.REF_554: Zygosity.HET,
+            self.REF_555: Zygosity.HOM,
+            self.ALT_567: Zygosity.HOM,
+        }
+        self.impossible = Pair(allele1=self.ref, allele2=self.mc)
+
+    def test_the_supported_half_is_named_and_the_other_refused(self):
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"GYPA*08/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_the_pair_it_came_from_is_removed(self):
+        """Reporting GYPA*02 asserts wildtype on a chromosome there is evidence against."""
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_the_exclusion_is_recorded_under_the_filter_name(self):
+        """Hard rule 3 - a result is not an audit trail."""
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertIn(self.impossible, bg.filtered_out[self.FILTER])
+
+    def test_get_genotypes_writes_the_named_slot_out(self):
+        """The half call has to survive to the TSV or none of this is visible."""
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+        out = get_genotypes({"GYPA": bg})["GYPA"]
+
+        self.assertEqual(out.genotypes, [f"GYPA*08/{UNDETERMINED_SLOT}"])
+
+    def test_a_supported_reference_is_untouched(self):
+        """The ordinary case - the pool holds every '_ref' the reference needs."""
+        pool = dict(self.pool)
+        pool[self.REF_567] = Zygosity.HET
+        bg = self._bg([self.impossible], pool=pool)
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [self.impossible])
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_one_callable_pair_stops_it(self):
+        """no_defining_variant's case. A blood group with an answer keeps it."""
+        callable_pair = Pair(allele1=self.mc, allele2=self.other)
+        bg = self._bg([self.impossible, callable_pair])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(
+            bg.alleles[AlleleState.NORMAL], [self.impossible, callable_pair]
+        )
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_two_reference_alleles_are_left_alone(self):
+        """The reference fallback of a blood group whose alleles were all filtered."""
+        bg = self._bg([Pair(allele1=self.ref, allele2=self.ref)])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_an_empty_pool_is_absence_of_evidence(self):
+        """Nothing was measured, so nothing is contradicted. Same reading as
+        no_defining_variant."""
+        bg = self._bg([self.impossible], pool={})
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [self.impossible])
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_co_existing_result_is_left_alone(self):
+        bg = self._bg([self.impossible], co=[self.impossible])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_an_empty_blood_group_does_not_raise(self):
+        bg = self._bg([])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_duplicate_partners_are_named_once(self):
+        """Two impossible pairs naming the same allele is one answer, not two."""
+        twin = self._allele(
+            "GYPA*02",
+            (self.REF_554, self.REF_567),
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        bg = self._bg([self.impossible, Pair(allele1=twin, allele2=self.mc)])
+
+        cant_name_second_slot_cuz_ref_impossible({1: bg})
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"GYPA*08/{UNDETERMINED_SLOT}"]
+        )
+
+
+class TestRefSlotIsImpossible(unittest.TestCase):
+    """The two exemptions, which are no_defining_variant's and are here for its reasons."""
+
+    def _allele(self, variants, genotype="X*01"):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=True,
+            sub_type=genotype,
+        )
+
+    def test_a_missing_ref_token_is_impossible(self):
+        allele = self._allele(("4:144120567_ref",))
+
+        self.assertTrue(ref_slot_is_impossible(allele, {"4:144120567_A_G": Zygosity.HOM}))
+
+    def test_the_ABO_delG_locus_is_exempt(self):
+        """The database treats the deletion as reference, so ABO*A1.01 is a reference
+        allele defined by an alternate and its absence is the ordinary group O state."""
+        allele = self._allele(("9:133257521_T_TC",), genotype="ABO*A1.01")
+
+        self.assertFalse(ref_slot_is_impossible(allele, {"9:133257521_ref": Zygosity.HOM}))
+
+    def test_an_allele_defined_only_by_absence_markers_is_exempt(self):
+        """It makes no claim about a locus, so there is nothing to contradict."""
+        allele = self._allele((".",))
+
+        self.assertFalse(ref_slot_is_impossible(allele, {"4:1_A_G": Zygosity.HOM}))
 
 
 if __name__ == "__main__":

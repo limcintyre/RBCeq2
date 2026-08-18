@@ -1528,6 +1528,14 @@ def get_genotypes(
     'XK*N.03/XK*N.03' would be indistinguishable in the TSV from a female homozygote, and a
     bare 'XK*N.03' would break every consumer that splits a genotype on '/'.
 
+    A third second-slot value is written elsewhere and only passed through here. Where
+    cant_name_second_slot_cuz_ref_impossible identified one chromosome and refused the
+    other, it leaves the rendered string in bg.single_slot_genotypes and removes the
+    pair, so there is nothing left to render and the string is used as it stands.
+    Unlike the two below it is not a copy number statement: both chromosomes are there
+    and one of them
+    carries an allele the database cannot name.
+
     Where bg.locus_copies is 1 but chrom_copies is 2 the sample has two chromosomes and one
     of them carries no copy of the gene. The pairing machinery has nothing to put there -
     an array reports copy number without a deletion record, so no deletion allele was ever
@@ -1598,11 +1606,16 @@ def get_genotypes(
             render(co, co_existing=True)
             for co in make_list_of_lists(bg.alleles[AlleleState.CO])
         ]
-    else:
+    elif bg.alleles[AlleleState.NORMAL]:
         bg.genotypes = [
             render(normal_pair)
             for normal_pair in make_list_of_lists(bg.alleles[AlleleState.NORMAL])
         ]
+    else:
+        # Nothing paired. Where one slot was named and the other refused the strings are
+        # already rendered and are the answer; where they are not this is the empty list
+        # it has always been, which becomes 'Undetermined/Undetermined' downstream.
+        bg.genotypes = list(bg.single_slot_genotypes)
 
     return bg
 
