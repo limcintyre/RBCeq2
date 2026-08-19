@@ -194,6 +194,13 @@ def add_phasing(
         zygosity = bg.variant_pool.get(current_variant)
         if zygosity == Zygosity.HOM:
             return "1/1"
+        if zygosity == Zygosity.HEM:
+            # One copy of the locus, so the token is on the one chromosome that locus
+            # has - which is what a haploid GT says, and '1' is what a real one leaves
+            # here. Without this the fall-through returns the raw GT, and for a
+            # synthesised lane row that is the SYNTHESISED_HOM_REF_GT sentinel, same
+            # leak the NO_COPIES/NO_DATA guard below exists to stop.
+            return "1"
         if zygosity in (Zygosity.NO_COPIES, Zygosity.NO_DATA):
             # No chromosome to be phased, or nothing measured to phase. Without this the
             # fall-through returns the raw GT, which for a synthesised lane row is the

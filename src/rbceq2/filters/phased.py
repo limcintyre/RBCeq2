@@ -851,16 +851,32 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             return bg
         # process alleles
         alleles = list(flatten_alleles(bg.alleles[allele_state]))
+
+        # A variant at a single-copy locus is on the one chromosome that
+        # locus has. That is not phase and it needs no phase set - the checks below
+        # ask which of two chromosomes a variant sits on, and there is only one.
+        # Recognised here rather than given a synthesised phase set upstream: a
+        # fabricated set is a second value in the pool, which breaks the 'all variants
+        # share one phase set' precondition modify_variant_phase_pool_if_large_indel
+        # needs, silently stopping that repair.
+        def all_hemizygous(allele) -> bool:
+            zygos = [
+                bg.variant_pool.get(variant) for variant in allele.defining_variants
+            ]
+            return bool(zygos) and all(z == Zygosity.HEM for z in zygos)
+
         alleles_with_variants_in_same_phase_set = [
             allele
             for allele in alleles
-            if check_phase(bg.variant_pool_phase_set, allele, ".")
+            if all_hemizygous(allele)
+            or check_phase(bg.variant_pool_phase_set, allele, ".")
         ]
 
         alleles_with_variants_in_same_phase = [
             allele
             for allele in alleles_with_variants_in_same_phase_set
-            if check_phase(bg.variant_pool_phase, allele, "1/1")
+            if all_hemizygous(allele)
+            or check_phase(bg.variant_pool_phase, allele, "1/1")
         ]
 
         # split by phase
@@ -904,6 +920,34 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
+def carries_phase(value: str) -> bool:
+    """Whether a phase pool value says anything about which chromosome a variant is on.
+
+    Three ways a value says nothing, and only the first was recognised before:
+
+    '.' marks a homozygote in the phase set pool. 'unknown' marks a variant the caller
+    did not phase - data_procesing already treats the two alike (see the ['unknown', '.']
+    test there) and this brings the phase filters into line.
+
+    An unphased genotype - '0/1', '1/1', './.' - has no bar, so it does not say which
+    chromosome anything is on. Every heterozygote in a partly phased file looks like
+    '0/1', and they all look like each other, which is how two different alleles came to
+    be read as identically phased.
+
+    A homozygous genotype says nothing either, and it can be written with a bar: '1|1'
+    and '0|0' are on both chromosomes. Only '1/1' was filtered out by name, so '1|1'
+    survived as if it located something.
+    """
+    if value in {".", "unknown", ""}:
+        return False
+    if "/" in value:
+        return False
+    if "|" in value:
+        left, _, right = value.partition("|")
+        return left != right
+    return True
+
+
 def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) -> bool:
     """Check if an allele's heterozygous variants belong to a single phase set.
 
@@ -929,6 +973,8 @@ def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) 
         for variant, phase in variant_pool.items()
         if variant in current_allele.defining_variants and phase != hom
     ]
+    if not all(carries_phase(phase) for phase in phase_sets):
+        return False
 
     return len(set(phase_sets)) == 1
 
