@@ -3,7 +3,11 @@ from __future__ import annotations
 from functools import partial
 from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
-from rbceq2.core_logic.constants import ABO_DELG_VARIANTS, AlleleState
+from rbceq2.core_logic.constants import (
+    ABO_DELG_VARIANTS,
+    SYNTHESISED_HOM_REF_GT,
+    AlleleState,
+)
 from rbceq2.core_logic.utils import (
     Zygosity,
     apply_to_dict_values,
@@ -700,6 +704,32 @@ def filter_pairs_by_phase(
 
     dont remove if ref in pair
     if there is only 1 pair and they are phased then change to 2 pairs (or &) with ref
+
+    The equality test needs both sides to be real phase, which is what carries_phase
+    decides. Two values being equal only means the alleles are on one chromosome if the
+    values locate a chromosome in the first place, and three that do not compare equal
+    to each other all the time: 'unknown' for a variant the caller did not phase, an
+    unphased genotype like '0/1' for a heterozygote in a partly phased file, and a
+    homozygous genotype, which is on both chromosomes rather than one. The phase set
+    check above does not catch them, because it counts phase sets rather than reading
+    them, and a pair with nothing phased has one shared phase set of 'unknown'.
+
+    Sample: HG00099 BG Name: FUT3, where both defining variants are heterozygous and
+    neither was phased:
+
+        Vars_phase:
+        19:5844526_ref : unknown
+        19:5844638_ref : unknown
+
+    FUT3*01.04 needs 19:5844526_ref and FUT3*01N.03.01 needs 19:5844638_ref, so both
+    alleles' phase read 'unknown', matched, and the pair was removed as though the two
+    had been seen on the same chromosome. Removing it also took FUT3*01.04 out of the
+    pool that cant_pair_with_ref_cuz_SNPs_must_be_on_other_side reads later, so the
+    reference pair FUT3*01.01/FUT3*01N.03.01 - which leaves the heterozygous
+    19:5844526_ref with nowhere to sit - was reported instead of being excluded. The
+    call changed rather than narrowing: unphased says
+    FUT3*01.04/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02 and phased said
+    FUT3*01.01/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02.
     """
 
     if not phased:
@@ -722,6 +752,9 @@ def filter_pairs_by_phase(
         phase_set = p1_phase_sets.union(p2_phase_sets)
         if len(phase_set) != 1:
             continue  # can't use phasing info
+
+        if not all(carries_phase(phase) for phase in p1_phases | p2_phases):
+            continue  # no value here says which chromosome anything is on
 
         if p1_zygo == {Zygosity.HOM} and p2_zygo == {Zygosity.HOM}:  # all hom
             continue
@@ -937,8 +970,14 @@ def carries_phase(value: str) -> bool:
     A homozygous genotype says nothing either, and it can be written with a bar: '1|1'
     and '0|0' are on both chromosomes. Only '1/1' was filtered out by name, so '1|1'
     survived as if it located something.
+
+    SYNTHESISED_HOM_REF_GT is rejected by name for a different reason. The final branch
+    has to accept a bare token, because a caller's phase set id is one - '25233074' has
+    no separator to test. The sentinel is a bare token too, so it fell through there and
+    was read as a phase set. Named rather than shape checked: nothing guarantees a phase
+    set id is numeric, so testing for digits would risk refusing a real one.
     """
-    if value in {".", "unknown", ""}:
+    if value in {".", "unknown", "", SYNTHESISED_HOM_REF_GT}:
         return False
     if "/" in value:
         return False
