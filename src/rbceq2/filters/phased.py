@@ -730,6 +730,27 @@ def filter_pairs_by_phase(
     call changed rather than narrowing: unphased says
     FUT3*01.04/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02 and phased said
     FUT3*01.01/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02.
+
+    A pair holding the same allele in both slots is skipped for a different reason. It
+    is not two alleles competing for one chromosome, it is one allele written the way
+    pairs are written everywhere else, so the same-strand question does not apply and
+    the equality test can only ever say yes. The all hom escape below covers the
+    diploid form of this and nothing covered the single copy form.
+
+    Sample: HG01873 BG Name: XK, a single copy region:
+
+        Vars:
+        X:37727623_C_G : c.509-13C>G : Hemizygous
+        Vars_phase:
+        X:37727623_C_G : c.509-13C>G : 1
+
+    XK*N.33 sits on the one chromosome the locus has, which is what the phase '1' says,
+    and the pair is XK*N.33/XK*N.33 because that is how a single copy region is carried
+    through the filters - the second slot only becomes HAPLOID_SECOND_SLOT at reporting.
+    Both sides read '1', matched, and the pair went. It was the last one, so the branch
+    below paired the reference with allele1 and with allele2 - the same allele twice -
+    which put XK*01/XK*N.33 in twice and reinstated the pair excluded_due_to_rank_ref
+    had already excluded by name. Kx- became Kx+.
     """
 
     if not phased:
@@ -738,6 +759,8 @@ def filter_pairs_by_phase(
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.contains_reference:
             continue
+        if pair.allele1 == pair.allele2:
+            continue  # one allele in two slots, not two alleles on one chromosome
         p1_phases = set(_get_allele_phase_info(pair.allele1, bg.variant_pool_phase))
         p1_zygo = set(_get_allele_phase_info(pair.allele1, bg.variant_pool))
         p1_phase_sets = set(
