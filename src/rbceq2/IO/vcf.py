@@ -578,15 +578,13 @@ class VCF:
                         .values[0]
                         .split(":")[0]
                     )
-                    # try:
-                    #     assert GT.count("/") == 1 or GT.count("|") == 1
-                    #     assert ("2" not in GT) TODO, not sure if this is too defensive...
-                    # except AssertionError:
-                    #     print('multi allele loci are not supported, please use bcftools norm -m -both ...')
-                    #     raise ValueError('multi allele loci are not supported, please use bcftools norm -m -both on your VCF/s')
+                    rows_here = self.df.loc[self.df.loci == lane_loci]
+                    alts_here = set(
+                        zip(rows_here["REF"].tolist(), rows_here["ALT"].tolist())
+                    )
                     if (
                         GT.startswith(("0/1", "0|1", "1/0", "1|0"))
-                        and len(self.df.loc[self.df.loci == lane_loci, "SAMPLE"]) == 1
+                        and len(alts_here) == 1
                     ):
                         # HET and not multi allelic = ref
                         ref = self.df.loc[self.df.loci == lane_loci, "REF"].values[0]
