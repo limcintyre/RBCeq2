@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import partial
 from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import ABO_DELG_VARIANTS, AlleleState
 from rbceq2.core_logic.utils import (
     Zygosity,
     apply_to_dict_values,
@@ -851,16 +851,32 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             return bg
         # process alleles
         alleles = list(flatten_alleles(bg.alleles[allele_state]))
+
+        # A variant at a single-copy locus is on the one chromosome that
+        # locus has. That is not phase and it needs no phase set - the checks below
+        # ask which of two chromosomes a variant sits on, and there is only one.
+        # Recognised here rather than given a synthesised phase set upstream: a
+        # fabricated set is a second value in the pool, which breaks the 'all variants
+        # share one phase set' precondition modify_variant_phase_pool_if_large_indel
+        # needs, silently stopping that repair.
+        def all_hemizygous(allele) -> bool:
+            zygos = [
+                bg.variant_pool.get(variant) for variant in allele.defining_variants
+            ]
+            return bool(zygos) and all(z == Zygosity.HEM for z in zygos)
+
         alleles_with_variants_in_same_phase_set = [
             allele
             for allele in alleles
-            if check_phase(bg.variant_pool_phase_set, allele, ".")
+            if all_hemizygous(allele)
+            or check_phase(bg.variant_pool_phase_set, allele, ".")
         ]
 
         alleles_with_variants_in_same_phase = [
             allele
             for allele in alleles_with_variants_in_same_phase_set
-            if check_phase(bg.variant_pool_phase, allele, "1/1")
+            if all_hemizygous(allele)
+            or check_phase(bg.variant_pool_phase, allele, "1/1")
         ]
 
         # split by phase
@@ -904,6 +920,34 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
+def carries_phase(value: str) -> bool:
+    """Whether a phase pool value says anything about which chromosome a variant is on.
+
+    Three ways a value says nothing, and only the first was recognised before:
+
+    '.' marks a homozygote in the phase set pool. 'unknown' marks a variant the caller
+    did not phase - data_procesing already treats the two alike (see the ['unknown', '.']
+    test there) and this brings the phase filters into line.
+
+    An unphased genotype - '0/1', '1/1', './.' - has no bar, so it does not say which
+    chromosome anything is on. Every heterozygote in a partly phased file looks like
+    '0/1', and they all look like each other, which is how two different alleles came to
+    be read as identically phased.
+
+    A homozygous genotype says nothing either, and it can be written with a bar: '1|1'
+    and '0|0' are on both chromosomes. Only '1/1' was filtered out by name, so '1|1'
+    survived as if it located something.
+    """
+    if value in {".", "unknown", ""}:
+        return False
+    if "/" in value:
+        return False
+    if "|" in value:
+        left, _, right = value.partition("|")
+        return left != right
+    return True
+
+
 def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) -> bool:
     """Check if an allele's heterozygous variants belong to a single phase set.
 
@@ -929,6 +973,8 @@ def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) 
         for variant, phase in variant_pool.items()
         if variant in current_allele.defining_variants and phase != hom
     ]
+    if not all(carries_phase(phase) for phase in phase_sets):
+        return False
 
     return len(set(phase_sets)) == 1
 
@@ -1231,6 +1277,14 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
 
+    The ABO c.261delG insertion is one of those, and for a different reason from the rest:
+    the database treats the deletion as the reference sequence, so ABO*A1.01 is a reference
+    allele defined by an *alternate*. Its absence from the pool is then the ordinary state
+    of a group O sample rather than a contradiction, and removing the pair over it would
+    make ABO uncallable for anyone who is not group A or B. Both builds are exempted from
+    ABO_DELG_VARIANTS - the GRCh37 form used to be written here without its chromosome
+    prefix, so it matched no token and the exemption only ever worked on GRCh38.
+
     An empty variant pool is not that case and is skipped. Absence of evidence is not
     evidence that the reference variant is impossible - the pool is empty here because
     every allele the blood group had was removed by a filter, most often because the
@@ -1314,7 +1368,7 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
             for variant in allele.defining_variants:
                 if variant not in all_defining_vars_for_pair:
                     continue
-                if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
+                if variant in ABO_DELG_VARIANTS:
                     continue
                 if variant not in bg.variant_pool:
                     to_remove.append(pair)

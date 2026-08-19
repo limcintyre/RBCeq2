@@ -31,6 +31,37 @@ HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 
 LOW_WEIGHT = 1_000
 
+# Loci where losing one row decides the answer for a whole blood group, so the loss is worth
+# saying out loud rather than leaving in the exclusion log. The ABO c.261delG insertion is
+# needed by 163 of the database's ABO definitions - across A, B, AB and several O sub-alleles -
+# and only the 43 that rest on its absence remain without it, so a sample whose row here is not
+# trusted reads as group O. Three samples in a densely called long read cohort did exactly that.
+#
+# Keyed by variant token, which is build specific, so both forms are listed together: writing
+# them apart is how the GRCh37 form came to be recorded without its chromosome prefix elsewhere
+# in the codebase, where it matched nothing. If this grows much beyond ABO it wants a column in
+# db.tsv rather than a constant, since curating which loci are pivotal is database work.
+#
+# The tokens live in ABO_DELG_VARIANTS because two unrelated pieces of logic need them and
+# should not be able to drift into each other. no_defining_variant exempts this locus from
+# 'the reference allele needs a variant the pool does not hold, so it is impossible', because
+# here that is a modelling artefact rather than a contradiction - the database treats the
+# deletion as the reference sequence, so ABO*A1.01 is a reference allele defined by an
+# insertion. Adding a locus to CRITICAL_VARIANTS should not silently grant it that exemption.
+ABO_DELG_VARIANTS = frozenset(
+    {
+        "9:133257521_T_TC",  # GRCh38
+        "9:136132908_T_TC",  # GRCh37
+    }
+)
+
+CRITICAL_VARIANTS: dict[str, str] = {
+    variant: (
+        "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
+    )
+    for variant in ABO_DELG_VARIANTS
+}
+
 
 class AlleleState:
     CO = "co_existing"
@@ -569,6 +600,21 @@ wildtype on a chromosome there is positive evidence against.
 
 Not an allele, never matched against the database. User visible and documented; see issue
 #40 and the E1 row of ploidy_state_table.md."""
+
+UNDETERMINED_SLOT = "Undetermined"
+"""Written in a genotype slot the database cannot name, ie 'GYPA*08/Undetermined'.
+
+The sample has two chromosomes and this one carries a copy of the gene, but the variants
+on it match no allele in the database - so there is a real allele there and the tool
+declines to say which. Distinct from both of the other two second slot values:
+HAPLOID_SECOND_SLOT says there is no second chromosome, UNNAMED_SECOND_SLOT says
+there is one and it carries no copy of the gene.
+
+Not a new output value. Both slots have been written this way since the empty genotype
+was first rendered as 'Undetermined/Undetermined', so consumers already meet it; the
+only thing new is that one slot can now be named while the other is not.
+
+Not an allele, never matched against the database. User visible and documented."""
 
 PAR = {  # pseudoautosomal regions, inclusive, 1 based, keyed by build then chromosome
     # X and Y carry the same sequence inside these intervals, so a coordinate in one of

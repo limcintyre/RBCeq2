@@ -10,6 +10,7 @@ from loguru import logger
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     AlleleState,
+    CRITICAL_VARIANTS,
     HAPLOID_SECOND_SLOT,
     SYNTHESISED_HOM_REF_GT,
     UNNAMED_SECOND_SLOT,
@@ -193,6 +194,13 @@ def add_phasing(
         zygosity = bg.variant_pool.get(current_variant)
         if zygosity == Zygosity.HOM:
             return "1/1"
+        if zygosity == Zygosity.HEM:
+            # One copy of the locus, so the token is on the one chromosome that locus
+            # has - which is what a haploid GT says, and '1' is what a real one leaves
+            # here. Without this the fall-through returns the raw GT, and for a
+            # synthesised lane row that is the SYNTHESISED_HOM_REF_GT sentinel, same
+            # leak the NO_COPIES/NO_DATA guard below exists to stop.
+            return "1"
         if zygosity in (Zygosity.NO_COPIES, Zygosity.NO_DATA):
             # No chromosome to be phased, or nothing measured to phase. Without this the
             # fall-through returns the raw GT, which for a synthesised lane row is the
@@ -523,13 +531,87 @@ def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
     Returns:
         bool: True where the row exists and its FILTER value means the call is doubtful.
     """
-    try:
-        filter_value = df.query("variant.str.contains(@vcf_var)")["FILTER"].iloc[0]
-    except IndexError:
+    filter_value = filter_value_for(vcf_var, df)
+    if filter_value is None:
         return False
     excludes, _ = filter_excludes_allele(filter_value)
 
     return excludes
+
+
+def filter_value_for(vcf_var: str, df: pd.DataFrame) -> str | None:
+    """The FILTER field of the row this token came from, or None if it has no row.
+
+    Args:
+        vcf_var (str): The variant token.
+        df (pd.DataFrame): The sample's VCF rows.
+
+    Returns:
+        str | None: The FILTER field verbatim, or None where the token has no row.
+    """
+    try:
+        return df.query("variant.str.contains(@vcf_var)")["FILTER"].iloc[0]
+    except IndexError:
+        return None
+
+
+def warn_if_critical_variant_not_trusted(bg: BloodGroup, df: pd.DataFrame) -> None:
+    """Say out loud when a locus that decides a whole blood group was not trusted.
+
+    Every exclusion is already in the log, but the log is per allele and this is a case
+    where one row removes most of a blood group's definitions at once - the ABO c.261delG
+    insertion is needed by 163 of them, and without it only the 43 that rest on its absence
+    remain, so the sample reads as group O. Three samples in a densely called long read
+    cohort were reported group O for exactly this reason, on rows the caller had scored
+    QUAL 0 to 1.4 with the reference and alternate reads roughly even. A user reading the
+    genotype has no way to see that from the output.
+
+    Warned rather than raised, and the allele is still excluded - this does not change the
+    call. The point is that the user knows to look, since 'A' and 'O' are equally plausible
+    readings of the underlying data and only they can decide whether to rerun without the
+    filter.
+
+    One warning per locus per blood group, naming what was lost rather than how many rows
+    matched, because the same locus can back several excluded alleles.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose FILTER exclusions have been recorded.
+        df (pd.DataFrame): The sample's VCF rows.
+    """
+    for variant in sorted(
+        {
+            variant
+            for allele in bg.filtered_out["FILTER_not_PASS"]
+            for variant in allele.defining_variants
+            if variant in CRITICAL_VARIANTS
+        }
+    ):
+        filter_value = filter_value_for(variant, df)
+        if filter_value is None:
+            continue
+        excludes, _ = filter_excludes_allele(filter_value)
+        if not excludes:
+            # The allele reached filtered_out over one of its other defining variants, so
+            # this locus is not what was lost and blaming it would send the user to the
+            # wrong row.
+            continue
+        dropped = sum(
+            1
+            for allele in bg.filtered_out["FILTER_not_PASS"]
+            if variant in allele.defining_variants
+        )
+        excluded = (
+            "1 allele needing it was excluded"
+            if dropped == 1
+            else f"{dropped} alleles needing it were excluded"
+        )
+        logger.warning(
+            f"FILTER '{filter_value}' at {variant} - {CRITICAL_VARIANTS[variant]}. "
+            f"Sample: {bg.sample}, BG: {bg.type}. {excluded}, so the call falls back to "
+            f"whatever the rest support. This one row decides the answer for the whole "
+            f"blood group, so check it before trusting this sample. Keeping it needs "
+            f"--no_filter, which keeps every other flagged variant in the run too."
+        )
 
 
 @apply_to_dict_values
@@ -1453,6 +1535,14 @@ def get_genotypes(
     'XK*N.03/XK*N.03' would be indistinguishable in the TSV from a female homozygote, and a
     bare 'XK*N.03' would break every consumer that splits a genotype on '/'.
 
+    A third second-slot value is written elsewhere and only passed through here. Where
+    cant_name_second_slot_cuz_ref_impossible identified one chromosome and refused the
+    other, it leaves the rendered string in bg.single_slot_genotypes and removes the
+    pair, so there is nothing left to render and the string is used as it stands.
+    Unlike the two below it is not a copy number statement: both chromosomes are there
+    and one of them
+    carries an allele the database cannot name.
+
     Where bg.locus_copies is 1 but chrom_copies is 2 the sample has two chromosomes and one
     of them carries no copy of the gene. The pairing machinery has nothing to put there -
     an array reports copy number without a deletion record, so no deletion allele was ever
@@ -1523,11 +1613,16 @@ def get_genotypes(
             render(co, co_existing=True)
             for co in make_list_of_lists(bg.alleles[AlleleState.CO])
         ]
-    else:
+    elif bg.alleles[AlleleState.NORMAL]:
         bg.genotypes = [
             render(normal_pair)
             for normal_pair in make_list_of_lists(bg.alleles[AlleleState.NORMAL])
         ]
+    else:
+        # Nothing paired. Where one slot was named and the other refused the strings are
+        # already rendered and are the answer; where they are not this is the empty list
+        # it has always been, which becomes 'Undetermined/Undetermined' downstream.
+        bg.genotypes = list(bg.single_slot_genotypes)
 
     return bg
 
@@ -1561,7 +1656,7 @@ def only_keep_alleles_if_FILTER_PASS(
         under filtered_out['FILTER_not_PASS'].
     """
     if no_filter:
-        bg.alleles[AlleleState.FILT] = bg.alleles[AlleleState.RAW]
+        bg.alleles[AlleleState.FILT] = list(bg.alleles[AlleleState.RAW])
         return bg
     passed_filtering = []
     unclassified: set[str] = set()
@@ -1601,6 +1696,7 @@ def only_keep_alleles_if_FILTER_PASS(
         if allele not in passed_filtering
     ]
     bg.alleles[AlleleState.FILT] = passed_filtering
+    warn_if_critical_variant_not_trusted(bg, df)
 
     return bg
 

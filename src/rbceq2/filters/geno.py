@@ -4,7 +4,12 @@ import operator
 from collections import defaultdict
 from functools import partial
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import LOW_WEIGHT, AlleleState
+from rbceq2.core_logic.constants import (
+    ABO_DELG_VARIANTS,
+    LOW_WEIGHT,
+    UNDETERMINED_SLOT,
+    AlleleState,
+)
 from rbceq2.core_logic.utils import (
     BeyondLogicError,
     Zygosity,
@@ -423,6 +428,127 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
             to_remove,
             "ABO_cant_pair_with_ref_cuz_261delG_HET",
         )
+
+    return bg
+
+
+def ref_slot_is_impossible(ref: Allele, variant_pool: dict[str, Zygosity]) -> bool:
+    """Whether a reference allele needs a variant the sample does not have.
+
+    A reference allele is defined by '_ref' tokens, and one of those is absent from
+    the pool when the alternate at that locus is homozygous - there is no reference
+    copy left for it to sit on. The two exemptions are the ones no_defining_variant
+    already makes, for the same reasons:
+
+    An allele defined only by absence markers ('.') is not making a claim about any
+    locus, so there is nothing for the pool to contradict.
+
+    The ABO c.261delG tokens are exempt because the database treats the deletion as
+    the reference sequence, which makes ABO*A1.01 a reference allele defined by an
+    alternate. Its absence is the ordinary state of a group O sample rather than a
+    contradiction.
+
+    Args:
+        ref (Allele): The reference allele occupying one slot of a pair.
+        variant_pool (dict[str, Zygosity]): The sample's variant pool for this blood
+        group. Assumed non-empty - an empty pool is absence of evidence rather than
+        evidence of impossibility, and the caller checks that before asking.
+
+    Returns:
+        bool: True if the sample cannot carry this reference allele.
+    """
+    if all(variant.endswith(".") for variant in ref.defining_variants):
+        return False
+
+    return any(
+        variant not in variant_pool
+        for variant in ref.defining_variants
+        if variant not in ABO_DELG_VARIANTS
+    )
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
+    """Name the one slot that is certain when every pair left needs a bad reference.
+
+    The shape: one chromosome matches an allele outright, the other matches nothing
+    in the database, and the only pairs the machinery can offer put the reference
+    allele in the second slot - which the variant pool says the sample cannot carry.
+    Reporting the pair asserts wildtype on a chromosome there is evidence against;
+    removing it throws away the slot that *is* known. Neither is what a lab scientist
+    writes down. They name the allele they identified and leave the other blank,
+    which is UNDETERMINED_SLOT.
+
+    Runs in both arms deliberately. no_defining_variant handles the same
+    impossibility but is phased-only (phased.py) and removes the whole pair, so today
+    the same sample gets a wrong call unphased and no call phased - a difference
+    decided by a flag that is about something else. This runs before it and takes the
+    case away from it, so the two arms agree; where other pairs survive this does
+    nothing and no_defining_variant behaves as it always has.
+
+    The gate is that *every* remaining pair is this shape. If any pair is callable
+    the blood group has an answer and this must not touch it, so a pair with two
+    non-reference alleles, a pair of two references, or a reference the pool does not
+    contradict all stop it dead. That keeps the change to blood groups whose only
+    alternative was a wrong call or no call at all.
+
+    The pair is removed and recorded in filtered_out under this filter's name like
+    any other exclusion, so the phenotype engine finds no alleles and reports nothing
+    for the blood group. That is deliberate: a phenotype needs both chromosomes, and
+    one of them is exactly what the tool has just declined to name.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
+        from removed, or unchanged if any pair was callable.
+
+    Example:
+        GYPA is Lane, so the genome reference is GYPA*02 and 144120567_ref is one of its
+        defining variants. A sample called 0|1 at 144120554, 0|1 at 144120555 with the
+        caller doubting it, and 1/1 at 144120567:
+
+        FILTER drops 144120555_T_C, and with it GYPA*01, which needs it.
+
+        bg.variant_pool: {'4:144120554_ref': 'Heterozygous',
+                          '4:144120555_ref': 'Homozygous',
+                          '4:144120567_A_G': 'Homozygous'}
+
+        alleles[NORMAL] -> [Pair(GYPA*02, GYPA*08)]
+
+        4:144120567_ref is not in the pool because the alternate there is homozygous,
+        so GYPA*02 has nowhere to sit, while GYPA*08 has all of its defining variants.
+
+        single_slot_genotypes -> ['GYPA*08/Undetermined']
+    """
+    # .get, not [], because this runs before the co-existing stages create the key. The
+    # check is kept anyway so moving the filter later cannot silently start overriding a
+    # Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+
+    pairs = bg.alleles[AlleleState.NORMAL]
+    if not pairs or not bg.variant_pool:
+        return bg
+
+    named: list[str] = []
+    for pair in pairs:
+        if not pair.contains_reference or pair.all_reference:
+            return bg
+        ref, allele = split_pair_by_ref(pair)
+        if not ref_slot_is_impossible(ref, bg.variant_pool):
+            return bg
+        named.append(allele.genotype)
+
+    bg.remove_pairs(
+        list(pairs),
+        "cant_name_second_slot_cuz_ref_impossible",
+        reverts_to_reference=False,
+    )
+    bg.single_slot_genotypes = [
+        f"{genotype}/{UNDETERMINED_SLOT}" for genotype in sorted(set(named))
+    ]
 
     return bg
 

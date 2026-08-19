@@ -22,7 +22,12 @@ import rbceq2.filters.geno as filt
 import rbceq2.filters.phased as filt_phase
 import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
-from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
+from rbceq2.core_logic.constants import (
+    PhenoType,
+    DB_VERSION,
+    UNDETERMINED_SLOT,
+    VERSION,
+)
 from rbceq2.core_logic.utils import Zygosity, compose, get_allele_relationships
 from rbceq2.db.db import (
     Db,
@@ -307,7 +312,7 @@ def main():
     # throughput (no head of line blocking on one slow sample) and additionally makes the
     # output independent of the order the input files were listed in.
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index").sort_index()
-    df_geno = df_geno.replace("", "Undetermined/Undetermined")
+    df_geno = df_geno.replace("", f"{UNDETERMINED_SLOT}/{UNDETERMINED_SLOT}")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
     df_pheno_numeric = pd.DataFrame.from_dict(
         dfs_pheno_numeric, orient="index"
@@ -519,6 +524,12 @@ def find_hits(
             phased=args.phased,
             reference_alleles=db.reference_alleles,
         ),
+        # Before no_defining_variant, which removes the same impossible-reference pairs
+        # but only under --phased and only ever whole. This takes the case where
+        # the pair was the last one and its non-reference half is sound, so the
+        # arms agree; where
+        # other pairs survive it does nothing and no_defining_variant is unchanged.
+        filt.cant_name_second_slot_cuz_ref_impossible,
         partial(
             filt_phase.no_defining_variant,
             phased=args.phased,

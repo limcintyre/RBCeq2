@@ -343,6 +343,46 @@ class TestNoDefiningVariantEmptyPool(TestPhasedFilters):
         self.mock_bg.variant_pool = {}
         no_defining_variant({1: self.mock_bg}, phased=False)
         self.mock_bg.remove_pairs.assert_not_called()
+
+class TestNoDefiningVariantAboDelG(TestPhasedFilters):
+    """The ABO c.261delG insertion is exempt, and was only exempt on one build.
+
+    The database treats the deletion as the reference sequence, so ABO*A1.01 is a reference
+    allele defined by an alternate. Its absence from the pool is the ordinary state of a
+    group O sample, not a contradiction, so removing the pair over it would make ABO
+    uncallable for anyone who is not group A or B. The GRCh37 token used to be written
+    without its chromosome prefix and so matched nothing.
+    """
+
+    def _abo_ref_pair(self, delg_token):
+        ref = MockAllele(
+            genotype="ABO*A1.01", defining_variants={delg_token}, reference=True
+        )
+        return Pair(ref, ref)
+
+    def _run(self, delg_token):
+        pair = self._abo_ref_pair(delg_token)
+        self.mock_bg.type = "ABO"
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        # the locus was seen, and what was found there is the deletion, ie no insertion
+        self.mock_bg.variant_pool = {delg_token.replace("_T_TC", "_ref"): Zygosity.HOM}
+        no_defining_variant({1: self.mock_bg}, phased=True)
+
+    def test_exempt_on_grch38(self):
+        self._run("9:133257521_T_TC")
+        self.mock_bg.remove_pairs.assert_not_called()
+
+    def test_exempt_on_grch37(self):
+        """This is the one that used to fail - the token was missing its '9:' prefix."""
+        self._run("9:136132908_T_TC")
+        self.mock_bg.remove_pairs.assert_not_called()
+
+    def test_an_ordinary_reference_variant_is_still_removed(self):
+        pair = self._abo_ref_pair("1:25390874_ref")
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        self.mock_bg.variant_pool = {"1:25390874_C_G": Zygosity.HOM}
+        no_defining_variant({1: self.mock_bg}, phased=True)
+        self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
         
 if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"], exit=False)

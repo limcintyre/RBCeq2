@@ -274,6 +274,7 @@ class BloodGroup:
     chrom_copies: int = 2
     locus_copies: int | None = None
     genotypes: list[str] = field(default_factory=list)
+    single_slot_genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
         default_factory=lambda: defaultdict(dict)
     )
@@ -349,7 +350,17 @@ class BloodGroup:
             diploidy. Greater is impossible and is rejected rather than normalised.
         genotypes (List[str]):
             List of genotypes associated with the blood group.
-        phenotypes (List[str]): 
+        single_slot_genotypes (List[str]):
+            Genotypes where only one of the two slots could be named, written by
+            cant_name_second_slot_cuz_ref_impossible and rendered by get_genotypes.
+
+            Kept apart from genotypes rather than written straight into it because these
+            are not pairs and never were: the pair they came from is removed and
+            recorded in filtered_out like any other exclusion, so the phenotype
+            engine sees no
+            allele for the slot the tool declined to name and reports nothing for the
+            blood group. A phenotype needs both chromosomes.
+        phenotypes (List[str]):
             List of phenotypes associated with the blood group.
         filtered_out (Dict[str, List[Allele | Pair]]): 
             Alleles filtered out during processing, categorized by reason.
@@ -389,7 +400,11 @@ class BloodGroup:
         return len(self.alleles[AlleleState.RAW])
 
     def remove_pairs(
-        self, to_remove: list[Pair], filter_name: str, allele_type: str = "pairs"
+        self,
+        to_remove: list[Pair],
+        filter_name: str,
+        allele_type: str = "pairs",
+        reverts_to_reference: bool = True,
     ) -> None:
         """Remove pairs of alleles based on specific criteria.
 
@@ -397,6 +412,13 @@ class BloodGroup:
             to_remove (list[Pair]]): List of allele pairs to be removed.
             filter_name (str): Category name for the filtering reason.
             allele_type (str): Type of allele group from which pairs are removed.
+            reverts_to_reference (bool): Whether emptying the blood group here means the
+            reference allele becomes the answer, which is true of every caller but
+            one and is what the warning tells the user. Pass False where the filter
+            has already decided what the result is -
+            cant_name_second_slot_cuz_ref_impossible removes the pair precisely
+            because the reference is impossible, so promising a revert to it would be
+            the opposite of what happens.
         """
         already_removed = set()
         if to_remove:
@@ -408,7 +430,7 @@ class BloodGroup:
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
         # Same misattribution as remove_alleles - only warn if this call emptied it
-        if to_remove and not self.alleles[allele_type]:
+        if to_remove and not self.alleles[allele_type] and reverts_to_reference:
             logger.warning(
                 f"all pairs removed (reverting to reference allele, if possible): {self.sample} {self.type} {filter_name}"
             )
