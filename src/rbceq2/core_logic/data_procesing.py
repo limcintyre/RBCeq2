@@ -397,7 +397,10 @@ def chrom_copies_for_bg(
     (Db.get_single_copy_types, from the database), and this sample's caller emitted
     haploid GTs on that chromosome outside PAR (VCF._infer_haploid_chroms, from the GTs).
     2 otherwise - every autosomal blood group, every female sample, and every VCF that
-    gave no ploidy evidence, which is all five e2e datasets.
+    gave no ploidy evidence. Five of the nine e2e datasets are in that last group and
+    return 2 in every cell. The four short read ones are the only e2e coverage this
+    branch has: 482 of 967 samples and 1,603 of 3,209 get a single slot, always in XK,
+    GATA1 and ATP11C, which are the three blood groups outside PAR on X.
 
     Both halves are needed and neither is sufficient. The database half alone would make
     XK haploid for everyone including females; the sample half alone has no way to answer

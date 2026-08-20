@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import uuid
+from collections import defaultdict
+from functools import cache
 from typing import Any
 
 import pandas as pd
@@ -79,6 +81,87 @@ def configure_logging(args: argparse.Namespace) -> str:
     return UUID
 
 
+@cache
+def _reference_coding_by_position(ref_genome: str) -> dict[str, str]:
+    """Coding notation for the reference base at each position, where it is certain.
+
+    Built once per genome build and cached, because the map is a module level constant
+    and the debug trace asks for it three times per blood group per sample.
+
+    A position earns an entry only if every alternate mapped there agrees about what
+    the reference is. 1:3775836 has 'c.152T>G' and 'c.152T>A', which both say c.152 is
+    T, so it gets 'c.152T'. 4:144120554 has 'c.72G>T' and 'c.71_72delinsGT'; the indel
+    names no single reference base so it is skipped, and the SNV settles it as 'c.72G'.
+    9:133257521 has only 'c.261del', so nothing is claimed and the position is absent.
+
+    An '=' form is already a statement about the reference - 1:25420739 maps to
+    'c.48C=' - so the '=' is dropped rather than the string being rebuilt, which keeps
+    the column reading the same way throughout.
+
+    Args:
+        ref_genome (str): 'GRCh37' or 'GRCh38'.
+
+    Returns:
+        dict[str, str]: 'chrom:pos' -> coding notation for the reference, e.g.
+            {'18:45739554': 'c.838G'}. Positions the map cannot settle are absent.
+    """
+    transcripts = (
+        GENOMIC_TO_TRANSCRIPT_GRCh37
+        if ref_genome == "GRCh37"
+        else GENOMIC_TO_TRANSCRIPT_GRCh38
+    )
+    forms_by_position: dict[str, set[str]] = defaultdict(set)
+    for token, coding in transcripts.items():
+        if token.endswith("_ref"):
+            continue
+        position = token.split("_")[0]
+        if coding.endswith("="):
+            forms_by_position[position].add(coding[:-1])
+        elif ">" in coding:
+            forms_by_position[position].add(coding.split(">")[0])
+
+    return {
+        position: next(iter(forms))
+        for position, forms in forms_by_position.items()
+        if len(forms) == 1
+    }
+
+
+def reference_coding(variant: str, ref_genome: str) -> str | None:
+    """Coding notation for a '_ref' token, taken from the alternate beside it.
+
+    A '_ref' token asserts the reference at a locus, so it has no entry of its own in
+    the genomic to transcript map - only the alternates at that position do. That left
+    a lane variant rendering as '(None)' in the debug trace, directly under the
+    alternate that already names it:
+
+        18:45739554_G_A : c.838G>A : Heterozygous
+        18:45739554_ref : (None) : Heterozygous
+
+    The reference base is read out of the alternate's *coding* string rather than out
+    of the genomic token, because the two disagree on the minus strand: 1:25420739_G_G
+    maps to 'c.48C=', G in the genome and C in the transcript. Deriving from the
+    genomic REF would print the wrong base there.
+
+    Only '_ref' tokens qualify. An unmapped alternate must not borrow from a sibling at
+    the same position, because the sibling describes a different change - 1:3775836_T_C
+    is 'c.152T>C', not the 'c.152T>G' mapped next to it.
+
+    Args:
+        variant (str): A variant token, e.g. '18:45739554_ref'.
+        ref_genome (str): 'GRCh37' or 'GRCh38'.
+
+    Returns:
+        str | None: 'c.838G' for the example above. None when the token is not a '_ref'
+            token, when nothing is mapped at that position, or when the alternates
+            there disagree - all of which the caller renders as before. Guessing would
+            put a coding string in the trace that the database never said.
+    """
+    if not variant.endswith("_ref"):
+        return None
+    return _reference_coding_by_position(ref_genome).get(variant.split("_")[0])
+
+
 def record_filtered_data(results: tuple[Any], ref: str) -> None:
     """Record filtered data by logging debug information for each blood group.
 
@@ -100,8 +183,15 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
 
     def format_vars(pool):
         transcripts = GENOMIC_TO_TRANSCRIPT_GRCh37 if ref == 'GRCh37' else GENOMIC_TO_TRANSCRIPT_GRCh38
+
+        def coding(variant):
+            curated = transcripts.get(variant)
+            if curated is not None:
+                return curated
+            return reference_coding(variant, ref) or '(None)'
+
         return "\n" + "\n".join(
-            [" : ".join([collapse_variant(k), transcripts.get(k, '(None)'), v]) for k, v in sorted(pool.items())]
+            [" : ".join([collapse_variant(k), coding(k), v]) for k, v in sorted(pool.items())]
         )
 
     sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results

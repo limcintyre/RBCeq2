@@ -713,22 +713,40 @@ class DbDataConsistencyChecker:
 
     @staticmethod
     def check_grch37_38_variant_counts(df: pd.DataFrame):
-        """Ensure GRCh37 and GRCh38 variant counts match for each allele."""
+        """Ensure GRCh37 and GRCh38 variant counts match for each allele.
+
+        Counts are of *distinct* tokens, because distinct is what the allele ends up
+        with: defining_variants is a frozenset, so a token written twice in one build
+        column collapses to one and number_of_defining_variants never sees the second.
+
+        Counting the raw list instead let a duplicate stand in for a missing variant,
+        so the two columns agreed on length while disagreeing on content. ABO*A2.16
+        carried 133259833_G_A twice and no 133257521_T_TC - six raw against six, five
+        distinct against six - and loaded. That is the c.261 locus, which 163 other ABO
+        rows pair with its GRCh37 counterpart, so on one build the allele was built
+        from five defining variants rather than six. Fewer defining variants is a
+        weaker requirement, and a weaker requirement is met by more samples.
+
+        A token duplicated in *both* columns is deliberately not an error. The frozenset
+        collapses it on each side, the distinct counts agree, and nothing downstream can
+        tell - which is the case for six GYPB rows and two RHCE rows.
+        """
         logger.debug("Checking GRCh37/38 defining variant counts...")
         for index, row in df.iterrows():  # Iterate for potentially better error context
             grch37_vars_str = str(row.GRCh37)
             grch38_vars_str = str(row.GRCh38)
 
             # Handle potential empty strings or "." consistently before splitting
-            grch37_list = [
+            grch37_variants = {
                 v for v in grch37_vars_str.strip().split(",") if v and v != "."
-            ]
-            grch38_list = [
+            }
+            grch38_variants = {
                 v for v in grch38_vars_str.strip().split(",") if v and v != "."
-            ]
+            }
 
-            if len(grch37_list) != len(grch38_list):
-                # The VariantCountMismatchError takes the raw strings
+            if len(grch37_variants) != len(grch38_variants):
+                # The VariantCountMismatchError takes the raw strings, which is what
+                # shows a duplicate - the deduplicated sets no longer would.
                 raise VariantCountMismatchError(grch37_vars_str, grch38_vars_str)
         logger.debug("GRCh37/38 defining variant count check passed.")
 

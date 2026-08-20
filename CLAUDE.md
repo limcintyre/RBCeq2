@@ -63,7 +63,7 @@ ran and that e2e is still outstanding.
 
 ### End-to-end tests
 
-`~/Dropbox/RBCeq2_related/scripts/e2e.py` runs the real CLI over five datasets and diffs the
+`~/Dropbox/RBCeq2_related/scripts/e2e.py` runs the real CLI over nine datasets and diffs the
 three output TSVs against gold standards in `~/Dropbox/rbceq2/e2e_gold/linux`:
 
 | key | data | genome | flags |
@@ -73,26 +73,46 @@ three output TSVs against gold standards in `~/Dropbox/rbceq2/e2e_gold/linux`:
 | `ont_vienna_1kg_unphased` | `~/Dropbox/vcfs/clair3_norm/` | GRCh38 | `--RH` |
 | `public_truth_17_unphased` | `~/Dropbox/rbceq2/public_truth/combined_VCFs_uncompressed/` | GRCh38 | `--RH` |
 | `public_truth_17_phased` | same | GRCh38 | `--phased --RH` |
+| `dragen_per_sample` | `~/Dropbox/vcfs/DRAGEN/SNV_and_CNV_and_SV/per_sample/` | GRCh38 | `--RH` |
+| `dragen_per_sample_phased` | same | GRCh38 | `--phased --RH` |
+| `dragen_joint_967` | `.../cohort_967samples_SNV_SV_ROI50kb.vcf.gz` | GRCh38 | `--RH` |
+| `dragen_joint_3209` | `~/Dropbox/vcfs/DRAGEN/SNV/cohort_3209samples_ROI50kb.vcf.gz` | GRCh38 | `--RH` |
 
 ```bash
 python ~/Dropbox/RBCeq2_related/scripts/e2e.py --datasets public_truth_17_phased
 ```
 
-All five run by default. Every run adds `--HPAs --debug --processes 12`. Identical output to
+All nine run by default. Every run adds `--HPAs --debug --processes 12`. Identical output to
 gold is a pass; otherwise `report_minimal_differences` prints per-sample, per-column diffs
 (`e2e.py:163`), with comma-delimited fields compared as unordered sets (`:115`).
 
 How it is used, so agents read the results correctly:
 
 - **The maintainer reviews every gold-vs-new discrepancy by hand.** The script is a difference
-  *reporter*, not a pass/fail gate — `validate_outputs` always returns `True` (`e2e.py:264`),
+  *reporter*, not a pass/fail gate — `validate_outputs` always returns `True` (`e2e.py:278`),
   so the exit code carries no signal. Never write "e2e passed"; e2e produces a diff, and a
   human adjudicates it.
 - **It runs the installed `rbceq2` console script** (`e2e.py:60-61`), not the working tree, so
-  the active env's install has to be current for a change to show up in the output.
+  the active env's install has to be current for a change to show up in the output. Check this
+  before reading any e2e result, and before making gold from one — gold built from a stale
+  install bakes in whatever that install was.
 - **Gold standards are platform- and version-specific** (`.../e2e_gold/linux`, a given DB
   version). When a change is *supposed* to alter output, the gold files need regenerating —
   that is the maintainer's call, never an agent's.
+- **A key with no gold reports that and moves on** (`e2e.py:262`). It is a normal state, not a
+  failure: the run still produces the output a gold would be made from. The last four keys are
+  in that state.
+- **The last four keys carry a check that needs no gold.** `dragen_per_sample` and
+  `dragen_joint_967` are the same 967 people, and `dragen_per_sample_phased` is the first of
+  those read a second way. Joint calling changes the encoding, not the biology, and phase may
+  narrow a call but must never change one — so a cell where neither arm's set contains the
+  other is the tool contradicting itself, which is a stronger signal than a gold diff because
+  it needs no gold to interpret. Neither comparison is automated; both are read off the three
+  TSVs by hand, comma fields as unordered sets. Last measured over 85,096 cells: the phase
+  comparison is 84,196 agree / 900 narrowed / **0 conflict**, and a conflict there is a defect.
+  The encoding comparison is 85,002 / 60 / **34**, and that 34 is not the tool's fault — the
+  two files disagree about the genotype at some sites, all 34 are RHCE, so read a *change* in
+  the number rather than the number itself.
 
 ## Repo map
 
