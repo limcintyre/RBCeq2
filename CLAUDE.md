@@ -82,16 +82,33 @@ three output TSVs against gold standards in `~/Dropbox/rbceq2/e2e_gold/linux`:
 python ~/Dropbox/RBCeq2_related/scripts/e2e.py --datasets public_truth_17_phased
 ```
 
-All nine run by default. Every run adds `--HPAs --debug --processes 12`. Identical output to
-gold is a pass; otherwise `report_minimal_differences` prints per-sample, per-column diffs
-(`e2e.py:163`), with comma-delimited fields compared as unordered sets (`:115`).
+**Seven of the nine run by default**, 4m 24s. `1kg_microarray` and `dragen_joint_3209`
+are left out as the two slowest; `--full` runs all nine, 8m 40s, and either can still be
+named directly. Every run adds `--HPAs --debug`.
+Identical output to gold is a pass; otherwise `report_minimal_differences` prints
+per-sample, per-column diffs (`e2e.py:163`), with comma-delimited fields compared as
+unordered sets (`:115`).
+
+Datasets run two at a time with 8 workers each at `nice 10` (`--jobs`, `--processes`,
+`--nice`). 16 workers on 16 cores is deliberate — a dataset reading a cohort VCF is
+single threaded for a while and the other should use those cores. Use `--jobs 3` with
+`--full`, where the third slot is worth 24 seconds; on the default seven it makes no
+difference to wall time. `--jobs 1 --processes 12 --nice 0` is the old one-at-a-time
+behaviour. Concurrency does not change output: every arm of the sweep produced all 27
+TSVs byte identical to the serial run.
+
+**A run ends with a summary of what differs from gold**, so answering "did anything
+change" does not mean scrolling back through tens of thousands of lines. It is a tally
+of differences with a pointer to them, never a verdict — see the next bullet.
 
 How it is used, so agents read the results correctly:
 
 - **The maintainer reviews every gold-vs-new discrepancy by hand.** The script is a difference
-  *reporter*, not a pass/fail gate — `validate_outputs` always returns `True` (`e2e.py:278`),
-  so the exit code carries no signal. Never write "e2e passed"; e2e produces a diff, and a
-  human adjudicates it.
+  *reporter*, not a pass/fail gate — the exit code carries no signal, and the end-of-run
+  summary counts differences rather than declaring an outcome. Never write "e2e passed"; e2e
+  produces a diff, and a human adjudicates it. A difference may well be an improvement, and an
+  agreement may be two copies of the same defect — see "e2e cannot see a defect that was
+  present when gold was made" in `TODO.md`.
 - **It runs the installed `rbceq2` console script** (`e2e.py:60-61`), not the working tree, so
   the active env's install has to be current for a change to show up in the output. Check this
   before reading any e2e result, and before making gold from one — gold built from a stale
@@ -100,8 +117,13 @@ How it is used, so agents read the results correctly:
   version). When a change is *supposed* to alter output, the gold files need regenerating —
   that is the maintainer's call, never an agent's.
 - **A key with no gold reports that and moves on** (`e2e.py:262`). It is a normal state, not a
-  failure: the run still produces the output a gold would be made from. The last four keys are
-  in that state.
+  failure: the run still produces the output a gold would be made from. All nine have gold as
+  of 2026-08-20; this exists so that adding a tenth does not end the run at the new key.
+- **The default set has no GRCh37 and no array.** `1kg_microarray` is the only dataset that is
+  either, and it is one of the two the default leaves out. The `FILTER` landmine below —
+  PASS/FAIL meaning probeset selection rather than call quality — is about arrays specifically,
+  and nothing in the default set can see it. Use `--full` before trusting a change that touches
+  build handling, `FILTER`, or lane variants.
 - **The last four keys carry a check that needs no gold.** `dragen_per_sample` and
   `dragen_joint_967` are the same 967 people, and `dragen_per_sample_phased` is the first of
   those read a second way. Joint calling changes the encoding, not the biology, and phase may
@@ -206,14 +228,36 @@ every BloodGroup. Write new stages the same way.
 
 Things that look fine and are not. Verify against these before touching related code.
 
-- **A haploid GT is only a ploidy statement outside PAR on X/Y.** Anywhere else — inside PAR, or
-  on an autosome — it is a statement about *locus* copy number and has a different correct
-  answer, so `get_ref` (`data_procesing.py:1148`) rejects it by name rather than guessing. Some
-  platforms encode gene copy number as GT ploidy, so a haploid GT across a gene with a
-  whole-gene deletion allele means one copy of *that gene*, which is still two allele slots —
-  one of them the deletion allele — **not** one slot. Mapping that needs
-  `ploidy_state_table.md` decisions 2 and 4, which are unmade. Do not route it through the
-  haploid path.
+- **A haploid GT has three readings, and two of them are live.** The same `1` means different
+  things in different places and the results have **different shapes**, so `get_ref`
+  (`data_procesing.py:1363`) decides by which of two counts is 1 rather than by the GT:
+
+  | which count is 1 | what it means | allele slots | second slot |
+  |---|---|---|---|
+  | `chrom_copies` | outside PAR on X/Y; the sample has one chromosome | **1** | `-` (`HAPLOID_SECOND_SLOT`) |
+  | `locus_copies` | the caller encoded gene copy number as GT ploidy | **2** | the DB's subtype for a missing copy, else `?` (`UNNAMED_SECOND_SLOT`) |
+  | neither | a haploid GT where the sample has two of everything | — | refuses by name, `get_ref/haploid_GT_where_neither_count_is_one` |
+
+  Rows B1 and D2 of `ploidy_state_table.md` are the *same GT* with different correct answers,
+  which is the whole reason the two counts are separate. Reading the second as the first
+  reports `RHD*01/-` and loses a chromosome the sample has. `locus_copies_for_bg`
+  (`:430`) demands agreement across every database locus the VCF reported for that gene, so
+  one haploid GT among diploid neighbours stays a caller quirk and is refused, not read as
+  copy number.
+- **`locus_copies` cannot say zero.** It returns 1 or `None` and nothing else, so a gene with no
+  copies at all has no way to be signalled through it. `Zygosity.NO_COPIES` covers that case
+  only when a deletion record exists, because `modify_variant_pool_if_large_indel` builds its
+  `big_dels` from tokens already in the pool (`data_procesing.py:864`). Input that reports copy
+  number without calling structural variants — an array — therefore has no CN 0 path at all,
+  which is row D1 and still open. The naming half is solved (`Db.get_gene_absent_subtypes`,
+  per gene, a subtype rather than an allele because a copy number carries no breakpoints); the
+  detection half is not. Do not assume a CN 0 signal exists to read.
+- **The three second-slot markers are three different claims.** `-` says there is no second
+  chromosome, `?` says there is one and it carries no copy of the gene, `Undetermined` says it
+  carries a copy whose allele the database cannot name. Collapsing any pair of them undoes the
+  distinction `chrom_copies`/`locus_copies` exists to draw, and pairing with the reference
+  instead — the option that looks tidiest — asserts wildtype on a chromosome there is positive
+  evidence against. All three are user visible and documented; see `constants.py:584-615`.
 - **`./.` is overloaded two ways**: a genuine no-call and, from copy-number-aware callers, zero
   copies. These mean opposite things. The synthesised lane row is *not* one of them any more —
   it carries `SYNTHESISED_HOM_REF_GT` (`constants.py:23`), which is the only legitimate
