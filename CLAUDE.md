@@ -86,8 +86,13 @@ python ~/Dropbox/RBCeq2_related/scripts/e2e.py --datasets public_truth_17_phased
 are left out as the two slowest; `--full` runs all nine, 8m 40s, and either can still be
 named directly. Every run adds `--HPAs --debug`.
 Identical output to gold is a pass; otherwise `report_minimal_differences` prints
-per-sample, per-column diffs (`e2e.py:163`), with comma-delimited fields compared as
-unordered sets (`:115`).
+per-sample, per-column diffs (`e2e.py:407`), with comma-delimited fields compared as
+unordered sets (`:310`).
+
+`--filter-ab` runs every selected dataset a second time with filtering off and counts the
+cells the tool names only in that arm (`e2e.py:618`, reported at `:956`). It doubles the run,
+8m 17s against 4m 24s on the default seven, so it is off by default. See the bullet on checks
+that need no gold below.
 
 Datasets run two at a time with 8 workers each at `nice 10` (`--jobs`, `--processes`,
 `--nice`). 16 workers on 16 cores is deliberate — a dataset reading a cohort VCF is
@@ -109,14 +114,17 @@ How it is used, so agents read the results correctly:
   produces a diff, and a human adjudicates it. A difference may well be an improvement, and an
   agreement may be two copies of the same defect — see "e2e cannot see a defect that was
   present when gold was made" in `TODO.md`.
-- **It runs the installed `rbceq2` console script** (`e2e.py:60-61`), not the working tree, so
+- **It runs the installed `rbceq2` console script** (`e2e.py:244-245`), not the working tree, so
   the active env's install has to be current for a change to show up in the output. Check this
   before reading any e2e result, and before making gold from one — gold built from a stale
-  install bakes in whatever that install was.
+  install bakes in whatever that install was. This is not hypothetical: on 2026-08-24 the
+  install was found two commits behind, and the day's gold had been built from it. One command
+  settles it, and it is worth running rather than assuming:
+  `diff -rq src/rbceq2 "$(python -c 'import rbceq2,os;print(os.path.dirname(rbceq2.__file__))')"`
 - **Gold standards are platform- and version-specific** (`.../e2e_gold/linux`, a given DB
   version). When a change is *supposed* to alter output, the gold files need regenerating —
   that is the maintainer's call, never an agent's.
-- **A key with no gold reports that and moves on** (`e2e.py:262`). It is a normal state, not a
+- **A key with no gold reports that and moves on** (`e2e.py:551`). It is a normal state, not a
   failure: the run still produces the output a gold would be made from. All nine have gold as
   of 2026-08-20; this exists so that adding a tenth does not end the run at the new key.
 - **The default set has no GRCh37 and no array.** `1kg_microarray` is the only dataset that is
@@ -135,6 +143,28 @@ How it is used, so agents read the results correctly:
   The encoding comparison is 85,002 / 60 / **34**, and that 34 is not the tool's fault — the
   two files disagree about the genotype at some sites, all 34 are RHCE, so read a *change* in
   the number rather than the number itself.
+- **`--filter-ab` is a third check that needs no gold, and the only automated one.** It runs
+  each dataset again with filtering off and counts cells the tool declines to name in the
+  first arm and names in the second. The flag has one behavioural site in the tool
+  (`main.py:493`), so a difference is attributable to that filter and nothing else, and both
+  arms are the same input read by the same code — which is why it can see a defect that was
+  already in the output when gold was made from it.
+
+  **A non-zero count is not a defect.** Filtering removing a call is what filtering is for.
+  Measured over all nine datasets on 2026-08-24 the count is nine cells in five samples, two
+  blood groups, all long read: one whole cell (`NA18571` RHCE, phased) and eight single slots
+  (`HG01872`/`NA18544` GYPA, `HG03730`/`HG03886` RHCE, each in both long-read arms). Every one
+  of them is the tool behaving as designed — the eight are
+  `cant_name_second_slot_cuz_ref_impossible` doing its job, and its docstring example is one of
+  them. So read a *change* in the set, not the count: a cell arriving or leaving is the signal.
+  Traces for all nine are in the working directory.
+
+  Two things it deliberately does not do. It reads only the genotype TSV, because a refusal
+  propagates into both phenotype files and counting those would count one cell three times.
+  And it only reports cells the unfiltered arm names *in full*, so where both arms are partial
+  there is no signal — a floor, not a zero. It also reports the reverse direction separately,
+  which is not a defect: the unfiltered pool holds variants the caller doubted, and one of
+  those can contradict a reference the filtered pool left standing.
 
 ## Repo map
 
