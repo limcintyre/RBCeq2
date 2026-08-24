@@ -151,20 +151,38 @@ How it is used, so agents read the results correctly:
   already in the output when gold was made from it.
 
   **A non-zero count is not a defect.** Filtering removing a call is what filtering is for.
-  Measured over all nine datasets on 2026-08-24 the count is nine cells in five samples, two
-  blood groups, all long read: one whole cell (`NA18571` RHCE, phased) and eight single slots
-  (`HG01872`/`NA18544` GYPA, `HG03730`/`HG03886` RHCE, each in both long-read arms). Every one
-  of them is the tool behaving as designed — the eight are
-  `cant_name_second_slot_cuz_ref_impossible` doing its job, and its docstring example is one of
-  them. So read a *change* in the set, not the count: a cell arriving or leaving is the signal.
-  Traces for all nine are in the working directory.
+  Measured over all nine datasets on 2026-08-24, after `f33f1c3`: **no whole cells and nine
+  single slots**, in four samples and two blood groups, all long read —
+  `HG01872`/`NA18544` GYPA and `HG03730`/`HG03886` RHCE, each in both long-read arms, plus
+  `NA18571` RHCE in the phased arm only. Every one is the tool behaving as designed; they are
+  the two `cant_name_second_slot_cuz_*` filters doing their job, and each filter's docstring
+  example is one of them. So read a *change* in the set, not the count: a cell arriving or
+  leaving is the signal. Traces for all of them are in the working directory.
+
+  The whole-cell column was 1 before `f33f1c3` and is the check's one scalp so far: it found
+  `NA18571`, which is now `RHCE*01/Undetermined` rather than `Undetermined/Undetermined`.
+
+  In every one of the five, the excluding value is `LowQual` and nothing else, on a call the
+  caller gave GQ 0 or 1 at 3-11x depth. The `FILTER` decisions themselves look right; what is
+  worth knowing is that the PASS calls beside them are GQ 2-7, so on this input the two sides
+  of the line are closer together than the names suggest.
+
+  **The nine are recorded in `FILTER_AB_EXPECTED` and the run says what moved**, so the count
+  is not a number anyone has to remember. It records membership — dataset, sample, blood group,
+  and which of the three ways the arms disagreed — and deliberately not the genotypes: a cell
+  whose *value* changes is a gold difference and the gold diff reports it. The two checks
+  divide the work, gold owning the values and this owning the membership, which is the half
+  gold is blind to. Regenerate it the way gold is regenerated: when a change is supposed to
+  move it, and by the maintainer.
 
   Two things it deliberately does not do. It reads only the genotype TSV, because a refusal
   propagates into both phenotype files and counting those would count one cell three times.
   And it only reports cells the unfiltered arm names *in full*, so where both arms are partial
-  there is no signal — a floor, not a zero. It also reports the reverse direction separately,
-  which is not a defect: the unfiltered pool holds variants the caller doubted, and one of
-  those can contradict a reference the filtered pool left standing.
+  there is no signal — a floor, not a zero, and a real one: of the 23 cells `f33f1c3` fixed,
+  22 were invisible here because both arms refused them, and only `NA18571` ever showed up. It
+  also reports the reverse direction separately, which is not a defect: the unfiltered pool
+  holds variants the caller doubted, and one of those can contradict a reference the filtered
+  pool left standing.
 
 ## Repo map
 
