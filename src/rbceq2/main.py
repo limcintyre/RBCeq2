@@ -542,6 +542,14 @@ def find_hits(
             filt_phase.cant_be_hom_ref_due_to_HET_SNP,
             phased=args.phased,
         ),
+        # Directly after the filter it reads, and before the co-existing stages, which
+        # have their own idea of what a genotype is. It names the slot
+        # cant_be_hom_ref_due_to_HET_SNP left unnamed and does nothing where that one
+        # did not empty the blood group.
+        partial(
+            filt_phase.cant_name_second_slot_cuz_hom_ref_impossible,
+            phased=args.phased,
+        ),
         co.homs,
         co.max_rank,
         partial(co.prep_co_putative_combos, allele_relationships=allele_relationships),

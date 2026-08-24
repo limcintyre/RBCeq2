@@ -4,13 +4,15 @@ from unittest.mock import MagicMock, patch
 
 # --- Import the actual components from your project ---
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import AlleleState, UNDETERMINED_SLOT
 from rbceq2.core_logic.utils import Zygosity
 
 # Import the functions to be tested
 from rbceq2.filters.phased import (
     no_defining_variant,
     _get_allele_phase_info,
+    cant_be_hom_ref_due_to_HET_SNP,
+    cant_name_second_slot_cuz_hom_ref_impossible,
     check_phase,
     filter_if_all_HET_vars_on_same_side_and_phased,
     filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
@@ -383,6 +385,159 @@ class TestNoDefiningVariantAboDelG(TestPhasedFilters):
         self.mock_bg.variant_pool = {"1:25390874_C_G": Zygosity.HOM}
         no_defining_variant({1: self.mock_bg}, phased=True)
         self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
-        
+
+
+class TestCantNameSecondSlotCuzHomRefImpossible(unittest.TestCase):
+    """Rule 4, the half where the reference is the slot the data settles.
+
+    Built on the real NA18571 RHCE case. FILTER drops RHCE*02 for two LowQual defining
+    variants and remove_unphased drops the other two candidates, leaving only
+    RHCE*01/RHCE*01, which cant_be_hom_ref_due_to_HET_SNP then removes because
+    25408711 is heterozygous. That leaves nothing, and the answer was
+    'Undetermined/Undetermined' when one chromosome is plainly RHCE*01.
+
+    The sibling of TestCantNameSecondSlotCuzRefImpossible in test_geno_filters.py, which
+    covers the mirror: reference in the slot that cannot be named.
+    """
+
+    REF_874 = "1:25390874_ref"
+    REF_711 = "1:25408711_ref"
+    ALT_711 = "1:25408711_G_A"
+    ALT_739 = "1:25420739_G_C"
+
+    def _allele(self, genotype, variants, reference=False):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type="RHCE*01",
+        )
+
+    def _bg(self, phase, pairs=None, co=None):
+        return BloodGroup(
+            type="RHCE",
+            alleles={AlleleState.NORMAL: [] if pairs is None else pairs,
+                     AlleleState.CO: co},
+            sample="NA18571.vcf",
+            variant_pool=dict(self.pool),
+            variant_pool_phase=phase,
+            filtered_out=defaultdict(list),
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "RHCE*01", (self.REF_874, self.REF_711, self.ALT_739), reference=True
+        )
+        self.hom_ref_pair = Pair(allele1=self.ref, allele2=self.ref)
+        self.pool = {
+            self.REF_874: Zygosity.HOM,
+            self.ALT_711: Zygosity.HET,
+            self.REF_711: Zygosity.HET,
+            self.ALT_739: Zygosity.HET,
+        }
+        # The reference's two phased defining variants are both on the left.
+        self.coherent = {
+            self.REF_874: "1/1",
+            self.ALT_711: "0|1",
+            self.REF_711: "1|0",
+            self.ALT_739: "1|0",
+        }
+
+    def _emptied(self, phase):
+        """A blood group cant_be_hom_ref_due_to_HET_SNP has just emptied."""
+        bg = self._bg(phase, pairs=[self.hom_ref_pair])
+        cant_be_hom_ref_due_to_HET_SNP({1: bg}, phased=True)
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+        return bg
+
+    def test_the_reference_slot_is_named_and_the_other_refused(self):
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"RHCE*01/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_nothing_further_is_excluded(self):
+        """The pair was removed and recorded by the filter this one reads."""
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(
+            list(bg.filtered_out), ["cant_be_hom_ref_due_to_HET_SNP"]
+        )
+
+    def test_unphased_is_left_alone(self):
+        """Without phase there is nothing saying which chromosome carries the reference."""
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=False)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_defining_variants_on_opposite_sides_are_left_alone(self):
+        """Neither chromosome carries the whole reference, so refusing both is honest."""
+        split = dict(self.coherent)
+        split[self.ALT_739] = "0|1"
+        bg = self._emptied(split)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_heterozygote_without_a_bar_is_left_alone(self):
+        """A partly phased file says nothing about sides, so this must not guess."""
+        unbarred = dict(self.coherent)
+        unbarred[self.REF_711] = "0/1"
+        unbarred[self.ALT_739] = "0/1"
+        bg = self._emptied(unbarred)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_surviving_pair_stops_it_dead(self):
+        """If anything paired the blood group has an answer and this must not touch it."""
+        other = self._allele("RHCE*02", (self.REF_874, self.ALT_711))
+        bg = self._bg(self.coherent, pairs=[self.hom_ref_pair])
+        cant_be_hom_ref_due_to_HET_SNP({1: bg}, phased=True)
+        bg.alleles[AlleleState.NORMAL] = [Pair(allele1=self.ref, allele2=other)]
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_coexisting_result_is_not_overridden(self):
+        bg = self._bg(self.coherent, pairs=[self.hom_ref_pair])
+        cant_be_hom_ref_due_to_HET_SNP({1: bg}, phased=True)
+        bg.alleles[AlleleState.CO] = []
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_it_does_nothing_when_that_filter_did_not_fire(self):
+        """An empty blood group emptied by something else is not this filter's case."""
+        bg = self._bg(self.coherent)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_the_removal_does_not_promise_a_revert_to_reference(self):
+        """The pair removed *is* the reference pair, so the default warning would lie."""
+        bg = self._bg(self.coherent, pairs=[self.hom_ref_pair])
+        with patch("rbceq2.core_logic.alleles.logger") as mock_logger:
+            cant_be_hom_ref_due_to_HET_SNP({1: bg}, phased=True)
+        mock_logger.warning.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"], exit=False)

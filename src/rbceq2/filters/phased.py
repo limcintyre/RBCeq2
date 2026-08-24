@@ -6,6 +6,7 @@ from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     ABO_DELG_VARIANTS,
     SYNTHESISED_HOM_REF_GT,
+    UNDETERMINED_SLOT,
     AlleleState,
 )
 from rbceq2.core_logic.utils import (
@@ -1603,6 +1604,108 @@ def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
         ):
             to_remove.append(pair)
     if to_remove:
-        bg.remove_pairs(to_remove, "cant_be_hom_ref_due_to_HET_SNP")
+        # reverts_to_reference is False because the pair being removed *is* the
+        # reference pair, and it is removed precisely because the sample cannot be
+        # homozygous reference. The default warning would promise a revert to the one
+        # answer this filter has just ruled out. Same reasoning as
+        # cant_name_second_slot_cuz_ref_impossible, which the parameter's own docstring
+        # cites.
+        bg.remove_pairs(
+            to_remove, "cant_be_hom_ref_due_to_HET_SNP", reverts_to_reference=False
+        )
+
+    return bg
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_hom_ref_impossible(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Name the reference slot when the only pair was hom reference and is impossible.
+
+    The mirror of cant_name_second_slot_cuz_ref_impossible, and the other half of the
+    same rule: one slot identified and the other matching no allele is written
+    'X/Undetermined'. That filter covers the shape where the *reference* is the slot
+    that cannot be named. This one covers the shape where the reference is the slot the
+    data settles and the partner is what cannot be named.
+
+    The shape: cant_be_hom_ref_due_to_HET_SNP has just removed the only pair the blood
+    group had, because it was reference/reference and a defining variant is
+    heterozygous. That removal is right - the sample is not homozygous reference. But a
+    heterozygote is one chromosome carrying the reference base and one carrying the
+    alternate, so removing the pair throws away a slot the data has settled. The blood
+    group ends up 'Undetermined/Undetermined' when one of the two is known.
+
+    Phased only, and the phase is what makes it safe rather than a guess. Every
+    defining variant of the reference that says which chromosome it is on has to say
+    the *same* chromosome. Two heterozygous defining variants on opposite sides means
+    neither chromosome carries the whole reference allele, and then declining both
+    slots is the honest answer - so that case is left alone. A partly phased file where
+    the heterozygote is written without a bar says nothing about sides either, and is
+    also left alone.
+
+    Nothing is excluded here, so nothing is recorded in filtered_out: the pair was
+    already removed and recorded by cant_be_hom_ref_due_to_HET_SNP, whose name this
+    reads to find it. This filter only names what that one left unnamed.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object, after cant_be_hom_ref_due_to_HET_SNP.
+        phased (bool): Whether the sample's variants are phased.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set to one
+        'reference/Undetermined' string, or unchanged if any gate is not met.
+
+    Example:
+        NA18571 RHCE, phased. FILTER drops RHCE*02 for two LowQual defining variants
+        and remove_unphased drops RHCE*01.01 and RHCE*01.36, leaving only the
+        reference:
+
+        bg.variant_pool_phase: {'1:25390874_ref': '1/1',
+                                '1:25408711_G_A': '0|1',
+                                '1:25408711_ref': '1|0',
+                                '1:25420739_G_C': '1|0',
+                                '1:25420739_ref': '0|1'}
+
+        RHCE*01 is 1:25390874_ref, 1:25408711_ref and 1:25420739_G_C. The two that
+        carry phase are both '1|0', so the left chromosome is RHCE*01 outright and the
+        right carries 25408711_G_A and 25420739_ref - the RHCE*02 signature minus the
+        variants FILTER discarded, which is why nothing can name it.
+
+        single_slot_genotypes -> ['RHCE*01/Undetermined']
+
+        Was 'Undetermined/Undetermined'.
+    """
+    if not phased:
+        return bg
+    # .get, not [], because the co-existing stages have not created the key yet. Kept
+    # so that moving this filter later cannot silently override a Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    # Only where nothing survived. If any pair is left the blood group has an answer
+    # and this must not touch it.
+    if bg.alleles[AlleleState.NORMAL] or bg.single_slot_genotypes:
+        return bg
+
+    removed = bg.filtered_out.get("cant_be_hom_ref_due_to_HET_SNP", [])
+    references = [
+        pair.allele1
+        for pair in removed
+        if isinstance(pair, Pair) and pair.all_reference
+    ]
+    # One reference allele, or there is nothing unambiguous to name.
+    if len({reference.genotype for reference in references}) != 1:
+        return bg
+    reference = references[0]
+
+    sides = {
+        bg.variant_pool_phase.get(variant)
+        for variant in reference.defining_variants
+    }
+    sides = {side for side in sides if side is not None and carries_phase(side)}
+    if len(sides) != 1:
+        return bg
+
+    bg.single_slot_genotypes = [f"{reference.genotype}/{UNDETERMINED_SLOT}"]
 
     return bg
