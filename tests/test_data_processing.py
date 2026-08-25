@@ -16,6 +16,7 @@ from rbceq2.core_logic.constants import (
 from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 from rbceq2.core_logic.data_procesing import (
     warn_if_critical_variant_not_trusted,
+    cant_revert_to_ref_cuz_a_passing_call_denies_it,
     variant_was_discarded,
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
@@ -3733,6 +3734,155 @@ class TestMakeVariantPoolPromotesOnlyDiscardedPartners(unittest.TestCase):
         pool = self._pool()
         self.assertEqual(pool["4:144120554_ref"], Zygosity.HET)
         self.assertEqual(pool["4:144120555_ref"], Zygosity.HET)
+
+
+class TestCantRevertToRefCuzAPassingCallDeniesIt(unittest.TestCase):
+    """Rule 3 stops where a trusted call denies the reference outright.
+
+    Built on the real GYPA shape. GYPA*02 is the reference and a lane allele, so it is
+    defined by '_ref' tokens at all three loci. A '_ref' token exists only where the
+    sample has a reference copy, so a homozygous alternate leaves none and the reference
+    cannot be built at all - it never reaches the raw alleles. Reverting to it claims
+    wildtype at a locus the caller called homozygous variant.
+
+    The gate is that the denying call passed. HG03600 is homozygous alternate at 554
+    with LowQual and heterozygous at the other two, so its reference is denied only by a
+    doubted call and rule 3 is right there - the tool keeps GYPA*02/GYPA*02.
+
+    Deliberately silent on the other shape, where the reference was built and then struck
+    by FILTER (ABO, KN, RHD): there the reference needs the doubted variant itself and
+    nothing contradicts it.
+    """
+
+    REF_554 = "4:144120554_ref"
+    REF_555 = "4:144120555_ref"
+    REF_567 = "4:144120567_ref"
+    ALT_554 = "4:144120554_C_A"
+    ALT_555 = "4:144120555_T_C"
+    ALT_567 = "4:144120567_A_G"
+
+    def _allele(self, genotype, variants, reference=False):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type="GYPA*02" if reference else "GYPA*01",
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "GYPA*02", (self.REF_554, self.REF_555, self.REF_567), reference=True
+        )
+        self.mns1 = self._allele(
+            "GYPA*01", (self.ALT_554, self.ALT_555, self.ALT_567)
+        )
+        self.reference_alleles = {"GYPA": self.ref}
+        # Homozygous alternate at all three, so no '_ref' token exists anywhere and the
+        # reference was never buildable. 567 is the one FILTER doubted.
+        self.vcf = MagicMock()
+        self.vcf.variants = {
+            self.ALT_554: {"GT": "1/1"},
+            self.ALT_555: {"GT": "1/1"},
+            self.ALT_567: {"GT": "1/1"},
+        }
+        self.df = pd.DataFrame(
+            {
+                "variant": [self.ALT_554, self.ALT_555, self.ALT_567],
+                "FILTER": ["PASS", "PASS", "LowQual"],
+            }
+        )
+
+    def _bg(self, pairs=None, raw=None, pool=None):
+        bg = BloodGroup(
+            type="GYPA",
+            alleles={
+                AlleleState.RAW: [self.mns1] if raw is None else raw,
+                AlleleState.NORMAL: (
+                    [Pair(self.ref, self.ref)] if pairs is None else pairs
+                ),
+                AlleleState.CO: None,
+            },
+            sample="s1",
+            variant_pool={} if pool is None else pool,
+            filtered_out=defaultdict(list),
+        )
+        return bg
+
+    def _run(self, bg):
+        cant_revert_to_ref_cuz_a_passing_call_denies_it(
+            {1: bg},
+            vcf=self.vcf,
+            df=self.df,
+            reference_alleles=self.reference_alleles,
+        )
+        return bg
+
+    def test_the_reference_pair_is_removed(self):
+        bg = self._run(self._bg())
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_the_exclusion_is_recorded_under_the_filter_name(self):
+        """Hard rule 3 - a result is not an audit trail."""
+        bg = self._run(self._bg())
+        self.assertEqual(
+            list(bg.filtered_out), ["cant_revert_to_ref_cuz_a_passing_call_denies_it"]
+        )
+
+    def test_a_doubted_denial_is_left_alone(self):
+        """HG03600 - only 554 denies the reference and the caller doubted it."""
+        self.df = pd.DataFrame(
+            {
+                "variant": [self.ALT_554, self.ALT_555, self.ALT_567],
+                "FILTER": ["LowQual", "PASS", "LowQual"],
+            }
+        )
+        # Heterozygous at 555 and 567, so those '_ref' tokens exist and only 554 denies.
+        self.vcf.variants = {
+            self.ALT_554: {"GT": "1/1"},
+            self.ALT_555: {"GT": "0/1"},
+            self.REF_555: {"GT": "0/1"},
+            self.ALT_567: {"GT": "0/1"},
+            self.REF_567: {"GT": "0/1"},
+        }
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_reference_that_was_built_and_struck_is_left_alone(self):
+        """The other shape - ABO, KN and RHD. Nothing contradicts that reference."""
+        bg = self._run(self._bg(raw=[self.mns1, self.ref]))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_non_empty_pool_stops_it_dead(self):
+        """Something survived, so the reference pair was a choice among others."""
+        bg = self._run(self._bg(pool={self.ALT_554: Zygosity.HOM}))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_pair_that_is_not_all_reference_is_left_alone(self):
+        bg = self._run(self._bg(pairs=[Pair(self.ref, self.mns1)]))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_more_than_one_pair_is_left_alone(self):
+        bg = self._run(
+            self._bg(pairs=[Pair(self.ref, self.ref), Pair(self.ref, self.mns1)])
+        )
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 2)
+
+    def test_a_blood_group_with_no_reference_is_left_alone(self):
+        self.reference_alleles = {}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_the_removal_does_not_promise_a_revert_to_reference(self):
+        """The pair removed is the reference pair, so the default warning would lie."""
+        bg = self._bg()
+        with patch("rbceq2.core_logic.alleles.logger") as mock_logger:
+            self._run(bg)
+        mock_logger.warning.assert_not_called()
 
 
 class TestWarnIfCriticalVariantNotTrusted(unittest.TestCase):

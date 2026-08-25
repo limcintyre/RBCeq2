@@ -1711,6 +1711,97 @@ def get_genotypes(
 
 
 @apply_to_dict_values
+def cant_revert_to_ref_cuz_a_passing_call_denies_it(
+    bg: BloodGroup,
+    vcf: VCF,
+    df: pd.DataFrame,
+    reference_alleles: dict[str, Allele],
+) -> BloodGroup:
+    """Decline to name a blood group whose reference a trusted call rules out.
+
+    Rule 3 makes the reference the default when nothing is buildable, even where it
+    needed a discarded variant, because that is the ISBT convention and what a lab
+    scientist does by hand. This is the one shape where that default asserts something
+    the caller positively denies.
+
+    A reference allele at a lane locus is defined by '_ref' tokens, and a '_ref' token
+    only exists where the sample has a reference copy. Where the alternate is homozygous
+    there is no reference copy and no token, so the reference cannot be built at all -
+    it is absent from the raw alleles rather than filtered out of them. Reporting it
+    anyway claims wildtype at a position the caller called homozygous variant.
+
+    The gate is that the denying call *passed*. Where the only thing standing between
+    the sample and the reference is a call the caller doubted, rule 3 is exactly right
+    and this does nothing: HG03600 GYPA is homozygous alternate at 144120554 with
+    LowQual and heterozygous at the other two loci, so its reference is denied only by
+    a doubted call and it keeps GYPA*02/GYPA*02.
+
+    Deliberately narrow. It does not fire where the reference was *built and then
+    struck* by FILTER - ABO, KN and RHD in the long read set - because there the
+    reference needs the doubted variant itself and nothing contradicts it. That is
+    messy but it is rule 3 working as agreed, not a defect.
+
+    Args:
+        bg (BloodGroup): The blood group, after process_genetic_data has supplied the
+            reference pair.
+        vcf (VCF): The sample's VCF, for which tokens exist at each locus.
+        df (pd.DataFrame): The sample's rows, for each variant's FILTER.
+        reference_alleles (dict[str, Allele]): The reference allele per blood group.
+
+    Returns:
+        BloodGroup: With the reference pair removed and recorded, or unchanged.
+
+    Example:
+        HG01871 GYPA. GYPA*01 needs three positions and is discarded over the LowQual
+        call at 144120567. Nothing else is buildable, so the pool is empty and rule 3
+        offers GYPA*02/GYPA*02 - which needs a reference copy at 144120554 and 144120555,
+        both of them called 1/1 with PASS:
+
+        4:144120554_C_A : Homozygous : PASS
+        4:144120555_T_C : Homozygous : PASS
+        4:144120567_A_G : Heterozygous : LowQual
+
+        Note 144120567, the position that failed FILTER, is heterozygous and has its
+        '_ref' token, so it is not what denies the reference. The two that do are both
+        trusted.
+
+        genotypes -> 'Undetermined/Undetermined', where it was 'GYPA*02/GYPA*02' (M-,N+).
+    """
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    if len(pairs) != 1 or not pairs[0].all_reference:
+        return bg
+    # An empty pool is the rule 3 case. A pool with anything in it means some allele
+    # survived and the reference pair was a real choice among others.
+    if bg.variant_pool:
+        return bg
+    reference = reference_alleles.get(bg.type)
+    if reference is None:
+        return bg
+    # Built and then struck is the other shape, and is left alone.
+    if any(
+        allele.genotype == reference.genotype
+        for allele in bg.alleles.get(AlleleState.RAW) or []
+    ):
+        return bg
+
+    for token in reference.defining_variants:
+        if not token.endswith("_ref") or token in vcf.variants:
+            continue
+        locus = token.split("_")[0]
+        for called, _ in vcf.variants.items():
+            if called == token or called.split("_")[0] != locus:
+                continue
+            if not variant_was_discarded(called, df):
+                bg.remove_pairs(
+                    list(pairs),
+                    "cant_revert_to_ref_cuz_a_passing_call_denies_it",
+                    reverts_to_reference=False,
+                )
+                return bg
+    return bg
+
+
+@apply_to_dict_values
 def only_keep_alleles_if_FILTER_PASS(
     bg: BloodGroup, df: pd.DataFrame, no_filter: bool
 ) -> BloodGroup:

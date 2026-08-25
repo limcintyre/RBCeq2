@@ -524,6 +524,12 @@ def find_hits(
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
         partial(
+            dp.cant_revert_to_ref_cuz_a_passing_call_denies_it,
+            vcf=vcf,
+            df=vcf.df,
+            reference_alleles=db.reference_alleles,
+        ),
+        partial(
             dp.find_what_was_excluded_due_to_rank,
             reference_alleles=db.reference_alleles,
         ),
