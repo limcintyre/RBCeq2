@@ -29,6 +29,14 @@ Lifeblood.
 6. **Real examples in doc strs.** Use google style doc strings, however, many of the examples 
    in the existing functions have copy paste from logs and this is not always formatted perfectly,
    Do no change these - they are real examples of the function (normally a filter).
+7. **Do not delete anything, and do not write outside the working directory or `/tmp`.** Hand
+   me the shell command and let me run it — a `for` loop is better than a list of paths.
+   Writing into the working directory or into `/tmp` scratch is fine, and copying a repo file
+   into the working directory is how proposals get seeded; reading from anywhere is fine.
+   Everything else comes to me as a command: overwriting the golds under `~/Dropbox`, writing
+   into the repo tree, and any deletion at all. If I ask for one to be run anyway, say that it
+   crosses this rule first, and test it before handing it over — on a copy, or with `echo` in
+   place of the real verb.
 
 ## Working agreement
 

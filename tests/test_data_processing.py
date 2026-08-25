@@ -3662,6 +3662,79 @@ class TestVariantWasDiscarded(unittest.TestCase):
         """
         self.assertFalse(variant_was_discarded("1:999999_G_A", self.df))
 
+class TestMakeVariantPoolPromotesOnlyDiscardedPartners(unittest.TestCase):
+    """The promotion branch of make_variant_pool, which no other test reaches.
+
+    A '_ref' token is promoted from heterozygous to homozygous when its alternate partner
+    left the pool *because the caller doubted it* - the het pair is then gone. Absent from
+    the pool is not the same thing: a token also leaves when the only allele carrying it is
+    removed over some other variant, and promoting on that reports the sample as wildtype at
+    a locus the caller called heterozygous with a passing call.
+
+    This is the real GYPA shape. GYPA*01 needs three positions; 144120555 is LowQual, which
+    drops the whole allele and takes the passing 144120554 call out of the pool with it. So
+    144120555_ref may be promoted and 144120554_ref may not.
+
+    TestVariantWasDiscarded covers the lookup in isolation. This covers its use, which is
+    where the defect actually was: the loop originally reused the name 'variant' for the
+    inner token, shadowing the one being tested, so the branch never ran at all. Every
+    isolated test still passed while the promotion silently did nothing, so a test at this
+    level is the only thing that would catch it coming back.
+    """
+
+    PASSING = "4:144120554_C_A"
+    DOUBTED = "4:144120555_T_C"
+
+    def setUp(self):
+        self.vcf = MagicMock()
+        self.vcf.variants = {
+            "4:144120554_ref": {"GT": "0/1"},
+            "4:144120555_ref": {"GT": "0/1"},
+            "4:144120567_A_G": {"GT": "1/1"},
+        }
+        self.vcf.df = pd.DataFrame(
+            {
+                "variant": [self.PASSING, self.DOUBTED, "4:144120567_A_G"],
+                "FILTER": ["PASS", "LowQual", "PASS"],
+            }
+        )
+        # GYPA*08 survived; GYPA*01 was dropped whole, so both of its non-reference
+        # partners are out of the pool - one doubted, one not.
+        survivor = MagicMock(
+            defining_variants={
+                "4:144120554_ref",
+                "4:144120555_ref",
+                "4:144120567_A_G",
+            }
+        )
+        dropped = MagicMock(
+            defining_variants={self.PASSING, self.DOUBTED, "4:144120567_A_G"}
+        )
+        self.bg = MagicMock()
+        self.bg.alleles = {AlleleState.FILT: [survivor]}
+        self.bg.filtered_out = {"FILTER_not_PASS": [dropped]}
+
+    def _pool(self):
+        with patch("rbceq2.core_logic.data_procesing.get_ref") as mock_get_ref:
+            mock_get_ref.side_effect = lambda ref_dict, variant="", chrom_copies=2, locus_copies=None: (
+                Zygosity.HET if ref_dict["GT"] == "0/1" else Zygosity.HOM
+            )
+            return list(make_variant_pool({1: self.bg}, self.vcf).values())[0].variant_pool
+
+    def test_partner_the_caller_doubted_promotes(self):
+        self.assertEqual(self._pool()["4:144120555_ref"], Zygosity.HOM)
+
+    def test_partner_that_passed_does_not_promote(self):
+        """The over-promotion. Wildtype here contradicts a call the caller vouched for."""
+        self.assertEqual(self._pool()["4:144120554_ref"], Zygosity.HET)
+
+    def test_nothing_filtered_means_nothing_promotes(self):
+        self.bg.filtered_out = {"FILTER_not_PASS": []}
+        pool = self._pool()
+        self.assertEqual(pool["4:144120554_ref"], Zygosity.HET)
+        self.assertEqual(pool["4:144120555_ref"], Zygosity.HET)
+
+
 class TestWarnIfCriticalVariantNotTrusted(unittest.TestCase):
     """One filtered row can remove most of a blood group's definitions at once.
 
