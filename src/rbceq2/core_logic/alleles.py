@@ -271,6 +271,10 @@ class BloodGroup:
     variant_pool: dict[str, Zygosity] = field(default_factory=dict)
     variant_pool_phase: dict[str, str] = field(default_factory=dict)
     variant_pool_phase_set: dict[str, str] = field(default_factory=dict)
+    unused_pool: dict[str, Zygosity] = field(default_factory=dict)
+    unused_pool_phase: dict[str, str] = field(default_factory=dict)
+    unused_pool_phase_set: dict[str, str] = field(default_factory=dict)
+    unused_pool_filters: dict[str, str] = field(default_factory=dict)
     chrom_copies: int = 2
     locus_copies: int | None = None
     genotypes: list[str] = field(default_factory=list)
@@ -313,6 +317,24 @@ class BloodGroup:
             Mapping of variants to zygosity states.
         variant_pool_phase (Dict[str, str]): 
             Mapping of variants to phase states, ie 1|0.
+        unused_pool (Dict[str, Zygosity]):
+            Variants the sample carries at this blood group's database loci that are
+            *not* in variant_pool, with the same three companion dicts plus the FILTER
+            value of each. Written by record_unused_variants and read only by the debug
+            trace - nothing calls against it.
+
+            It exists because an empty variant_pool is unreadable on its own. A blood
+            group whose every allele was discarded shows no variants at all, so the
+            trace cannot say whether the sample was wildtype, or carried calls the tool
+            declined to use, or which of them the caller doubted. That question could
+            only be answered by opening the VCF by hand.
+        unused_pool_phase (Dict[str, str]):
+            Raw GT for each unused variant, unprocessed - no reference-token fixups.
+        unused_pool_phase_set (Dict[str, str]):
+            Phase set id for each unused variant, where the caller gave one.
+        unused_pool_filters (Dict[str, str]):
+            The FILTER field of the row each unused variant came from, which is usually
+            why it is unused.
         variant_pool_phase_set (Dict[str, str]):
             Mapping of variants to phase sets ie, 126354.
         chrom_copies (int):

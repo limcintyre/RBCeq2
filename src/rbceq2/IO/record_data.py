@@ -194,6 +194,12 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
             [" : ".join([collapse_variant(k), coding(k), v]) for k, v in sorted(pool.items())]
         )
 
+    def format_plain(pool):
+        """Two columns rather than three, for a map with no coding notation to show."""
+        return "\n" + "\n".join(
+            [" : ".join([collapse_variant(k), str(v)]) for k, v in sorted(pool.items())]
+        )
+
     sample, genos, numeric_phenos, alphanumeric_phenos, res, var_map = results
 
     logger.debug("\n### Blood group allele info ###:\n")
@@ -211,6 +217,13 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
                 f"Vars: {format_vars(bg_data.variant_pool)}\n"
                 f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"
                 f"Vars_phase_set: {format_vars(bg_data.variant_pool_phase_set)}\n"
+                # Everything the sample carries at this blood group's loci that the pool
+                # does not hold - usually because FILTER discarded the allele needing it.
+                # Written only under --debug; empty when the stage did not run.
+                f"\nVars unused: {format_vars(bg_data.unused_pool)}\n"
+                f"Vars_phase: {format_vars(bg_data.unused_pool_phase)}\n"
+                f"Vars_phase_set: {format_vars(bg_data.unused_pool_phase_set)}\n"
+                f"\nVars_FILTERs: {format_plain(bg_data.unused_pool_filters)}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
             )
 

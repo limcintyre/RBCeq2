@@ -774,6 +774,86 @@ def check_token_copies_fit_chrom_copies(bg: BloodGroup) -> None:
 
 
 @apply_to_dict_values
+def record_unused_variants(
+    bg: BloodGroup,
+    vcf: VCF,
+    loci_by_type: dict[str, dict[str, frozenset[int]]],
+    df: pd.DataFrame,
+) -> BloodGroup:
+    """Collect the variants at this blood group's loci that the pool does not hold.
+
+    Diagnostic only. Nothing downstream reads what this writes; it exists so the debug
+    trace can answer a question it currently cannot. When every allele a blood group had
+    is discarded the variant pool comes out empty, and the trace then shows no variants
+    at all - indistinguishable from a sample that was wildtype at every locus. Reading
+    HG01174 GYPA meant opening the VCF by hand to discover the sample was 1/1 at all
+    three loci with two of the three calls passing.
+
+    The loci come from the database rather than from the pool, for the same reason
+    locus_copies_for_bg uses them: by the time a pool exists it only holds what survived,
+    so it cannot testify about what did not.
+
+    Zygosity is derived the same way the pool's is, but failure to derive it is not
+    allowed to end the run - this is a debug aid, and a genotype get_ref refuses is
+    exactly the kind of thing worth seeing in the trace rather than dying on. Such a
+    variant is recorded with its raw genotype instead.
+
+    Phase and phase set are the caller's own, unprocessed: the reference-token fixups
+    add_phasing applies are about deciding which chromosome an allele sits on, and
+    nothing here sits on a chromosome.
+
+    Args:
+        bg (BloodGroup): The blood group, after make_variant_pool.
+        vcf (VCF): The sample's VCF, for its variants and their metrics.
+        loci_by_type (dict): Database positions per blood group, per chromosome.
+        df (pd.DataFrame): The sample's rows, for each variant's FILTER.
+
+    Returns:
+        BloodGroup: With unused_pool and its three companions filled in.
+    """
+    positions = loci_by_type.get(bg.type)
+    if not positions:
+        return bg
+
+    # Built once rather than queried per variant. The df.query idiom used elsewhere is
+    # the slow path, and a row can carry several comma joined tokens from one
+    # multi-allelic site, so each is mapped to its row's FILTER separately.
+    filters: dict[str, str] = {}
+    if df is not None and not df.empty:
+        for raw, filter_value in zip(df["variant"], df["FILTER"]):
+            for token in str(raw).split(","):
+                filters.setdefault(token.strip(), filter_value)
+
+    for variant, metrics in vcf.variants.items():
+        if variant in bg.variant_pool:
+            continue
+        locus, _, _ = variant.partition("_")
+        chrom, _, position = locus.partition(":")
+        if not position.isdigit():
+            continue
+        if int(position) not in positions.get(chrom, frozenset()):
+            continue
+        try:
+            bg.unused_pool[variant] = get_ref(
+                metrics, variant, bg.chrom_copies, bg.locus_copies
+            )
+        except Exception:
+            bg.unused_pool[variant] = metrics.get("GT", "?")
+        bg.unused_pool_phase[variant] = metrics.get("GT", ".")
+        bg.unused_pool_phase_set[variant] = metrics.get("PS") or "."
+        # A '_ref' token asserts the reference and has no FILTER of its own, which is
+        # why only_keep_alleles_if_FILTER_PASS skips it. Saying so beats printing the
+        # row's value: a lane locus with no called rows is synthesised from COMMON_COLS,
+        # so its FILTER field holds the literal string 'FILTER'.
+        if "_ref" in variant:
+            bg.unused_pool_filters[variant] = "not read - reference token"
+        else:
+            bg.unused_pool_filters[variant] = filters.get(variant, ".")
+
+    return bg
+
+
+@apply_to_dict_values
 def remove_alleles_with_no_call_variants(bg: BloodGroup) -> BloodGroup:
     """Remove alleles that depend on a locus the caller did not call.
 

@@ -501,6 +501,18 @@ def find_hits(
         dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
         partial(dp.modify_allele_pool_if_large_indel),
+        *(
+            [
+                partial(
+                    dp.record_unused_variants,
+                    vcf=vcf,
+                    loci_by_type=db.loci_by_type,
+                    df=vcf.df,
+                )
+            ]
+            if args.debug
+            else []
+        ),
         partial(
             dp.add_phasing,
             phased=args.phased,
@@ -524,11 +536,6 @@ def find_hits(
             phased=args.phased,
             reference_alleles=db.reference_alleles,
         ),
-        # Before no_defining_variant, which removes the same impossible-reference pairs
-        # but only under --phased and only ever whole. This takes the case where
-        # the pair was the last one and its non-reference half is sound, so the
-        # arms agree; where
-        # other pairs survive it does nothing and no_defining_variant is unchanged.
         filt.cant_name_second_slot_cuz_ref_impossible,
         partial(
             filt_phase.no_defining_variant,
@@ -542,10 +549,6 @@ def find_hits(
             filt_phase.cant_be_hom_ref_due_to_HET_SNP,
             phased=args.phased,
         ),
-        # Directly after the filter it reads, and before the co-existing stages, which
-        # have their own idea of what a genotype is. It names the slot
-        # cant_be_hom_ref_due_to_HET_SNP left unnamed and does nothing where that one
-        # did not empty the blood group.
         partial(
             filt_phase.cant_name_second_slot_cuz_hom_ref_impossible,
             phased=args.phased,
