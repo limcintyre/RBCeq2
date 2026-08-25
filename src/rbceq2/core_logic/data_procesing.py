@@ -1736,6 +1736,16 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
     LowQual and heterozygous at the other two loci, so its reference is denied only by
     a doubted call and it keeps GYPA*02/GYPA*02.
 
+    A reference can also be denied the other way round. Four of the database's 88
+    references are defined partly by an *alternate* - KN*01, RHD*01, ABO*A1.01 and
+    RHCE*01 - because at a lane locus the transcript reference differs from the genome
+    reference. There the reference needs the alternate and a homozygous reference call
+    denies it. That denial rests on the '_ref' token being present rather than on any
+    FILTER value, because a '_ref' token has no FILTER of its own; absence of the token
+    is no data and is never read as wildtype. HG04183 RHCE is the only instance across
+    all nine datasets: homozygous reference at 25420739 where RHCE*01 needs 25420739_G_C,
+    with its other route - 25408711 - denied only by a LowQual call.
+
     Deliberately narrow. It does not fire where the reference was *built and then
     struck* by FILTER - ABO, KN and RHD in the long read set - because there the
     reference needs the doubted variant itself and nothing contradicts it. That is
@@ -1785,19 +1795,35 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
         return bg
 
     for token in reference.defining_variants:
-        if not token.endswith("_ref") or token in vcf.variants:
+        if token in vcf.variants:
             continue
         locus = token.split("_")[0]
-        for called, _ in vcf.variants.items():
-            if called == token or called.split("_")[0] != locus:
-                continue
-            if not variant_was_discarded(called, df):
-                bg.remove_pairs(
-                    list(pairs),
-                    "cant_revert_to_ref_cuz_a_passing_call_denies_it",
-                    reverts_to_reference=False,
-                )
-                return bg
+        if token.endswith("_ref"):
+            # The reference wants wildtype here and the sample has none, so something
+            # else is homozygous at this locus. It only counts if the caller vouched
+            # for it.
+            denied = any(
+                called != token
+                and called.split("_")[0] == locus
+                and not variant_was_discarded(called, df)
+                for called in vcf.variants
+            )
+        else:
+            # The reference wants the alternate here - a lane locus, where the
+            # transcript reference differs from the genome reference - and the sample
+            # does not carry it. The '_ref' token has to actually be present to say so:
+            # a locus nobody typed is no data, and reading absence as wildtype is the
+            # mistake this whole filter exists to avoid. Where it is present the sample
+            # is homozygous reference, since a heterozygote would carry both tokens,
+            # and no FILTER is consulted because a '_ref' token has none of its own.
+            denied = f"{locus}_ref" in vcf.variants
+        if denied:
+            bg.remove_pairs(
+                list(pairs),
+                "cant_revert_to_ref_cuz_a_passing_call_denies_it",
+                reverts_to_reference=False,
+            )
+            return bg
     return bg
 
 

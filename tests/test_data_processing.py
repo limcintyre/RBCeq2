@@ -3884,6 +3884,33 @@ class TestCantRevertToRefCuzAPassingCallDeniesIt(unittest.TestCase):
             self._run(bg)
         mock_logger.warning.assert_not_called()
 
+    def test_a_wildtype_call_denies_a_reference_that_needs_the_alternate(self):
+        """The other direction, at a lane locus where the reference wants the alternate.
+
+        Four of the 88 references are defined partly by an alternate because the
+        transcript reference differs from the genome reference there. HG04183 RHCE is
+        the only instance in nine datasets: RHCE*01 needs 25420739_G_C and the sample is
+        homozygous reference, so its '_ref' token is present and the alternate is not.
+        """
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {self.REF_567: {"GT": "1/1"}}
+        bg = self._run(self._bg())
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_a_locus_nobody_typed_is_not_read_as_wildtype(self):
+        """Absence of the '_ref' token is no data, and must never deny the reference."""
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_the_alternate_being_present_is_not_a_denial(self):
+        """The reference wants it and the sample has it, so nothing is denied."""
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {self.ALT_567: {"GT": "1/1"}}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
 
 class TestWarnIfCriticalVariantNotTrusted(unittest.TestCase):
     """One filtered row can remove most of a blood group's definitions at once.
