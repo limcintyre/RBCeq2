@@ -217,13 +217,10 @@ def record_filtered_data(results: tuple[Any], ref: str) -> None:
                 f"Vars: {format_vars(bg_data.variant_pool)}\n"
                 f"Vars_phase: {format_vars(bg_data.variant_pool_phase)}\n"
                 f"Vars_phase_set: {format_vars(bg_data.variant_pool_phase_set)}\n"
-                # Everything the sample carries at this blood group's loci that the pool
-                # does not hold - usually because FILTER discarded the allele needing it.
-                # Written only under --debug; empty when the stage did not run.
-                f"\nVars unused: {format_vars(bg_data.unused_pool)}\n"
-                f"Vars_phase: {format_vars(bg_data.unused_pool_phase)}\n"
-                f"Vars_phase_set: {format_vars(bg_data.unused_pool_phase_set)}\n"
-                f"\nVars_FILTERs: {format_plain(bg_data.unused_pool_filters)}\n"
+                f"\nVars_unused: {format_vars(bg_data.unused_pool)}\n"
+                f"Vars_unused_phase: {format_vars(bg_data.unused_pool_phase)}\n"
+                f"Vars_unused_phase_set: {format_vars(bg_data.unused_pool_phase_set)}\n"
+                f"\nVars_unused_FILTERs: {format_plain(bg_data.unused_pool_filters)}\n"
                 f"Raw: {'\n' + '\n'.join(map(str, bg_data.alleles[AlleleState.RAW]))}\n"
             )
 
