@@ -162,6 +162,84 @@ class TestVCFMethods(unittest.TestCase):
         }
         self.assertEqual(leaked, {})
 
+    @staticmethod
+    def _df_with_two_rows_for_one_variant(
+        gts: list[str], filters: list[str]
+    ) -> pd.DataFrame:
+        """Return a VCF-like DataFrame whose rows are all the same variant.
+
+        The shape a file takes when two callers both report a position and FILTER marks
+        which of them is the one that conflicts. One position, one REF/ALT, so every row
+        encodes to the same token.
+
+        Args:
+            gts (list[str]): One GT per row, in file order.
+            filters (list[str]): One FILTER value per row, in file order.
+
+        Returns:
+            pd.DataFrame: One row per genotype, all T>C at chr2:2000.
+        """
+        n = len(gts)
+        return pd.DataFrame(
+            {
+                "CHROM": ["chr2"] * n,
+                "POS": ["2000"] * n,
+                "ID": ["."] * n,
+                "REF": ["T"] * n,
+                "ALT": ["C"] * n,
+                "QUAL": ["."] * n,
+                "FILTER": filters,
+                "INFO": ["."] * n,
+                "FORMAT": ["GT:AD:GQ:DP:PS"] * n,
+                "SAMPLE": [f"{gt}:1,1:30:30:1" for gt in gts],
+            }
+        )
+
+    def test_get_variants_warns_when_rows_contradict_each_other(self) -> None:
+        """Two rows, one token, different genotypes - the discarded one gets named.
+
+        The dict keeps the last row read, so the genotype in use is whichever the file
+        ended with. Nothing downstream can see the earlier row, so this is the only
+        place the loss can be reported.
+        """
+        with patch("rbceq2.IO.vcf.logger") as mock_logger:
+            vcf_obj = VCF(
+                [
+                    self._df_with_two_rows_for_one_variant(
+                        ["0|1", "0/1"], ["PASS", "TargetedConflict"]
+                    )
+                ],
+                {},
+                set(),
+                sample="test_sample",
+            )
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["GT"], "0/1")
+        warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        contradiction = [w for w in warnings if "more than one row" in w]
+        self.assertEqual(len(contradiction), 1)
+        self.assertIn("2:2000_T_C (0|1 then 0/1)", contradiction[0])
+        self.assertIn("test_sample", contradiction[0])
+
+    def test_get_variants_silent_when_the_rows_agree(self) -> None:
+        """A duplicated row that says the same thing twice changes nothing.
+
+        The overwrite still happens and is still invisible, but there is nothing at
+        stake, and a warning that fires on those would teach the reader to skip it.
+        """
+        with patch("rbceq2.IO.vcf.logger") as mock_logger:
+            VCF(
+                [
+                    self._df_with_two_rows_for_one_variant(
+                        ["0/1", "0/1"], ["PASS", "TargetedConflict"]
+                    )
+                ],
+                {},
+                set(),
+                sample="test_sample",
+            )
+        warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        self.assertEqual([w for w in warnings if "more than one row" in w], [])
+
     def test_remove_home_ref_drops_haploid_zero(self) -> None:
         """Haploid '0' IS hom ref, wherever it is.
 

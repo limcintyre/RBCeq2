@@ -19,6 +19,12 @@ from rbceq2.core_logic.constants import (
 )
 from rbceq2.IO.encoders import VariantEncoderFactory
 
+# How many contradicted tokens get named in the warning before it says "and N more".
+# One line per sample either way - a jointly called cohort can contradict a dozen at
+# once and the point of the line is that the user goes and looks, not that it lists
+# them all.
+MAX_CONTRADICTED_TOKENS_LOGGED = 4
+
 
 def gt_of(sample_field: str) -> str:
     """Pull the GT out of a SAMPLE column value.
@@ -668,10 +674,20 @@ class VCF:
         one - see recode_gt_for_alt_index for why rewriting them would be worse than
         leaving them alone.
 
+        A token can be written more than once, because a file can carry more than one
+        row for the same variant - two callers both reporting, one of them flagged in
+        FILTER as the one that conflicts. The dict keeps the last row read, which is a
+        decision nobody made: it is whichever row the file happens to end with. Where
+        those rows agree on the genotype the choice does not matter, and where they do
+        not the genotype used is a property of the file's order, so that case is warned
+        about rather than resolved here. Resolving it means deciding which row to
+        believe, and that is not something this function can know.
+
         Returns:
             dict[str, str]: A dictionary of variants and their associated metrics.
         """
         vcf_variants = {}
+        genotypes_seen: dict[str, list[str]] = defaultdict(list)
         for variant, metrics, format in zip(
             list(self.df.variant), list(self.df["SAMPLE"]), list(self.df["FORMAT"])
         ):
@@ -693,11 +709,57 @@ class VCF:
                         per_alt_metrics["GT"] == "0"
                     ):
                         continue
+                    genotypes_seen[alt_variant].append(per_alt_metrics["GT"])
                     vcf_variants[alt_variant] = per_alt_metrics
             else:
+                genotypes_seen[variant].append(mapped_metrics["GT"])
                 vcf_variants[variant] = mapped_metrics
 
+        self._warn_about_contradicted_tokens(genotypes_seen)
+
         return vcf_variants
+
+    def _warn_about_contradicted_tokens(
+        self, genotypes_seen: dict[str, list[str]]
+    ) -> None:
+        """Say out loud where the file gave one variant more than one genotype.
+
+        get_variants keeps the last row it reads for a token and discards the earlier
+        ones. That is silent, and where the discarded row said something different it is
+        also load bearing: the pool, the zygosity and the phase all come from whichever
+        row the file ended with. Nothing else in the pipeline can see that a second row
+        existed, so the only place it can be reported is here.
+
+        Named per sample rather than per token, because the same handful of positions
+        recur across a whole cohort and a line each would bury the answer. The genotypes
+        are shown in the order the rows were read, so the last one listed is the one in
+        use.
+
+        A token every row agreed on is not reported. The overwrite happened, but it
+        changed nothing, and a warning that fires on a file where nothing is at stake
+        teaches the reader to ignore it.
+
+        Args:
+            genotypes_seen (dict[str, list[str]]): Token -> every genotype stored
+            against it, in the order the rows were read.
+        """
+        contradicted = sorted(
+            token for token, gts in genotypes_seen.items() if len(set(gts)) > 1
+        )
+        if not contradicted:
+            return
+        shown = ", ".join(
+            f"{token} ({' then '.join(genotypes_seen[token])})"
+            for token in contradicted[:MAX_CONTRADICTED_TOKENS_LOGGED]
+        )
+        if len(contradicted) > MAX_CONTRADICTED_TOKENS_LOGGED:
+            shown += f" and {len(contradicted) - MAX_CONTRADICTED_TOKENS_LOGGED} more"
+        logger.warning(
+            f"{self.sample}: {len(contradicted)} variant/s were reported on more than "
+            f"one row, with a different genotype each time. The last row in the file "
+            f"wins, so the genotype used here is a property of the file's order rather "
+            f"than of the data: {shown}"
+        )
 
 
 def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
