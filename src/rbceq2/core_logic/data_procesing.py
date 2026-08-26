@@ -542,6 +542,38 @@ def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
     return excludes
 
 
+def filter_values_for(vcf_var: str, df: pd.DataFrame) -> list[str]:
+    """Every FILTER value carried by the rows this token matched, in file order.
+
+    The one place the lookup itself lives. It was written out twice, and the two copies
+    differed in what they did with no row at all, which is a difference that has to
+    survive - see filter_value_for and only_keep_alleles_if_FILTER_PASS.
+
+    A list rather than a value because the answer is genuinely plural: a file can carry
+    more than one row for the same variant, and a row's variant cell can hold several
+    tokens comma joined, which is why the match is by substring rather than by equality.
+    Callers that want one value take the first, which is what both of them did before
+    and what they still do - the plural form is here so that the choice is visible at
+    the point it is made rather than hidden inside an index.
+
+    The str() is a no op on every input form to hand - 141,729 FILTER cells across short
+    read, long read and a jointly called cohort are all strings, lane synthesised rows
+    included. It is there to make the annotation true rather than to convert anything. A
+    cell with no value at all has never been seen and still has no defined behaviour: it
+    failed before this and it fails after it, differently.
+
+    Args:
+        vcf_var (str): The variant token.
+        df (pd.DataFrame): The sample's VCF rows.
+
+    Returns:
+        list[str]: The FILTER fields verbatim, empty where the token has no row.
+    """
+    matched = df.query("variant.str.contains(@vcf_var)")["FILTER"]
+
+    return [str(value) for value in matched]
+
+
 def filter_value_for(vcf_var: str, df: pd.DataFrame) -> str | None:
     """The FILTER field of the row this token came from, or None if it has no row.
 
@@ -552,10 +584,82 @@ def filter_value_for(vcf_var: str, df: pd.DataFrame) -> str | None:
     Returns:
         str | None: The FILTER field verbatim, or None where the token has no row.
     """
-    try:
-        return df.query("variant.str.contains(@vcf_var)")["FILTER"].iloc[0]
-    except IndexError:
-        return None
+    values = filter_values_for(vcf_var, df)
+
+    return values[0] if values else None
+
+
+def rows_disagree_about_exclusion(filter_values: list[str]) -> bool:
+    """Would the verdict change depending on which of these rows was read?
+
+    Not 'do the values differ'. Two rows can carry different values and still classify
+    the same way, and on the one input form where this happens today they always do -
+    'PASS' beside a value that marks which of two callers' rows is the one in conflict,
+    both of which mean the call itself is not in doubt. Reporting those would be
+    reporting nothing.
+
+    What matters is a pair the classification splits, because then the answer depends on
+    which row the file happens to list first. Nothing in the code holds that steady;
+    what holds it steady is which side of filter_values.tsv each value sits on, so a
+    value moving from one column to the other is enough to make the order load bearing
+    with no code change anywhere.
+
+    Args:
+        filter_values (list[str]): The FILTER fields of every row one token matched.
+
+    Returns:
+        bool: True where the rows do not agree about whether to exclude.
+    """
+    if len(filter_values) < 2:
+        return False
+
+    return len({filter_excludes_allele(value)[0] for value in filter_values}) > 1
+
+
+# How many order dependent tokens only_keep_alleles_if_FILTER_PASS names before it
+# summarises the rest. One line per blood group either way.
+MAX_ORDER_DEPENDENT_TOKENS_LOGGED = 4
+
+
+def warn_if_the_row_order_decided_it(
+    bg: BloodGroup, order_dependent: dict[str, list[str]]
+) -> None:
+    """Say out loud where the first row was taken and the second would have differed.
+
+    The lookup reads the first row a token matched. Where every matching row classifies
+    the same way that is a choice with no consequence, and this stays quiet. Where they
+    split, the allele was kept or dropped on the strength of which row the file lists
+    first, and nothing downstream can see that a second row said otherwise.
+
+    Expected to be silent. It was measured at zero across every input form to hand, and
+    that is the point rather than a reason to leave it out: the thing it watches is held
+    steady by a classification table rather than by any code, so it goes from never to
+    routinely the moment a value moves between columns of filter_values.tsv. Silence
+    here is the evidence that the order still does not matter.
+
+    One line per blood group, naming the tokens and both verdicts' values, because the
+    fix is to look at the rows.
+
+    Args:
+        bg (BloodGroup): The blood group whose alleles were just filtered.
+        order_dependent (dict[str, list[str]]): Token -> the FILTER values of every row
+        it matched, for the tokens whose rows did not agree.
+    """
+    if not order_dependent:
+        return
+    tokens = sorted(order_dependent)
+    shown = ", ".join(
+        f"{token} ({', '.join(order_dependent[token])})"
+        for token in tokens[:MAX_ORDER_DEPENDENT_TOKENS_LOGGED]
+    )
+    if len(tokens) > MAX_ORDER_DEPENDENT_TOKENS_LOGGED:
+        shown += f" and {len(tokens) - MAX_ORDER_DEPENDENT_TOKENS_LOGGED} more"
+    logger.warning(
+        f"Sample: {bg.sample}, BG: {bg.type}. {len(tokens)} variant/s were reported on "
+        f"more than one row, and the rows do not agree about whether the call is "
+        f"doubtful. The first row in the file was used, so the answer here depends on "
+        f"the order of the file: {shown}"
+    )
 
 
 def warn_if_critical_variant_not_trusted(bg: BloodGroup, df: pd.DataFrame) -> None:
@@ -1860,6 +1964,7 @@ def only_keep_alleles_if_FILTER_PASS(
         return bg
     passed_filtering = []
     unclassified: set[str] = set()
+    order_dependent: dict[str, list[str]] = {}
     for allele in bg.alleles[AlleleState.RAW]:
         keeper = True
         for variant in allele.defining_variants:
@@ -1867,14 +1972,14 @@ def only_keep_alleles_if_FILTER_PASS(
                 continue
             vcf_var = allele.big_variants.get(variant, variant)
             # loci = vcf_var.split("_")[0]
-            try:
-                filter_value = df.query("variant.str.contains(@vcf_var)")[
-                    "FILTER"
-                ].iloc[0]
-            except IndexError:
+            filter_values = filter_values_for(vcf_var, df)
+            if not filter_values:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
-                raise
+                raise IndexError(message)
+            if rows_disagree_about_exclusion(filter_values):
+                order_dependent[vcf_var] = filter_values
+            filter_value = filter_values[0]
             excludes, unknown = filter_excludes_allele(filter_value)
             unclassified.update(unknown)
             if excludes:
@@ -1889,6 +1994,7 @@ def only_keep_alleles_if_FILTER_PASS(
             f"reason to exclude. Sample: {bg.sample}, BG: {bg.type}. If it does not mean "
             "the call is doubtful, classify it there."
         )
+    warn_if_the_row_order_decided_it(bg, order_dependent)
 
     bg.filtered_out["FILTER_not_PASS"] = [
         allele

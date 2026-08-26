@@ -16,7 +16,11 @@ from rbceq2.core_logic.constants import (
 from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 from rbceq2.core_logic.data_procesing import (
     warn_if_critical_variant_not_trusted,
+    warn_if_the_row_order_decided_it,
     cant_revert_to_ref_cuz_a_passing_call_denies_it,
+    filter_values_for,
+    only_keep_alleles_if_FILTER_PASS,
+    rows_disagree_about_exclusion,
     variant_was_discarded,
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
@@ -3662,6 +3666,149 @@ class TestVariantWasDiscarded(unittest.TestCase):
         should never have been built and raising is the point.
         """
         self.assertFalse(variant_was_discarded("1:999999_G_A", self.df))
+
+class TestFilterValuesFor(unittest.TestCase):
+    """The lookup is plural, because a token can match more than one row.
+
+    Two callers both reporting the same position is one way; a multi-allelic row, whose
+    variant cell holds one token per alternate comma joined, is the other, and it is why
+    the match is by substring rather than by equality.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "variant": [
+                    "1:25408711_G_A",
+                    "1:25408711_G_A",
+                    "4:144120554_C_A",
+                    "9:133257521_T_TC,9:133257521_T_TCC",
+                ],
+                "FILTER": ["PASS", "TargetedConflict", "PASS", "LowQual"],
+            }
+        )
+
+    def test_one_row_gives_one_value(self):
+        self.assertEqual(filter_values_for("4:144120554_C_A", self.df), ["PASS"])
+
+    def test_two_rows_give_both_in_file_order(self):
+        self.assertEqual(
+            filter_values_for("1:25408711_G_A", self.df),
+            ["PASS", "TargetedConflict"],
+        )
+
+    def test_a_token_inside_a_comma_joined_cell_still_finds_its_row(self):
+        """The multi-allelic fan-out, which is why equality would be wrong here."""
+        self.assertEqual(filter_values_for("9:133257521_T_TCC", self.df), ["LowQual"])
+
+    def test_no_row_gives_nothing_rather_than_raising(self):
+        self.assertEqual(filter_values_for("1:999999_G_A", self.df), [])
+
+
+class TestRowsDisagreeAboutExclusion(unittest.TestCase):
+    """Different values are not the question - a different verdict is."""
+
+    def test_one_row_cannot_disagree(self):
+        self.assertFalse(rows_disagree_about_exclusion(["PASS"]))
+
+    def test_no_row_cannot_disagree(self):
+        self.assertFalse(rows_disagree_about_exclusion([]))
+
+    def test_different_values_that_classify_the_same_are_not_a_split(self):
+        """The shape the per sample short read form actually has.
+
+        'TargetedConflict' marks which of two callers' rows is the one in conflict, not
+        a doubt about the call, so it sits beside 'PASS' on the keeping side. Reporting
+        these would be reporting nothing.
+        """
+        self.assertFalse(rows_disagree_about_exclusion(["PASS", "TargetedConflict"]))
+        self.assertFalse(
+            rows_disagree_about_exclusion(["RecombinantConflict", "TargetedConflict"])
+        )
+
+    def test_a_split_verdict_is_the_thing_being_watched(self):
+        self.assertTrue(rows_disagree_about_exclusion(["PASS", "LowQual"]))
+
+    def test_an_unclassified_value_excludes_so_it_splits_against_PASS(self):
+        """An unrecognised value is read as a reason to exclude, so it can split a pair.
+
+        This is the route by which the watch stops being silent without anyone editing
+        filter_values.tsv: a file arriving with a value nobody classified yet.
+        """
+        self.assertTrue(rows_disagree_about_exclusion(["PASS", "NovelValue"]))
+
+
+class TestWarnIfTheRowOrderDecidedIt(unittest.TestCase):
+    """Silent unless the rows split, and one line per blood group when they do."""
+
+    @staticmethod
+    def _bg():
+        bg = MagicMock()
+        bg.sample = "test_sample"
+        bg.type = "RHCE"
+        return bg
+
+    def test_silent_when_nothing_split(self):
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(self._bg(), {})
+        mock_logger.warning.assert_not_called()
+
+    def test_names_the_token_and_both_values(self):
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(
+                self._bg(), {"1:25408711_G_A": ["PASS", "LowQual"]}
+            )
+        self.assertEqual(mock_logger.warning.call_count, 1)
+        message = mock_logger.warning.call_args.args[0]
+        self.assertIn("1:25408711_G_A (PASS, LowQual)", message)
+        self.assertIn("test_sample", message)
+        self.assertIn("RHCE", message)
+
+    def test_summarises_past_the_cap(self):
+        order_dependent = {
+            f"1:2540871{n}_G_A": ["PASS", "LowQual"] for n in range(6)
+        }
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(self._bg(), order_dependent)
+        message = mock_logger.warning.call_args.args[0]
+        self.assertIn("6 variant/s", message)
+        self.assertIn("and 2 more", message)
+
+
+class TestOnlyKeepAllelesIfFilterPassRaisesOnAMissingRow(unittest.TestCase):
+    """A defining variant with no row at all means the allele should not exist.
+
+    raw_results only builds an allele whose every defining variant is present, so this
+    is beyond logic rather than an input problem, and raising is the point - unlike
+    variant_was_discarded, where no row is simply no evidence.
+    """
+
+    @staticmethod
+    def _allele(variants):
+        return Allele(
+            genotype="RHCE*02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="RHCE",
+        )
+
+    def test_missing_row_raises_and_names_the_variant(self):
+        bg = BloodGroup(
+            type="RHCE",
+            alleles={AlleleState.RAW: [self._allele(["1:999999_G_A"])]},
+            sample="test_sample",
+        )
+        df = pd.DataFrame({"variant": ["1:25408711_G_A"], "FILTER": ["PASS"]})
+        with self.assertRaises(IndexError) as caught:
+            only_keep_alleles_if_FILTER_PASS({"RHCE": bg}, df=df, no_filter=False)
+        self.assertIn("1:999999_G_A", str(caught.exception))
+        self.assertIn("test_sample", str(caught.exception))
+
 
 class TestMakeVariantPoolPromotesOnlyDiscardedPartners(unittest.TestCase):
     """The promotion branch of make_variant_pool, which no other test reaches.
