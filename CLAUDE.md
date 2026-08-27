@@ -401,11 +401,17 @@ Things that look fine and are not. Verify against these before touching related 
     every one. `reconcile_duplicate_rows` (`vcf.py:618`) collapses these before anything
     reads them, keeping a phased genotype where either row has one and `;` joining the
     `FILTER` values.
-  - **One caller, two events, one token.** The kb rounding puts two real structural events
-    under one name — 479,720 collisions, up to **34 rows** on one token, 3,492 of them
-    carrying different genotypes. **Deliberately not reconciled**: they are not two readings
-    of one call, and `SvReader` takes its events off those rows. This is what the
-    duplicate-genotype warning now reports, and it is an open problem, not a solved one.
+  - **One caller, two events, one token.** `format_size` (`IO/encoders.py:128`) **floors**
+    rather than rounds, so a token buckets every size within 1,000 bp — 479,720 collisions,
+    up to **34 rows** on one token, 3,492 with different genotypes. **Deliberately not
+    reconciled**: they are not two readings of one call, and `SvReader` takes its events off
+    those rows. This is what the duplicate-genotype warning now reports.
+    **Scoped and found harmless, which is worth knowing before anyone tries to fix it:** the
+    token plays no part in matching — `select_best_per_vcf` groups by the *real*
+    `(chrom, pos, end, svtype)` — and a matched allele's genotype comes from the matched
+    event's own fields re-keyed under the database token (`main.py:483`), so nothing reads
+    the collided entry. 3,188 lookups measured across every dataset with structural calls,
+    none matching more than one row. Making the token precise is not a lever on anything.
   Reconciliation only touches single-base substitutions (`is_single_base_substitution`,
   `vcf.py:93`) — deliberately narrower than "not structural", because the structural
   reader's size threshold is `--min_size`, a runtime argument that layer never sees.
@@ -428,6 +434,14 @@ Things that look fine and are not. Verify against these before touching related 
   (25272548-25328922) from RHCE (25362527-25420796) with nothing telling it where the genes
   are. Breakpoint coordinates are deliberately imprecise anyway — a GT landing on one is a
   coincidence, not evidence.
+- **Nothing guarantees one VCF event per database SV definition.**
+  `select_best_per_vcf` promises at most one match per *event*; the loop at
+  `main.py:481-484` then writes `vcf.variants[f"{chrom}:{db.raw}"]` unconditionally, so two
+  events best-matching one definition means **the last one silently wins the genotype**.
+  This is in the path that decides the call, unlike the token collision above, and nothing
+  reports it. Measured at 0 across 3,188 matched keys — but the shape that produces it is
+  several near-identical events at one position, which is common on a merged or re-called
+  file. Assume it becomes reachable if matching changes.
 - **RH (RHD/RHCE) is long-read only** and explicitly unpolished. Short-read mismapping between
   the paralogs is considered intractable. Do not extend RH support to short read.
 - Fuzzy SV matching was tuned on ~7 unique real SVs and is acknowledged as probably overfit.
