@@ -17,6 +17,7 @@ from rbceq2.core_logic.constants import (
     LANE,
     PAR,
 )
+from rbceq2.core_logic.filter_semantics import FILTER_VALUE_SEPARATOR
 from rbceq2.IO.encoders import VariantEncoderFactory
 
 # How many contradicted tokens get named in the warning before it says "and N more".
@@ -87,6 +88,71 @@ def gt_names_an_allele(GT: str) -> bool:
         True
     """
     return any(call not in ("", ".") for call in re.split(r"[/|]", GT))
+
+
+def is_single_base_substitution(ref: str, alt: str, info: str) -> bool:
+    """Is this row a plain substitution of one base for another?
+
+    The test that decides which rows reconcile_duplicate_rows may touch, and it is
+    deliberately narrower than "not structural". The structural reader takes any row
+    whose INFO names a type, whose ALT is symbolic, or whose sequences differ by more
+    than --min_size, and that threshold is a run time argument this layer never sees.
+    One base on both sides sits below every threshold that argument could hold, so a
+    row matching this can never be one the structural reader wanted.
+
+    Conservative on purpose. Every duplicate small variant observed so far is a
+    substitution, so nothing is lost by it, and widening it later needs a real example
+    rather than an argument.
+
+    Args:
+        ref (str): The REF column.
+        alt (str): The ALT column.
+        info (str): The INFO column, checked for a structural type.
+
+    Returns:
+        bool: True where the row is one base substituted for another, carrying no
+        structural claim.
+    """
+    return (
+        len(str(ref)) == 1
+        and len(str(alt)) == 1
+        and "SVTYPE" not in str(info)
+    )
+
+
+def rows_make_the_same_call(gts: list[str]) -> bool:
+    """Do these genotypes say the same thing about the alternate?
+
+    Not string equality. Two callers can write the same call three ways and only one of
+    the differences is a disagreement:
+
+    - '0|1' and '0/1' - the same call, one of them phased. Agree.
+    - '1/1' and '1|1' - likewise, though phase says nothing about a homozygote.
+    - '1/1/1/1' and '1/1' - different ploidy, same claim: every copy carries it. Agree.
+      A gene conversion caller reporting a paralogue pair writes the first, the general
+      caller the second, and neither is wrong.
+    - '0|1' and '1/1' - a real disagreement, and nothing here resolves it.
+
+    So the test is: identical once the separator is normalised, or every copy reference
+    on both sides, or every copy alternate on both sides. Ploidy is per genotype in a
+    VCF, so differing ploidy is not by itself a disagreement.
+
+    Args:
+        gts (list[str]): The genotypes of the rows carrying one token, in file order.
+
+    Returns:
+        bool: True where every row makes the same claim about the alternate.
+    """
+    normalised = {gt.replace("|", "/") for gt in gts}
+    if len(normalised) == 1:
+        return True
+    calls = [[c for c in gt.replace("|", "/").split("/")] for gt in gts]
+    if any("." in call for call in calls):
+        return False
+    if all(set(call) == {"0"} for call in calls):
+        return True
+
+    return all(set(call) == {"1"} for call in calls)
 
 
 def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:
@@ -309,6 +375,10 @@ class VCF:
         self.remove_home_ref()
         self.encode_variants()
         self.add_loci()
+        # Before add_lane_variants and before get_variants, which is the point: both
+        # pick a row per token and they pick different ones. After this there is one row
+        # to pick.
+        self.reconcile_duplicate_rows()
         object.__setattr__(self, "loci", self.set_loci())
         self.add_lane_variants()
         object.__setattr__(self, "variants", self.get_variants())
@@ -544,6 +614,84 @@ class VCF:
             set[str]: The set of loci identifiers.
         """
         return set(self.df.loci)
+
+    def reconcile_duplicate_rows(self) -> None:
+        """Collapse the rows a file gives more than once for one small variant.
+
+        A VCF can carry several rows for the same variant - a run configured to emit
+        both a targeted caller's calls and the general caller's does exactly that, and
+        marks in FILTER which row conflicts. Three places then pick a row, and they do
+        not pick the same one: get_variants keeps the last it reads, so the genotype,
+        the phase and every metric come from there; the FILTER lookups take the first;
+        and add_lane_variants reads the first to decide whether to synthesise the '_ref'
+        partner, then copies that row to make it. Nobody chose that, and it is why a
+        sample can hold a lane locus whose two halves disagree about phase, the '_ref'
+        side carrying a phase set from the row whose genotype was thrown away.
+
+        None of those three sites is wrong on its own. What is wrong is that there is
+        more than one row to pick from, so this removes the choice rather than
+        arbitrating it three times. It runs before all of them.
+
+        What it does, per token:
+
+        - Rows that disagree about the call are left alone. Reconciling them would mean
+          deciding which caller to believe, which is not something this layer can know.
+          The duplicate genotype warning already names them.
+        - Rows that agree collapse to one. The kept row is a phased one wherever any row
+          is phased, since an unphased genotype does not contradict a phased one - it is
+          the same call, less specific - and today's reading discards the phase in 825
+          heterozygous calls for no reason but file order. Where the rows tie, the last
+          is kept, which is what get_variants did.
+        - The kept row's FILTER becomes every distinct value, ';' joined. Not a new
+          convention: a FILTER field already carries several values that way, and
+          filter_excludes_allele already splits on it and excludes if any one of them
+          says the call is doubtful. Joining is what makes the verdict independent of
+          which row the file lists first, and it errs towards excluding.
+
+        Only single base substitutions are touched - see is_single_base_substitution for
+        why the bar sits there rather than at "not structural". Rows the structural
+        reader wants are never removed, whatever --min_size is set to. A token whose
+        rows round together because their sizes do is a different problem: those are two
+        real events sharing a name, not two readings of one.
+        """
+        if "variant" not in self.df.columns or self.df.empty:
+            return
+
+        droppable: list[int] = []
+        for token, group in self.df.groupby("variant", sort=False):
+            if len(group) < 2:
+                continue
+            rows = list(group.itertuples(index=True, name="Row"))
+            if not all(
+                is_single_base_substitution(row.REF, row.ALT, row.INFO) for row in rows
+            ):
+                continue
+            gts = [gt_of(row.SAMPLE) for row in rows]
+            if not rows_make_the_same_call(gts):
+                continue
+
+            keep = rows[-1]
+            for row, gt in zip(rows, gts):
+                if "|" in gt:
+                    keep = row
+                    break
+
+            values: list[str] = []
+            for row in rows:
+                value = str(row.FILTER)
+                if value not in values:
+                    values.append(value)
+            self.df.loc[keep.Index, "FILTER"] = FILTER_VALUE_SEPARATOR.join(values)
+            droppable.extend(row.Index for row in rows if row.Index != keep.Index)
+
+        if droppable:
+            logger.info(
+                f"{self.sample}: {len(droppable)} duplicate row/s were reconciled - a "
+                f"variant reported more than once, by rows that agree about the call. "
+                f"One row is kept, preferring a phased genotype, and it carries every "
+                f"FILTER value the rows had"
+            )
+            self.df = self.df.drop(index=droppable)
 
     def add_lane_variants(self) -> None:
         """Add lane-specific variants to the DataFrame based on existing loci,

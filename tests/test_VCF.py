@@ -196,38 +196,36 @@ class TestVCFMethods(unittest.TestCase):
         )
 
     def test_get_variants_warns_when_rows_contradict_each_other(self) -> None:
-        """Two rows, one token, different genotypes - the discarded one gets named.
+        """Two rows, one token, genotypes that cannot both be right.
 
-        The dict keeps the last row read, so the genotype in use is whichever the file
-        ended with. Nothing downstream can see the earlier row, so this is the only
-        place the loss can be reported.
+        Rows that agree are reconciled before get_variants runs, so what reaches it is
+        the case reconciliation declined to arbitrate: the rows disagree about the call
+        and nothing at this layer can know which caller to believe. The dict keeps the
+        last, so the genotype in use is whichever the file ended with, and this is the
+        only place that loss can be reported.
         """
         with patch("rbceq2.IO.vcf.logger") as mock_logger:
             vcf_obj = VCF(
                 [
                     self._df_with_two_rows_for_one_variant(
-                        ["0|1", "0/1"], ["PASS", "TargetedConflict"]
+                        ["0|1", "1/1"], ["PASS", "TargetedConflict"]
                     )
                 ],
                 {},
                 set(),
                 sample="test_sample",
             )
-        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["GT"], "0/1")
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["GT"], "1/1")
         warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
         contradiction = [w for w in warnings if "more than one row" in w]
         self.assertEqual(len(contradiction), 1)
-        self.assertIn("2:2000_T_C (0|1 then 0/1)", contradiction[0])
+        self.assertIn("2:2000_T_C (0|1 then 1/1)", contradiction[0])
         self.assertIn("test_sample", contradiction[0])
 
     def test_get_variants_silent_when_the_rows_agree(self) -> None:
-        """A duplicated row that says the same thing twice changes nothing.
-
-        The overwrite still happens and is still invisible, but there is nothing at
-        stake, and a warning that fires on those would teach the reader to skip it.
-        """
+        """Rows that agree never reach get_variants - they were reconciled to one."""
         with patch("rbceq2.IO.vcf.logger") as mock_logger:
-            VCF(
+            vcf_obj = VCF(
                 [
                     self._df_with_two_rows_for_one_variant(
                         ["0/1", "0/1"], ["PASS", "TargetedConflict"]
@@ -239,6 +237,86 @@ class TestVCFMethods(unittest.TestCase):
             )
         warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
         self.assertEqual([w for w in warnings if "more than one row" in w], [])
+        self.assertEqual(len(vcf_obj.df), 1)
+
+    def test_reconciliation_keeps_the_phased_row(self) -> None:
+        """An unphased genotype does not contradict a phased one - it is less specific.
+
+        Discarding the phase because the unphased row happens to come second is the
+        825 heterozygous calls this exists to stop losing.
+        """
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "0/1"], ["PASS", "TargetedConflict"]
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(len(vcf_obj.df), 1)
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["GT"], "0|1")
+
+    def test_reconciliation_joins_every_FILTER_value(self) -> None:
+        """A FILTER field already carries several values ';' joined, and the classifier
+        already splits on it, so the verdict stops depending on which row is first."""
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "0/1"], ["PASS", "TargetedConflict"]
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(vcf_obj.df["FILTER"].tolist(), ["PASS;TargetedConflict"])
+
+    def test_reconciliation_accepts_a_difference_of_ploidy_alone(self) -> None:
+        """'1/1/1/1' and '1/1' are the same claim: every copy carries the alternate.
+
+        A gene conversion caller reporting a paralogue pair writes the first and the
+        general caller the second. Ploidy is per genotype in a VCF, so differing ploidy
+        is not by itself a disagreement.
+        """
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["1/1/1/1", "1/1"], ["PASS", "TargetedConflict"]
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(len(vcf_obj.df), 1)
+
+    def test_reconciliation_leaves_disagreeing_rows_alone(self) -> None:
+        """Deciding which caller to believe is not something this layer can know."""
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "1/1"], ["PASS", "TargetedConflict"]
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(len(vcf_obj.df), 2)
+
+    def test_reconciliation_will_not_touch_a_structural_row(self) -> None:
+        """The structural reader takes its events off these rows, and its size threshold
+        is a run time argument this layer never sees."""
+        frame = self._df_with_two_rows_for_one_variant(
+            ["0/1", "0/1"], ["PASS", "PASS"]
+        )
+        frame["REF"] = ["N", "N"]
+        frame["ALT"] = ["<DEL>", "<DEL>"]
+        frame["INFO"] = ["SVTYPE=DEL;END=2500", "SVTYPE=DEL;END=2500"]
+        vcf_obj = VCF([frame], {}, set(), sample="test_sample")
+        self.assertEqual(len(vcf_obj.df), 2)
 
     def test_remove_home_ref_drops_haploid_zero(self) -> None:
         """Haploid '0' IS hom ref, wherever it is.
