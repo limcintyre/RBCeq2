@@ -314,6 +314,27 @@ Things that look fine and are not. Verify against these before touching related 
   distinction `chrom_copies`/`locus_copies` exists to draw, and pairing with the reference
   instead — the option that looks tidiest — asserts wildtype on a chromosome there is positive
   evidence against. All three are user visible and documented; see `constants.py:584-615`.
+- **Ploidy is per genotype, not per file, and above two copies the question is dosage.**
+  Nothing in a VCF header declares ploidy; it is the number of allele indices in each `GT`,
+  so it varies legitimately between samples and between records. A genotype naming four
+  copies is ordinary input, and a gene conversion caller reporting a paralogue pair writes
+  one. It is read where its **dosage** — the count of alternate copies — is 0 or equals
+  the ploidy, because only then does it project onto the chromosomes the sample has
+  whichever copies go where; anything between refuses by name,
+  `get_ref/dosage_between_the_bounds` (`zygosity_of_non_diploid_GT`,
+  `data_procesing.py:1565`). Three traps in one branch:
+  - **Count, never pattern match.** Ascending order in an unphased genotype is a convention,
+    not a rule, so `1/0/1/1` and `0/1/1/1` are the same statement and a shape test misses
+    one.
+  - **The missing genotype scales too** — `./././.` is what `./.` is at four copies, and
+    it read as an error until v2.4.7 because the no-call test sat after the ploidy gate.
+  - **`HOM_REF_GTS` covers the high-ploidy spellings by prefix, not by decision.**
+    `'0/0/0/0'.startswith('0/0')` is what drops those rows in `remove_home_ref`
+    (`vcf.py:587`); "tidying" that into exact matching reopens the gap silently. The
+    membership test in `get_variants` (`:848`) is exact and does *not* cover them, which is
+    harmless only because dosage 0 now encodes as absence rather than as a homozygous ALT.
+  `Number=G` fields (`PL`, `GL`, `GP`) grow combinatorially with ploidy, which is irrelevant
+  here: **only `GT` and `PS` are ever read off a row.**
 - **`./.` is overloaded two ways**: a genuine no-call and, from copy-number-aware callers, zero
   copies. These mean opposite things. The synthesised lane row is *not* one of them any more —
   it carries `SYNTHESISED_HOM_REF_GT` (`constants.py:23`), which is the only legitimate
@@ -371,6 +392,31 @@ Things that look fine and are not. Verify against these before touching related 
   zero; and the recode is applied *only* to rows with more than one ALT, so a single-ALT row
   with a GT like `2/2` still raises rather than being silently zeroed. Mixed SV/small
   multi-allelic rows (`ALT=<DEL>,G`) are **not** handled — one encoder claims the whole row.
+- **A VCF can carry more than one row for one variant, and there are two unrelated reasons
+  why.** Told apart by the FORMAT keys, which is the only reliable signal: two rows written
+  by the same caller declare the same fields, two callers do not.
+  - **Two callers, one variant.** A run emitting both a targeted caller's calls and the
+    general caller's, with `FILTER` marking which row conflicts. Measured: 2,791 collisions
+    in 591 of 967 samples, five RHCE tokens, one input form; the FORMAT keys differ in
+    every one. `reconcile_duplicate_rows` (`vcf.py:618`) collapses these before anything
+    reads them, keeping a phased genotype where either row has one and `;` joining the
+    `FILTER` values.
+  - **One caller, two events, one token.** The kb rounding puts two real structural events
+    under one name — 479,720 collisions, up to **34 rows** on one token, 3,492 of them
+    carrying different genotypes. **Deliberately not reconciled**: they are not two readings
+    of one call, and `SvReader` takes its events off those rows. This is what the
+    duplicate-genotype warning now reports, and it is an open problem, not a solved one.
+  Reconciliation only touches single-base substitutions (`is_single_base_substitution`,
+  `vcf.py:93`) — deliberately narrower than "not structural", because the structural
+  reader's size threshold is `--min_size`, a runtime argument that layer never sees.
+- **The `FILTER` lookup can match several rows, and it takes the first.**
+  `filter_values_for` (`data_procesing.py:545`) is the one place it happens; it returns a
+  list because the answer is genuinely plural, and the substring match is load-bearing for
+  the multi-allelic fan-out, so exact equality would break it. Where the matched rows
+  classify differently the verdict depends on file order, which
+  `rows_disagree_about_exclusion` (`:592`) watches for. Zero on every input to hand — what
+  holds it at zero is which column of `filter_values.tsv` a value sits in, not anything in
+  the code.
 - **A structural token's position is not a locus of the gene that carries the allele.** On a
   gene conversion allele the `DEL` is in this gene's coordinates and the paired `INS` is in
   the *donor's* — `RHD*01N.43` is `25272547_DEL_18244` in RHD plus `25402595_INS_18269` in
