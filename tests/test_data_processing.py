@@ -18,6 +18,7 @@ from rbceq2.core_logic.data_procesing import (
     warn_if_critical_variant_not_trusted,
     warn_if_the_row_order_decided_it,
     cant_revert_to_ref_cuz_a_passing_call_denies_it,
+    dosage_of,
     filter_values_for,
     only_keep_alleles_if_FILTER_PASS,
     rows_disagree_about_exclusion,
@@ -257,6 +258,115 @@ class TestMakeVariantPool(unittest.TestCase):
 
         with self.assertRaises(BeyondLogicError):
             make_variant_pool({1: self.bg}, invalid_vcf)
+
+
+class TestDosageOf(unittest.TestCase):
+    """Dosage is counted, not pattern matched.
+
+    Ascending order in an unphased genotype is a convention, not a rule, so anything
+    that recognised '0/1/1/1' by its shape would silently miss '1/0/1/1'.
+    """
+
+    def test_counts_rather_than_matching_a_shape(self):
+        self.assertEqual(dosage_of(("0", "1", "1", "1")), 3)
+        self.assertEqual(dosage_of(("1", "0", "1", "1")), 3)
+        self.assertEqual(dosage_of(("1", "1", "1", "0")), 3)
+
+    def test_bounds(self):
+        self.assertEqual(dosage_of(("0", "0", "0", "0")), 0)
+        self.assertEqual(dosage_of(("1", "1", "1", "1")), 4)
+
+    def test_diploid_and_haploid_use_the_same_rule(self):
+        self.assertEqual(dosage_of(("0", "1")), 1)
+        self.assertEqual(dosage_of(("1",)), 1)
+
+
+class TestGetRefAboveTwoCopies(unittest.TestCase):
+    """A genotype naming more than two copies is ordinary input, not a broken file.
+
+    Ploidy is per genotype in a VCF - nothing in the header declares it and it is simply
+    the number of allele indices - so it varies legitimately between records. Until
+    v2.4.7 every genotype above two copies fell into the haploid rejection, which both
+    refused readable input and described it wrongly: a message about a haploid genotype
+    needing one chromosome, for a call naming four.
+
+    The real example is a gene conversion caller reporting four copies of a paralogue
+    pair, where every copy carries the alternate.
+    """
+
+    def test_every_copy_alternate_is_homozygous(self):
+        """Dosage equals ploidy, so every chromosome carries it however copies are
+        assigned."""
+        self.assertEqual(get_ref({"GT": "1/1/1/1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "1|1|1|1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "1/1/1"}), Zygosity.HOM)
+
+    def test_no_copy_alternate_is_absence(self):
+        """Dosage 0 - the token has zero copies, which absence encodes.
+
+        Matches what the haploid '0' branch does with the same statement. These are
+        dropped upstream by remove_home_ref, whose prefix test already covers the higher
+        ploidy spellings, so reaching here means the pool was built from a frame that
+        never went through it.
+        """
+        self.assertEqual(get_ref({"GT": "0/0/0/0"}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0|0|0|0"}), Zygosity.NO_DATA)
+
+    def test_no_call_is_no_data_at_any_ploidy(self):
+        """'./././.' is what './.' is at four copies.
+
+        The no call test used to sit after the ploidy gate, so it was never reached for
+        anything above two copies and the spec's own missing genotype raised.
+        """
+        self.assertEqual(get_ref({"GT": "./././."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": ".|.|.|."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0/./1/1"}), Zygosity.NO_DATA)
+
+    def test_dosage_between_the_bounds_is_refused_by_name(self):
+        """Which chromosome carries which copy is undetermined, and no rule recovers it.
+
+        'Heterozygous' would also collapse '0/0/0/1' and '0/1/1/1' onto one label, which
+        is the distinction the extra copies exist to draw.
+        """
+        for GT in ["0/1/1/1", "1/0/1/1", "0/0/0/1", "0/0/1/1", "0|1|1|1"]:
+            with self.assertRaises(BeyondLogicError) as caught:
+                get_ref({"GT": GT}, "1:25408711_G_A")
+            self.assertEqual(
+                caught.exception.raised_by, "get_ref/dosage_between_the_bounds"
+            )
+            self.assertIn("1:25408711_G_A", str(caught.exception))
+
+    def test_the_message_says_the_dosage_it_found(self):
+        with self.assertRaises(BeyondLogicError) as caught:
+            get_ref({"GT": "0/1/1/1"})
+        self.assertIn("3 of 4", str(caught.exception))
+
+    def test_multi_allelic_above_two_copies_is_still_refused(self):
+        for GT in ["0/1/2/2", "1/2/2/2", "0/1/2"]:
+            with self.assertRaises(BeyondLogicError) as caught:
+                get_ref({"GT": GT})
+            self.assertEqual(
+                caught.exception.raised_by, "get_ref/multi_allelic_non_diploid_GT"
+            )
+
+    def test_the_haploid_rejection_now_only_describes_haploid_genotypes(self):
+        """Everything above two copies is handled before it, so its message is true.
+
+        It used to catch four-copy genotypes and tell the user about a haploid one
+        needing either one chromosome or one copy of the gene.
+        """
+        with self.assertRaises(BeyondLogicError) as caught:
+            get_ref({"GT": "1"})
+        self.assertEqual(
+            caught.exception.raised_by,
+            "get_ref/haploid_GT_where_neither_count_is_one",
+        )
+
+    def test_diploid_and_haploid_paths_are_untouched(self):
+        self.assertEqual(get_ref({"GT": "0/1"}), Zygosity.HET)
+        self.assertEqual(get_ref({"GT": "1/1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "./."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "1"}, "v", 1, None), Zygosity.HEM)
 
 
 class TestGetRef(unittest.TestCase):

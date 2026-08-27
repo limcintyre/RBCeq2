@@ -1544,6 +1544,124 @@ def parse_GT(GT: str) -> tuple[str, ...]:
     return tuple(re.split(r"[/|]", GT))
 
 
+def dosage_of(alleles: tuple[str, ...]) -> int:
+    """How many of the named copies carry an alternate.
+
+    Counted, never pattern matched. Sorting an unphased genotype's alleles ascending is
+    a
+    convention rather than a rule, so '1/0/1/1' and '0/1/1/1' are the same statement and
+    anything that recognised one spelling would silently miss the other.
+
+    Args:
+        alleles (tuple[str, ...]): The allele indices, from parse_GT. No '.' expected -
+        a no call is not a dosage and the caller tests for it first.
+
+    Returns:
+        int: The number of copies carrying something other than the reference.
+    """
+    return sum(1 for allele in alleles if allele != "0")
+
+
+def zygosity_of_non_diploid_GT(
+    alleles: tuple[str, ...],
+    GT: str,
+    variant: str,
+    chrom_copies: int,
+    locus_copies: int | None,
+) -> str:
+    """Read a genotype naming more than two copies, or refuse it by name.
+
+    Ploidy is per genotype in a VCF, not per file - nothing in the header declares it
+    and
+    it is simply the number of allele indices, so it varies legitimately between samples
+    and between records. A genotype above two copies is therefore ordinary input, not a
+    malformed file, and the question is only whether it can be read.
+
+    It can, on exactly one condition. A genotype projects onto the chromosomes this
+    sample
+    has when its **dosage** - the number of copies carrying the alternate - is 0 or
+    equals
+    the ploidy:
+
+    - dosage 0: no copy carries the alternate, so no chromosome does. The token has zero
+      copies and absence is how that is encoded, which is what the haploid '0' branch
+      does with the same statement.
+    - dosage == ploidy: every copy carries it, so every chromosome does, whichever
+    copies
+      go where. Homozygous.
+    - anything between: which chromosome carries which copy is undetermined, and no rule
+      recovers it. 'Heterozygous' would be a guess dressed as an answer, and it would
+      also
+      lose the distinction the extra copies exist to draw - at four copies '0/0/0/1' and
+      '0/1/1/1' are different statements and both would land on the same label.
+
+    A gene conversion caller that reports four copies of a paralogue pair is the case
+    this
+    was written for; a pooled or genuinely polyploid call set is the case that will be
+    refused, throughout rather than occasionally, which is the right answer since this
+    tool calls the genotype of one individual.
+
+    Args:
+        alleles (tuple[str, ...]): The allele indices, from parse_GT.
+        GT (str): The genotype as written, for the error context.
+        variant (str): The variant it belongs to, so an error is traceable to a VCF row.
+        chrom_copies (int): Copies of the region the sample was born with.
+        locus_copies (int | None): Copies of the gene the caller reported, or None.
+
+    Returns:
+        str: 'Homozygous' where every copy carries the alternate, 'No_data' where the
+        genotype is a no call or no copy carries it.
+
+    Raises:
+        BeyondLogicError: If the dosage is between the bounds, or the genotype names an
+        alternate the row does not have.
+    """
+    if "." in alleles:
+        # A no call is a no call at any ploidy - './././.' is what './.' is at four
+        # copies. No dosage is being claimed, so there is nothing to be ambiguous about.
+        return Zygosity.NO_DATA
+
+    if not set(alleles) <= {"0", "1"}:
+        raise BeyondLogicError(
+            message=(
+                "Multi-allelic genotypes are not supported. A genotype naming more "
+                "than two copies names an alternate allele this row does not have, "
+                "so the row was not split into one alternate per row. Please split "
+                "the VCF first, ie 'bcftools norm -m -both'."
+            ),
+            context=(
+                f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}, "
+                f"locus_copies: {locus_copies}"
+            ),
+            raised_by="get_ref/multi_allelic_non_diploid_GT",
+        )
+
+    dosage = dosage_of(alleles)
+    if dosage == 0:
+        # remove_home_ref drops these, so reaching here means the pool was built from a
+        # df that never went through it. Absence is still the right encoding.
+        return Zygosity.NO_DATA
+    if dosage == len(alleles):
+        return Zygosity.HOM
+
+    raise BeyondLogicError(
+        message=(
+            "A genotype naming more than two copies is read only where every copy "
+            f"agrees. Here {dosage} of {len(alleles)} carry the alternate, so which "
+            "chromosome carries which copy is undetermined and there is no way to "
+            "report it against the allele slots this sample has. A call set whose "
+            "dosage sits between the bounds throughout is usually pooled or "
+            "genuinely polyploid; "
+            "this tool calls the genotype of one individual."
+        ),
+        context=(
+            f"variant: {variant}, GT: {GT}, chrom_copies: {chrom_copies}, "
+            f"locus_copies: {locus_copies}"
+        ),
+        raised_by="get_ref/dosage_between_the_bounds",
+    )
+
+
 def get_ref(
     ref_dict: dict[str, str],
     variant: str = "",
@@ -1592,7 +1710,18 @@ def get_ref(
 
     A haploid GT with neither count at 1 is still rejected. That is a locus whose
     neighbours in the same gene were diploid, so the file is claiming one copy and two at
-    once and there is nothing to prefer between them.
+    once and there is nothing to prefer between them. That rejection now only ever
+    describes a haploid genotype, which is what its message says: everything above two
+    copies is handled before it, by zygosity_of_non_diploid_GT.
+
+    A GT naming more than two copies is ordinary input rather than a broken file -
+    ploidy
+    is per genotype in a VCF and nothing declares it - and is read where its dosage is 0
+    or equals its ploidy, refused otherwise. See zygosity_of_non_diploid_GT for why that
+    is the exact condition. Until v2.4.7 every one of them fell into the haploid
+    rejection
+    above, including './././.', which is the no call spelled at four copies and should
+    always have read as No_data.
 
     Multi-allelic genotypes are rejected rather than guessed at - the VCF needs splitting
     with 'bcftools norm -m -both' first. The '.' check runs before the biallelic check, so
@@ -1616,7 +1745,8 @@ def get_ref(
 
     Raises:
         BeyondLogicError: If the genotype is haploid where neither the region nor the gene
-        has one copy, or is multi-allelic.
+        has one copy, is multi-allelic, or names more than two copies with a dosage
+        between the bounds.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
     GT = ref_dict["GT"]
@@ -1648,6 +1778,11 @@ def get_ref(
                 raised_by="get_ref/multi_allelic_haploid_GT",
             )
         return Zygosity.HEM
+
+    if len(alleles) > 2:
+        return zygosity_of_non_diploid_GT(
+            alleles, GT, variant, chrom_copies, locus_copies
+        )
 
     if len(alleles) != 2:
         raise BeyondLogicError(
