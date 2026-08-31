@@ -109,6 +109,49 @@ class TestShippedTable(unittest.TestCase):
         self.assertEqual(meanings["LowMLSQ"], FilterMeaning.SITE_STATISTIC)
         self.assertEqual(meanings["DUP"], FilterMeaning.NOT_CORRECTNESS)
 
+    def test_the_structural_and_copy_number_values_are_recognised(self):
+        """Ten values that were reaching the table unclassified.
+
+        Every one is a reason to doubt this sample's call - a CNV quality score, a QUAL
+        threshold, a depth or mappability anomaly at a breakend - so all ten classify as
+        sample_call and go on excluding exactly as they did while unrecognised. What
+        changes is the second half of the tuple: they no longer report as unclassified,
+        so the warning stops firing on values somebody has already ruled on and a
+        genuinely new vocabulary still stands out.
+
+        Two of them, MaxMQ0Frac and NoPairSupport, describe a statistic over "all
+        samples" and so read as site-scoped on a jointly called file and sample-scoped on
+        a single-sample one. Both forms occur here and the table is keyed by value alone,
+        so it cannot hold both readings; sample_call is the side that keeps the stricter
+        behaviour.
+        """
+        filter_value_meanings.cache_clear()
+        for value in (
+            "Ploidy",
+            "cnvLikelihoodRatio",
+            "cnvQual",
+            "MinQUAL",
+            "MaxDepth",
+            "MaxMQ0Frac",
+            "NoPairSupport",
+            "dinucQual",
+            "DRAGENIndelHardQUAL",
+            "MosaicLowAF",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(filter_excludes_allele(value), (True, ()))
+
+    def test_ploidy_agrees_with_the_value_beside_it(self):
+        """'Ploidy' and 'PloidyConflict' describe the same kind of inconsistency.
+
+        One is the structural caller saying overlapping genotypes cannot all be right,
+        the other the small variant caller saying a genotype disagrees with the
+        chromosome ploidy. They were classified years apart and must not diverge.
+        """
+        filter_value_meanings.cache_clear()
+        meanings = filter_value_meanings()
+        self.assertEqual(meanings["Ploidy"], meanings["PloidyConflict"])
+
     def test_long_read_behaviour_is_unchanged(self):
         """LowQual is the only non-PASS value at database loci on both long-read sets.
 
