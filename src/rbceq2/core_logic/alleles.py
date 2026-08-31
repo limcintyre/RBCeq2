@@ -357,7 +357,8 @@ class BloodGroup:
         locus_copies (int | None):
             How many copies of this *gene* are still present, as opposed to how many
             chromosomes the sample was born with. None means no caller said, which is the
-            overwhelmingly common case and the behaviour before v2.4.5; it is not the same
+            overwhelmingly common case and the behaviour before locus_copies existed; it
+            is not the same
             as 2, and is kept distinct so 'nobody measured' cannot be read as 'measured,
             two'.
 

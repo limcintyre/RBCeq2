@@ -1020,7 +1020,7 @@ def _modify_variant_pool_with_large_indel(
                             aware caller writes for a heterozygous deletion, a haploid
                             '1' rather than '0/1'.
 
-    Both are named explicitly. Until v2.4.6 only the first was, and the second tripped a
+    Both are named explicitly. Only the first used to be, and the second tripped a
     bare assert - so an ordinary heterozygous deletion from a copy number aware caller
     crashed the sample, or, under 'python -O', silently did not. See issue #40.
 
@@ -1694,7 +1694,7 @@ def get_ref(
     A haploid GT is interpreted where either count is 1, and they are different claims
     reaching the same zygosity. chrom_copies is 1 outside PAR on X/Y, where the sample
     carries one chromosome. locus_copies is 1 where a caller reported one copy of the gene
-    consistently across it, which since v2.4.5 covers autosomes - state table rows D2 and
+    consistently across it, which now covers autosomes - state table rows D2 and
     D3. Either way '1' is Hemizygous and '.' is No_data; '0' never arrives, because
     remove_home_ref drops it the way it drops '0/0'.
 
@@ -1715,13 +1715,11 @@ def get_ref(
     copies is handled before it, by zygosity_of_non_diploid_GT.
 
     A GT naming more than two copies is ordinary input rather than a broken file -
-    ploidy
-    is per genotype in a VCF and nothing declares it - and is read where its dosage is 0
-    or equals its ploidy, refused otherwise. See zygosity_of_non_diploid_GT for why that
-    is the exact condition. Until v2.4.7 every one of them fell into the haploid
-    rejection
-    above, including './././.', which is the no call spelled at four copies and should
-    always have read as No_data.
+    ploidy is per genotype in a VCF and nothing declares it - and is read where its
+    dosage is 0 or equals its ploidy, refused otherwise. See zygosity_of_non_diploid_GT
+    for why that is the exact condition. Before that branch existed every one of them
+    fell into the haploid rejection above, including './././.', which is the no call
+    spelled at four copies and should always have read as No_data.
 
     Multi-allelic genotypes are rejected rather than guessed at - the VCF needs splitting
     with 'bcftools norm -m -both' first. The '.' check runs before the biallelic check, so

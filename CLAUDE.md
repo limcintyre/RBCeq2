@@ -9,8 +9,7 @@ against ISBT-defined alleles. It builds every possible allele from the observed 
 filters candidates with explicit logic checks until only viable pairs remain. The value
 proposition is the **auditable trail** — every exclusion is recorded with a named reason.
 
-Package `rbceq2` v2.4.4 · database v2.5.0 · Python ≥3.12 · maintained by Australian Red Cross
-Lifeblood.
+Package `rbceq2` · database curated by Australian Red Cross Lifeblood · Python ≥3.12
 
 ## Hard rules
 
@@ -29,14 +28,6 @@ Lifeblood.
 6. **Real examples in doc strs.** Use google style doc strings, however, many of the examples 
    in the existing functions have copy paste from logs and this is not always formatted perfectly,
    Do no change these - they are real examples of the function (normally a filter).
-7. **Do not delete anything, and do not write outside the working directory or `/tmp`.** Hand
-   me the shell command and let me run it — a `for` loop is better than a list of paths.
-   Writing into the working directory or into `/tmp` scratch is fine, and copying a repo file
-   into the working directory is how proposals get seeded; reading from anywhere is fine.
-   Everything else comes to me as a command: overwriting the golds under `~/Dropbox`, writing
-   into the repo tree, and any deletion at all. If I ask for one to be run anyway, say that it
-   crosses this rule first, and test it before handing it over — on a copy, or with `echo` in
-   place of the real verb.
 
 ## Working agreement
 
@@ -50,6 +41,17 @@ Agents **propose; the maintainer applies.** This repo is the maintainer's primar
    `git status` should stay clean unless the maintainer dirtied it.
 3. **Anchor every claim to `file:line`** so a suggestion can be found by hand. Prefer small
    self-contained blocks over large rewrites — they are being pasted, not applied.
+4. **Do not delete anything, and do not write outside the working directory or `/tmp`.** Hand
+   me the shell command and let me run it — a `for` loop is better than a list of paths.
+   Writing into the working directory or into `/tmp` scratch is fine, and copying a repo file
+   into the working directory is how proposals get seeded; reading from anywhere is fine.
+   Everything else comes to me as a command: overwriting the golds under `~/Dropbox`, writing
+   into the repo tree, and any deletion at all. If I ask for one to be run anyway, say that it
+   crosses this rule first, and test it before handing it over — on a copy, or with `echo` in
+   place of the real verb.
+5. **Do not bump the version** don't bump the version without user agreement. If agreed, there
+   are 4 places it needs to be changed. Database version is separate and should also not be
+   bumped.
 
 ## Commands
 

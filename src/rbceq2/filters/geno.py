@@ -711,11 +711,11 @@ def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGro
     carries the gene and the other carries no gene at all. So there is exactly one place
     for a real allele, and a pair naming two different ones is claiming both are on it.
 
-    Until v2.4.6 this was noticed at the reporting layer and warned about, then the pair
-    was written out as called anyway - the one impossible result the pipeline knowingly
-    reported. A warning is not an audit trail: it does not say which pair, it is not in
-    filtered_out, and it does not reach the debug trace or the PDF. Now the pair is
-    excluded by name like every other impossible pair.
+    Before this filter it was noticed at the reporting layer and warned about, then the
+    pair was written out as called anyway - the one impossible result the pipeline
+    knowingly reported. A warning is not an audit trail: it does not say which pair, it
+    is not in filtered_out, and it does not reach the debug trace or the PDF. Now the
+    pair is excluded by name like every other impossible pair.
 
     Two things it deliberately leaves alone:
 

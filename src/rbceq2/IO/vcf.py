@@ -577,9 +577,9 @@ class VCF:
         dataset emits '0|0' (they all write hom ref unphased even in phased VCFs), so the
         bug was latent rather than observed.
 
-        Haploid '0' is matched too, and since v2.4.5 anywhere rather than only outside PAR
-        on X/Y. It means exactly what '0/0' means wherever it appears: the copies the
-        caller can see are reference, so the token has zero copies. Until v2.4.4 an
+        Haploid '0' is matched too, and anywhere rather than only outside PAR on X/Y. It
+        means exactly what '0/0' means wherever it appears: the copies the caller
+        can see are reference, so the token has zero copies. Until v2.4.4 an
         autosomal one was left in place to be rejected by name in get_ref, which was a
         raise about a row carrying no allele - state table row D3. The reading of what the
         haploidy *means* still happens later and elsewhere; see _is_haploid_hom_ref.
@@ -806,7 +806,7 @@ class VCF:
         This is also where a multi-allelic row becomes usable. The encoder has already
         emitted one token per alternate, in ALT column order, comma joined - so the split
         below is not a string convenience, it is the alternates. What each token was
-        missing is a genotype of its own: until v2.4.6 they all took the row's genotype
+        missing is a genotype of its own: they used to take the row's genotype
         unchanged, so both tokens of a '1/2' were handed '1/2' and get_ref refused it as
         multi-allelic. Each now gets its own recoded genotype and its own metrics dict.
 
