@@ -26,6 +26,9 @@ from rbceq2.IO.encoders import VariantEncoderFactory
 # them all.
 MAX_CONTRADICTED_TOKENS_LOGGED = 4
 
+# What the VCF specification uses for a field that has no value.
+MISSING_FIELD = "."
+
 
 def gt_of(sample_field: str) -> str:
     """Pull the GT out of a SAMPLE column value.
@@ -778,7 +781,15 @@ class VCF:
                 else:
                     new_lanes[lane_loci] = (
                         [chrom, pos]
-                        + COMMON_COLS[2:-1]
+                        # ID, REF, ALT, QUAL, FILTER, INFO. This row is RBCeq2 asserting
+                        # a locus rather than a caller reporting one, so it has none of
+                        # them, and '.' is what the specification uses for a field with
+                        # no value. These held the *column names* until now, which is how
+                        # the literal string 'FILTER' came to be the FILTER value of every
+                        # synthesised lane row - 50,388 of them on one short read cohort.
+                        # Nothing read them, but anything looking at the FILTER column had
+                        # to know to ignore it.
+                        + [MISSING_FIELD] * len(COMMON_COLS[2:-1])
                         + ["GT:AD:GQ:DP:PS"]
                         + [
                             HOM_REF_DUMMY_QUAL,

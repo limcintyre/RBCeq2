@@ -71,6 +71,26 @@ class TestVCFMethods(unittest.TestCase):
         vcf_obj = VCF([self.df_local], {"9": ["2000"]}, set(), sample="test_sample")
         self.assertIn("variant", vcf_obj.df.columns)
 
+    def test_synthesised_lane_row_has_no_filter_value(self) -> None:
+        """A lane locus with no called row is RBCeq2's own assertion, not a call.
+
+        Its ID, REF, ALT, QUAL, FILTER and INFO were filled with the *column names*, so
+        the FILTER column of every such row held the literal string 'FILTER'. Nothing
+        read it - only '_ref' tokens carry it and the FILTER lookup skips those - but it
+        made the column impossible to survey and record_unused_variants had to explain
+        it. '.' is what the specification uses for a field with no value.
+        """
+        vcf_obj = VCF(
+            [self.df_local], {"2": ["9999"]}, set(), sample="test_sample"
+        )
+        synthesised = vcf_obj.df[vcf_obj.df["variant"] == "2:9999_ref"]
+        self.assertEqual(len(synthesised), 1)
+        row = synthesised.iloc[0]
+        for column in ("ID", "REF", "ALT", "QUAL", "FILTER", "INFO"):
+            self.assertEqual(
+                row[column], ".", f"{column} should carry no value, not its own name"
+            )
+
     def test_add_loci(self) -> None:
         """Ensure add_loci method adds the 'loci' column."""
         vcf_obj = VCF([self.test_df], {}, set(), sample="test_sample")

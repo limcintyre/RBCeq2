@@ -947,8 +947,8 @@ def record_unused_variants(
         bg.unused_pool_phase_set[variant] = metrics.get("PS") or "."
         # A '_ref' token asserts the reference and has no FILTER of its own, which is
         # why only_keep_alleles_if_FILTER_PASS skips it. Saying so beats printing the
-        # row's value: a lane locus with no called rows is synthesised from COMMON_COLS,
-        # so its FILTER field holds the literal string 'FILTER'.
+        # row's value, which for a synthesised lane locus is '.' - true, and no use to
+        # anyone wondering why the token was not filtered.
         if "_ref" in variant:
             bg.unused_pool_filters[variant] = "not read - reference token"
         else:
