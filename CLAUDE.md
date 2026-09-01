@@ -149,10 +149,16 @@ How it is used, so agents read the results correctly:
   other is the tool contradicting itself, which is a stronger signal than a gold diff because
   it needs no gold to interpret. Neither comparison is automated; both are read off the three
   TSVs by hand, comma fields as unordered sets. Last measured over 85,096 cells: the phase
-  comparison is 84,196 agree / 900 narrowed / **0 conflict**, and a conflict there is a defect.
-  The encoding comparison is 85,002 / 60 / **34**, and that 34 is not the tool's fault — the
-  two files disagree about the genotype at some sites, all 34 are RHCE, so read a *change* in
-  the number rather than the number itself.
+  comparison is 84,937 agree / 159 narrowed / **0 conflict**, and a conflict there is a defect.
+  It was 84,196 / 900 / 0 until the two `..._shared_variant_has_too_few_copies` filters landed,
+  which close 741 of those narrowings by reaching the phased arm's verdict from copy number.
+  The encoding comparison is 85,002 / 19 / **75**, and that 75 is not the tool's fault — the
+  two files disagree about the genotype at some sites, all 75 are RHCE, so read a *change* in
+  the number rather than the number itself. Those same two filters took it from 60 / 34, and
+  the 41 it gained are one shape: the per-sample file calls `1:25408711 G>A` where the joint
+  file calls the same sample `0/0`, so a pair impossible in one arm is genuinely possible in
+  the other. Shrinking the per-sample answer broke a containment that had been accidental —
+  the disagreement was already there, and this is the case the sentence above is warning about.
 - **`--filter-ab` is a third check that needs no gold, and the only automated one.** It runs
   each dataset again with filtering off and counts cells the tool declines to name in the
   first arm and names in the second. The flag has one behavioural site in the tool
@@ -345,6 +351,36 @@ Things that look fine and are not. Verify against these before touching related 
   carrying one copy of the token; `NO_COPIES` is zero of both. Neither says how many allele
   slots the *result* has — that is `BloodGroup.chrom_copies`, a third number, and it is never
   changed by a deletion. Reading pair shape off a per-token zygosity is the bug issue #40 was.
+- **`pair_can_exist` never checks a pair containing the reference, and cannot be made to.** It
+  subtracts one allele's defining variants from the pool and requires a copy left for the
+  other's, but returns True unchecked whenever either allele is the reference
+  (`data_procesing.py:2502`, short circuit at `:2520-2522`). Deleting those three lines fails
+  *every* sample with `KeyError`: the reference arrives from the database rather than from the
+  pool — `NoHomMultiVariantStrategy` (`:2361`) adds it whether the sample supports it or not —
+  so its tokens are routinely not keys of a pool built from the alleles that were *built*. Two
+  filters cover the gap instead, both spending only the tokens the pool holds:
+  `cant_pair_with_ref_cuz_shared_variant_has_too_few_copies` (`geno.py:473`) removes the pair,
+  and `cant_name_second_slot_cuz_shared_variant_has_too_few_copies` (`:661`) runs one line
+  earlier and names both candidates where removing would leave the blood group with nothing.
+  `pool_cant_supply_both` (`:426`) is the arithmetic, lifted out of
+  `ABO_cant_pair_with_ref_cuz_261delG_HET` (`:380`), which had been doing this correctly for
+  one blood group all along. Four things that are easy to get wrong here:
+  - **A `_ref` token constrains exactly as hard as an alternate, and is the larger half.**
+    Heterozygous at a `_ref` token says the reference base is on one chromosome and an
+    alternate on the other, so two alleles both needing it is the same contradiction as two
+    alleles both needing one copy of an alternate. Of the 10,854 genotype strings this removed
+    across nine datasets, 6,318 were `_ref` only against 2,861 on an alternate alone.
+  - **It is not confined to the four references defined partly by an alternate.** `KN*01`,
+    `RHD*01`, `ABO*A1.01` and `RHCE*01` are the only four, on both builds — but GYPA's 2,821
+    come from `GYPA*02`, an ordinary all-`_ref` reference.
+  - **A token *absent* from the pool is a different claim**, and `ref_slot_is_impossible`
+    (`:539`) is where it is made. `pool_cant_supply_both` skips what the pool does not hold
+    rather than reading absence as zero, which is also why it cannot raise.
+  - **Reason strings moved for exclusions that were already being made.** Running earlier than
+    `filter_impossible_alleles`, `cant_pair_with_ref_cuz_SNPs_must_be_on_other_side` and
+    `filter_if_all_HET_vars_on_same_side_and_phased`, the new filter is now credited with
+    cases those used to name — 59 in `dragen_per_sample`, 184 in `dragen_joint_3209`. Same
+    answers, more specific reason, but the strings are user visible and documented.
 - **`FILTER` does not always mean call quality.** On some arrays PASS/FAIL is *probeset
   selection* — which of several probesets is the recommended one for a marker — so a FAIL row
   may be a perfectly good call. `only_keep_alleles_if_FILTER_PASS` will still drop it and revert
