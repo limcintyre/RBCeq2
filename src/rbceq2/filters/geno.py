@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import operator
 from collections import defaultdict
-from functools import partial
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     ABO_DELG_VARIANTS,
@@ -411,22 +410,127 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.contains_reference and not pair.all_reference:
             ref, allele = split_pair_by_ref(pair)
-            tmp_pool2 = bg.variant_pool_numeric
-            for variant_on_other_strand in ref.defining_variants:
-                if variant_on_other_strand in tmp_pool2:
-                    tmp_pool2[variant_on_other_strand] -= 1
-            check_vars_other_strand = partial(
-                check_available_variants, 0, tmp_pool2, operator.gt
-            )
-            if all(check_vars_other_strand(allele)):
-                # ie, can they exist given other chrom
-                continue
-            to_remove.append(pair)
+            # ie, can they exist given other chrom
+            if pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+                to_remove.append(pair)
 
     if to_remove:
         bg.remove_pairs(
             to_remove,
             "ABO_cant_pair_with_ref_cuz_261delG_HET",
+        )
+
+    return bg
+
+
+def pool_cant_supply_both(ref: Allele, allele: Allele, pool: dict[str, int]) -> bool:
+    """Whether one chromosome each is more than the pool has to give.
+
+    Put the reference on one chromosome by spending a copy of each of its defining
+    variants, then ask whether the other allele still has a copy of each of its own.
+    Where the two alleles share a variant the sample has one copy of, they are asking
+    for the same chromosome and the answer is no.
+
+    Only variants the pool holds are spent. A reference allele reaches here straight
+    from the database whether or not the sample supports it - NoHomMultiVariantStrategy
+    adds it either way - so its variants are routinely absent from a pool built from
+    the alleles that were built. Absence is a different claim, and
+    cant_name_second_slot_cuz_ref_impossible is the filter that makes it.
+
+    Args:
+        ref (Allele): The reference allele of the pair, placed first.
+        allele (Allele): The other allele, which must fit on what is left.
+        pool (dict[str, int]): Copies per variant. Copied before spending, so the
+        caller's dict is left alone.
+
+    Returns:
+        bool: True if the two alleles cannot both be present.
+
+    Example:
+        HG00436 GYPA. GYPA*02 and GYPA*08 both need 4:144120554_ref, and the sample has
+        one copy of it, with 4:144120554_C_A on the other chromosome:
+
+        4:144120554_ref : Heterozygous
+        4:144120555_ref : Homozygous
+        4:144120567_A_G : Heterozygous
+        4:144120567_ref : Heterozygous
+
+        GYPA*02 -> {144120554_ref, 144120555_ref, 144120567_ref}
+        GYPA*08 -> {144120554_ref, 144120555_ref, 144120567_A_G}
+
+        Spending GYPA*02 leaves 144120554_ref at 0, so GYPA*08 has nowhere to sit and
+        this returns True.
+    """
+    remaining = dict(pool)
+    for variant in ref.defining_variants:
+        if variant in remaining:
+            remaining[variant] -= 1
+
+    return not all(check_available_variants(0, remaining, operator.gt, allele))
+
+
+@apply_to_dict_values
+def cant_pair_with_ref_cuz_shared_variant_has_too_few_copies(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Remove a pair whose two alleles want the same chromosome.
+
+    The unphased counterpart of filter_if_all_HET_vars_on_same_side_and_phased, reaching
+    the same verdict from copy number instead of phase, so the two arms agree without
+    the flag deciding it.
+
+    pair_can_exist is where this arithmetic normally happens, at pair generation, and it
+    returns True unchecked for any pair containing the reference. That is not laziness:
+    the reference allele arrives from the database rather than from the pool, so its
+    variants are often not keys of the pool at all and the subtraction would raise.
+    ABO_cant_pair_with_ref_cuz_261delG_HET has done the check properly for one blood
+    group for a long time; this is the same check for the rest of them, sharing its
+    implementation so the two cannot drift.
+
+    Runs after the ABO filter so ABO pairs keep their own reason string, which is
+    documented and user visible. It finds nothing left to do there.
+
+    A '_ref' token counts the same as an alternate and is the larger half of what this
+    removes. Heterozygous at a '_ref' token says the reference base is on one chromosome
+    and an alternate is on the other, so two alleles both needing it is the same
+    contradiction as two alleles both needing one copy of an alternate.
+
+    Args:
+        bg (BloodGroup): A BloodGroup object containing allele pairs and a variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with the impossible pairs removed and recorded.
+
+    Example:
+        HG03097 RHCE. RHCE*01 is a reference defined partly by an alternate, because at
+        a lane locus the transcript reference differs from the genome reference, and
+        RHCE*01.20.01 is RHCE*01 plus one more variant. Both need 1:25420739_G_C:
+
+        1:25390817_G_C : Heterozygous
+        1:25390874_ref : Homozygous
+        1:25408711_ref : Homozygous
+        1:25420739_G_C : Heterozygous
+        1:25420739_ref : Heterozygous
+
+        RHCE*01/RHCE*01.20.01 is removed. RHCE*01/RHCE*01.01 and
+        RHCE*01.01/RHCE*01.20.01 are untouched, because 1:25420739_ref supplies the
+        second chromosome in both.
+
+        HG00619 RHCE is the same thing on a '_ref' token. RHCE*03 and RHCE*01 both need
+        1:25408711_ref, which is heterozygous, so the reference base is on one
+        chromosome and 1:25408711_G_A is on the other.
+    """
+    to_remove = []
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if pair.contains_reference and not pair.all_reference:
+            ref, allele = split_pair_by_ref(pair)
+            if pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+                to_remove.append(pair)
+
+    if to_remove:
+        bg.remove_pairs(
+            to_remove,
+            "cant_pair_with_ref_cuz_shared_variant_has_too_few_copies",
         )
 
     return bg

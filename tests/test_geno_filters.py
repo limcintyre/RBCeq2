@@ -7,6 +7,8 @@ from rbceq2.core_logic.data_procesing import get_genotypes
 from rbceq2.filters.geno import (
     ABO_cant_pair_with_ref_cuz_261delG_HET,
     cant_name_second_slot_cuz_ref_impossible,
+    cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
+    pool_cant_supply_both,
     ref_slot_is_impossible,
     cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
     cant_pair_with_ref_cuz_trumped,
@@ -527,6 +529,219 @@ class TestABOCantPairWithRefCuz261delGHET(unittest.TestCase):
             self.pair1 in self.bg.filtered_out["ABO_cant_pair_with_ref_cuz_261delG_HET"]
         )
 
+
+
+
+class TestPoolCantSupplyBoth(unittest.TestCase):
+    """The arithmetic shared by ABO_cant_pair_with_ref_cuz_261delG_HET and
+    cant_pair_with_ref_cuz_shared_variant_has_too_few_copies."""
+
+    def setUp(self):
+        self.ref = Allele(
+            genotype="GYPA*02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"4:144120554_ref", "4:144120555_ref", "4:144120567_ref"}),
+            null=False,
+            weight_geno=1000,
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        self.other = Allele(
+            genotype="GYPA*08",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"4:144120554_ref", "4:144120555_ref", "4:144120567_A_G"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="GYPA*08",
+        )
+
+    def test_shared_variant_with_one_copy_cannot_supply_both(self):
+        pool = {
+            "4:144120554_ref": 1,
+            "4:144120555_ref": 2,
+            "4:144120567_A_G": 1,
+            "4:144120567_ref": 1,
+        }
+        self.assertTrue(pool_cant_supply_both(self.ref, self.other, pool))
+
+    def test_shared_variant_with_two_copies_can_supply_both(self):
+        pool = {
+            "4:144120554_ref": 2,
+            "4:144120555_ref": 2,
+            "4:144120567_A_G": 1,
+            "4:144120567_ref": 1,
+        }
+        self.assertFalse(pool_cant_supply_both(self.ref, self.other, pool))
+
+    def test_pool_is_not_spent_by_the_call(self):
+        pool = {
+            "4:144120554_ref": 1,
+            "4:144120555_ref": 2,
+            "4:144120567_A_G": 1,
+            "4:144120567_ref": 1,
+        }
+        pool_cant_supply_both(self.ref, self.other, pool)
+        self.assertEqual(pool["4:144120554_ref"], 1)
+
+    def test_reference_variant_absent_from_pool_is_not_spent(self):
+        """A reference reaches here from the database, so its variants need not be in
+        the pool. Absence is cant_name_second_slot_cuz_ref_impossible's claim, not
+        this one's, and must not raise."""
+        pool = {"4:144120554_ref": 1, "4:144120555_ref": 2, "4:144120567_A_G": 1}
+        ref_needing_absent = Allele(
+            genotype="GYPA*02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"4:144120554_ref", "4:144120555_ref", "4:144120567_ref"}),
+            null=False,
+            weight_geno=1000,
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        self.assertTrue(
+            pool_cant_supply_both(ref_needing_absent, self.other, pool)
+        )
+
+
+class TestCantPairWithRefCuzSharedVariantHasTooFewCopies(unittest.TestCase):
+    """HG03097 RHCE, short read. RHCE*01 is a reference defined partly by an alternate
+    at a lane locus, and RHCE*01.20.01 is RHCE*01 plus one more variant, so both need
+    1:25420739_G_C - which is heterozygous."""
+
+    def setUp(self):
+        self.ref = Allele(
+            genotype="RHCE*01",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"1:25390874_ref", "1:25408711_ref", "1:25420739_G_C"}),
+            null=False,
+            weight_geno=1000,
+            reference=True,
+            sub_type="RHCE*01",
+        )
+        self.allele_01_01 = Allele(
+            genotype="RHCE*01.01",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"1:25390874_ref", "1:25408711_ref", "1:25420739_ref"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="RHCE*01",
+        )
+        self.allele_20_01 = Allele(
+            genotype="RHCE*01.20.01",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"1:25390817_G_C", "1:25390874_ref", "1:25408711_ref", "1:25420739_G_C"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="RHCE*01",
+        )
+
+        self.impossible = Pair(allele1=self.ref, allele2=self.allele_20_01)
+        self.possible = Pair(allele1=self.ref, allele2=self.allele_01_01)
+        self.no_reference = Pair(allele1=self.allele_01_01, allele2=self.allele_20_01)
+
+        self.bg = BloodGroup(
+            type="RHCE",
+            alleles={
+                AlleleState.NORMAL: [
+                    self.impossible,
+                    self.possible,
+                    self.no_reference,
+                ]
+            },
+            sample="HG03097",
+            variant_pool={
+                "1:25390817_G_C": Zygosity.HET,
+                "1:25390874_ref": Zygosity.HOM,
+                "1:25408711_ref": Zygosity.HOM,
+                "1:25420739_G_C": Zygosity.HET,
+                "1:25420739_ref": Zygosity.HET,
+            },
+            filtered_out=defaultdict(list),
+        )
+        cant_pair_with_ref_cuz_shared_variant_has_too_few_copies({1: self.bg})
+
+    def test_pair_needing_two_copies_of_one_variant_is_removed(self):
+        self.assertTrue(self.impossible not in self.bg.alleles[AlleleState.NORMAL])
+        self.assertTrue(
+            self.impossible
+            in self.bg.filtered_out[
+                "cant_pair_with_ref_cuz_shared_variant_has_too_few_copies"
+            ]
+        )
+
+    def test_pair_whose_shared_variants_are_hom_is_kept(self):
+        self.assertTrue(self.possible in self.bg.alleles[AlleleState.NORMAL])
+
+    def test_pair_without_a_reference_is_left_to_pair_can_exist(self):
+        self.assertTrue(self.no_reference in self.bg.alleles[AlleleState.NORMAL])
+
+
+class TestCantPairWithRefCuzSharedVariantIsRefToken(unittest.TestCase):
+    """HG00436 GYPA, long read. Neither allele is defined by an alternate, and the
+    shared variant is a '_ref' token - which says the reference base is on one
+    chromosome and 4:144120554_C_A is on the other."""
+
+    def setUp(self):
+        self.ref = Allele(
+            genotype="GYPA*02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"4:144120554_ref", "4:144120555_ref", "4:144120567_ref"}),
+            null=False,
+            weight_geno=1000,
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        self.other = Allele(
+            genotype="GYPA*08",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"4:144120554_ref", "4:144120555_ref", "4:144120567_A_G"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="GYPA*08",
+        )
+        self.pair = Pair(allele1=self.ref, allele2=self.other)
+
+        self.bg = BloodGroup(
+            type="GYPA",
+            alleles={AlleleState.NORMAL: [self.pair]},
+            sample="HG00436",
+            variant_pool={
+                "4:144120554_ref": Zygosity.HET,
+                "4:144120555_ref": Zygosity.HOM,
+                "4:144120567_A_G": Zygosity.HET,
+                "4:144120567_ref": Zygosity.HET,
+            },
+            filtered_out=defaultdict(list),
+        )
+        cant_pair_with_ref_cuz_shared_variant_has_too_few_copies({1: self.bg})
+
+    def test_pair_removed(self):
+        self.assertEqual(self.bg.alleles[AlleleState.NORMAL], [])
+        self.assertTrue(
+            self.pair
+            in self.bg.filtered_out[
+                "cant_pair_with_ref_cuz_shared_variant_has_too_few_copies"
+            ]
+        )
 
 class TestABOCantPairWithRefCuzTrumped(unittest.TestCase):
     def setUp(self):
