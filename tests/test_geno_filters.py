@@ -7,6 +7,7 @@ from rbceq2.core_logic.data_procesing import get_genotypes
 from rbceq2.filters.geno import (
     ABO_cant_pair_with_ref_cuz_261delG_HET,
     cant_name_second_slot_cuz_ref_impossible,
+    cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
     cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
     pool_cant_supply_both,
     ref_slot_is_impossible,
@@ -530,8 +531,6 @@ class TestABOCantPairWithRefCuz261delGHET(unittest.TestCase):
         )
 
 
-
-
 class TestPoolCantSupplyBoth(unittest.TestCase):
     """The arithmetic shared by ABO_cant_pair_with_ref_cuz_261delG_HET and
     cant_pair_with_ref_cuz_shared_variant_has_too_few_copies."""
@@ -742,6 +741,7 @@ class TestCantPairWithRefCuzSharedVariantIsRefToken(unittest.TestCase):
                 "cant_pair_with_ref_cuz_shared_variant_has_too_few_copies"
             ]
         )
+
 
 class TestABOCantPairWithRefCuzTrumped(unittest.TestCase):
     def setUp(self):
@@ -1307,6 +1307,156 @@ class TestCantNameSecondSlotCuzRefImpossible(unittest.TestCase):
         self.assertEqual(
             bg.single_slot_genotypes, [f"GYPA*08/{UNDETERMINED_SLOT}"]
         )
+
+
+class TestCantNameSecondSlotCuzSharedVariantHasTooFewCopies(unittest.TestCase):
+    """Both alleles possible on their own, the pair impossible, so both are candidates.
+
+    Built on the real HG00436 GYPA case, long read. The caller emitted no row at
+    144120555, so GYPA*01 was never built and the only pair left is GYPA*02/GYPA*08 -
+    which both need 144120554_ref, and the sample has one copy of it. One of them is on
+    that chromosome and the other chromosome carries 144120554_C_A, which completes
+    nothing. Without phase there is no saying which, so both are reported.
+    """
+
+    FILTER = "cant_name_second_slot_cuz_shared_variant_has_too_few_copies"
+
+    REF_554 = "4:144120554_ref"
+    REF_555 = "4:144120555_ref"
+    REF_567 = "4:144120567_ref"
+    ALT_567 = "4:144120567_A_G"
+
+    def _allele(self, genotype, variants, reference=False, sub_type="GYPA*01"):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type=sub_type,
+        )
+
+    def _bg(self, pairs, pool=None, co=None):
+        return BloodGroup(
+            type="GYPA",
+            alleles={AlleleState.NORMAL: pairs, AlleleState.CO: co},
+            sample="HG00436",
+            variant_pool=self.pool if pool is None else pool,
+            filtered_out=defaultdict(list),
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "GYPA*02",
+            (self.REF_554, self.REF_555, self.REF_567),
+            reference=True,
+            sub_type="GYPA*02",
+        )
+        self.mc = self._allele(
+            "GYPA*08",
+            (self.REF_554, self.REF_555, self.ALT_567),
+            sub_type="GYPA*08",
+        )
+        self.elsewhere = self._allele(
+            "GYPA*11", ("4:144120558_G_T",), sub_type="GYPA*11"
+        )
+        self.pool = {
+            self.REF_554: Zygosity.HET,
+            self.REF_555: Zygosity.HOM,
+            self.ALT_567: Zygosity.HET,
+            self.REF_567: Zygosity.HET,
+        }
+        self.impossible = Pair(allele1=self.ref, allele2=self.mc)
+
+    def test_both_candidates_are_named(self):
+        """Naming one would be a guess; naming neither throws away what is known."""
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(
+            bg.single_slot_genotypes,
+            [f"GYPA*02/{UNDETERMINED_SLOT}", f"GYPA*08/{UNDETERMINED_SLOT}"],
+        )
+
+    def test_the_pair_it_came_from_is_removed(self):
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_the_exclusion_is_recorded_under_the_filter_name(self):
+        """Hard rule 3 - a result is not an audit trail."""
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertIn(self.impossible, bg.filtered_out[self.FILTER])
+
+    def test_get_genotypes_writes_both_named_slots_out(self):
+        bg = self._bg([self.impossible])
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+        out = get_genotypes({"GYPA": bg})["GYPA"]
+
+        self.assertEqual(
+            out.genotypes,
+            [f"GYPA*02/{UNDETERMINED_SLOT}", f"GYPA*08/{UNDETERMINED_SLOT}"],
+        )
+
+    def test_a_callable_pair_stops_it(self):
+        """The blood group has an answer, so cant_pair_with_ref_cuz_shared_variant_
+        has_too_few_copies removes the impossible pair and this does nothing."""
+        pool = dict(self.pool)
+        pool["4:144120558_G_T"] = Zygosity.HET
+        callable_pair = Pair(allele1=self.ref, allele2=self.elsewhere)
+        bg = self._bg([self.impossible, callable_pair], pool=pool)
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(
+            bg.alleles[AlleleState.NORMAL], [self.impossible, callable_pair]
+        )
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_pool_that_supplies_both_is_untouched(self):
+        """The ordinary case - two copies of the shared variant, so no contradiction."""
+        pool = dict(self.pool)
+        pool[self.REF_554] = Zygosity.HOM
+        bg = self._bg([self.impossible], pool=pool)
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [self.impossible])
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_reference_the_pool_contradicts_is_not_offered(self):
+        """A reference needing a variant that is absent entirely cannot be a candidate,
+        which is ref_slot_is_impossible's claim rather than this filter's."""
+        pool = {
+            self.REF_554: Zygosity.HET,
+            self.REF_555: Zygosity.HOM,
+            self.ALT_567: Zygosity.HOM,
+        }
+        bg = self._bg([self.impossible], pool=pool)
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"GYPA*08/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_a_co_existing_result_is_not_overridden(self):
+        bg = self._bg([self.impossible], co=[self.impossible])
+
+        cant_name_second_slot_cuz_shared_variant_has_too_few_copies({1: bg})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [self.impossible])
+        self.assertEqual(bg.single_slot_genotypes, [])
 
 
 class TestRefSlotIsImpossible(unittest.TestCase):

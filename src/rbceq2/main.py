@@ -587,6 +587,7 @@ def find_hits(
         ),
         filt.ensure_HET_SNP_used,
         filt.ABO_cant_pair_with_ref_cuz_261delG_HET,
+        filt.cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
         filt.filter_HET_pairs_by_weight,

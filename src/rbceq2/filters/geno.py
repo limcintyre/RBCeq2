@@ -658,6 +658,96 @@ def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
 
 
 @apply_to_dict_values
+def cant_name_second_slot_cuz_shared_variant_has_too_few_copies(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Name the slots that are possible when every pair left wants one chromosome twice.
+
+    The sibling of cant_name_second_slot_cuz_ref_impossible, for the other way a pair
+    containing the reference can be impossible. There the reference needs a variant the
+    sample does not have at all, and only its partner can be named. Here both alleles
+    are individually fine and it is the pair that cannot exist, because they share a
+    variant the sample has one copy of - so one of them is on that chromosome and the
+    other chromosome carries something the database cannot name.
+
+    Which one is on it needs phase to say. Without phase both are candidates, and both
+    are reported: naming neither throws away everything that is known, and naming one
+    would be a guess. Two candidates contain whatever the phased arm resolves it to, so
+    the arms narrow rather than contradict each other.
+
+    Runs immediately before cant_pair_with_ref_cuz_shared_variant_has_too_few_copies and
+    on the same predicate, so the two see the same pairs and this takes the case away
+    from the other. Where any pair is callable this does nothing and the other filter
+    removes the impossible ones as usual.
+
+    The reference is offered as a candidate only where the pool does not contradict it
+    on its own. A reference needing a variant that is absent entirely is a different
+    claim, and ref_slot_is_impossible is where it is made.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
+        from removed, or unchanged if any pair was callable.
+
+    Example:
+        HG00436 GYPA, long read. The caller emitted no row at 144120555, so GYPA*01 -
+        which needs 144120555_T_C - was never built and the only pair left is the one
+        that cannot exist:
+
+        4:144120554_ref : c.72G : Heterozygous
+        4:144120555_ref : c.71A : Homozygous
+        4:144120567_A_G : c.59T>C : Heterozygous
+        4:144120567_ref : c.59T : Heterozygous
+
+        Vars_unused:
+        4:144120554_C_A : c.72G>T : Heterozygous
+
+        alleles[NORMAL] -> [Pair(GYPA*02, GYPA*08)]
+
+        Both need 4:144120554_ref and the sample has one copy, with 4:144120554_C_A on
+        the other chromosome, which completes nothing.
+
+        single_slot_genotypes -> ['GYPA*02/Undetermined', 'GYPA*08/Undetermined']
+
+        The phased arm of the same input reports GYPA*02/Undetermined, which these two
+        contain.
+    """
+    # .get, not [], because this runs before the co-existing stages create the key. The
+    # check is kept anyway so moving the filter later cannot silently start overriding a
+    # Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+
+    pairs = bg.alleles[AlleleState.NORMAL]
+    if not pairs or not bg.variant_pool:
+        return bg
+
+    named: list[str] = []
+    for pair in pairs:
+        if not pair.contains_reference or pair.all_reference:
+            return bg
+        ref, allele = split_pair_by_ref(pair)
+        if not pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+            return bg
+        named.append(allele.genotype)
+        if not ref_slot_is_impossible(ref, bg.variant_pool):
+            named.append(ref.genotype)
+
+    bg.remove_pairs(
+        list(pairs),
+        "cant_name_second_slot_cuz_shared_variant_has_too_few_copies",
+        reverts_to_reference=False,
+    )
+    bg.single_slot_genotypes = [
+        f"{genotype}/{UNDETERMINED_SLOT}" for genotype in sorted(set(named))
+    ]
+
+    return bg
+
+
+@apply_to_dict_values
 def cant_pair_with_ref_cuz_trumped(bg: BloodGroup) -> BloodGroup:
     """Filter out allele pairs where a reference allele is trumped by a superior allele.
 
