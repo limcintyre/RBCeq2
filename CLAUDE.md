@@ -149,9 +149,11 @@ How it is used, so agents read the results correctly:
   other is the tool contradicting itself, which is a stronger signal than a gold diff because
   it needs no gold to interpret. Neither comparison is automated; both are read off the three
   TSVs by hand, comma fields as unordered sets. Last measured over 85,096 cells: the phase
-  comparison is 84,937 agree / 159 narrowed / **0 conflict**, and a conflict there is a defect.
-  It was 84,196 / 900 / 0 until the two `..._shared_variant_has_too_few_copies` filters landed,
-  which close 741 of those narrowings by reaching the phased arm's verdict from copy number.
+  comparison is 84,951 agree / 145 narrowed / **0 conflict**, and a conflict there is a defect.
+  It was 84,196 / 900 / 0 before the three filters that read copy number where the phased arm
+  reads phase — the two `..._shared_variant_has_too_few_copies` and `no_defining_variant`
+  ungated — which between them close 755 of those narrowings by reaching the same verdict
+  without phase.
   The encoding comparison is 85,002 / 19 / **75**, and that 75 is not the tool's fault — the
   two files disagree about the genotype at some sites, all 75 are RHCE, so read a *change* in
   the number rather than the number itself. Those same two filters took it from 60 / 34, and
@@ -373,14 +375,36 @@ Things that look fine and are not. Verify against these before touching related 
   - **It is not confined to the four references defined partly by an alternate.** `KN*01`,
     `RHD*01`, `ABO*A1.01` and `RHCE*01` are the only four, on both builds — but GYPA's 2,821
     come from `GYPA*02`, an ordinary all-`_ref` reference.
-  - **A token *absent* from the pool is a different claim**, and `ref_slot_is_impossible`
-    (`:539`) is where it is made. `pool_cant_supply_both` skips what the pool does not hold
-    rather than reading absence as zero, which is also why it cannot raise.
+  - **A token *absent* from the pool is a different claim**, made by `ref_slot_is_impossible`
+    (`:539`) and acted on by `no_defining_variant`. `pool_cant_supply_both` skips what the pool
+    does not hold rather than reading absence as zero, which is also why it cannot raise. See
+    the next landmine for why absence on its own settles nothing.
   - **Reason strings moved for exclusions that were already being made.** Running earlier than
     `filter_impossible_alleles`, `cant_pair_with_ref_cuz_SNPs_must_be_on_other_side` and
     `filter_if_all_HET_vars_on_same_side_and_phased`, the new filter is now credited with
     cases those used to name — 59 in `dragen_per_sample`, 184 in `dragen_joint_3209`. Same
     answers, more specific reason, but the strings are user visible and documented.
+- **A missing token is two opposite things and only one of them is evidence.** A reference
+  allele's defining variant absent from the pool means either that the alternate at that locus
+  is homozygous, so there is no reference copy for it to sit on, or that the caller never
+  looked. Both leave exactly the same gap. `locus_has_a_copy_number` (`phased.py:1422`) tells
+  them apart by asking whether any token at that position carries a copy number, `NO_DATA`
+  excepted — the line `variant_pool_numeric` already draws when it omits it.
+  `no_defining_variant` (`:1471`) is gated on that and runs in both arms: nothing in it reads
+  phase, and the `--phased` gate it used to carry was deciding something the flag is not about.
+  - **The array is where reading absence as impossibility bites, and the default e2e set
+    cannot see it.** Ungated, 547 array cells turned `X/X` into `Undetermined/Undetermined` —
+    HPA3 413, GYPB 85, then HPA2, YT, HPA5, HPA1, LU, FY, A4GALT, KEL and JK — every one a
+    locus the probe did not call. Against that, 281 pairs across the other inputs have a real
+    call contradicting the reference. The two populations separate perfectly on the copy
+    number question, and `1kg_microarray` is one of the two datasets `--full` exists for.
+  - **`NO_COPIES` counts as evidence and `NO_DATA` does not.** Zero copies is a measurement of
+    absence and a locus with no copies has no reference copy either; not measured is the
+    absence of a measurement and says nothing. No input to hand has an instance of the
+    `NO_COPIES` side, so a unit test is the only thing holding that choice in place.
+  - **The locus test is a prefix match on `chrom:pos_`**, which is safe where the bare
+    substring match elsewhere is not: `1:` cannot match `11:`, and `1:25408711_` cannot match
+    `1:254087110_`. Do not simplify it to an `in`.
 - **`FILTER` does not always mean call quality.** On some arrays PASS/FAIL is *probeset
   selection* — which of several probesets is the recommended one for a marker — so a FAIL row
   may be a perfectly good call. `only_keep_alleles_if_FILTER_PASS` will still drop it and revert
