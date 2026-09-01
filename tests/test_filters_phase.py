@@ -18,6 +18,7 @@ from rbceq2.filters.phased import (
     filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
     filter_pairs_by_phase,
     impossible_alleles_phased,
+    narrow_second_slot_candidates_by_phase,
     iterate_over_list,
     remove_unphased,
 )
@@ -541,3 +542,115 @@ class TestCantNameSecondSlotCuzHomRefImpossible(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"], exit=False)
+
+
+class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
+    """HG01527 RHCE: six candidates, one chromosome, one of them holds every variant.
+
+    cant_name_second_slot_cuz_ref_impossible names one chromosome and refuses the other,
+    leaving one genotype per candidate in single_slot_genotypes. Nothing narrowed that,
+    because it removed the pairs to build it and the phase based 'in' filters work on
+    pairs, so they never see it.
+    """
+
+    @staticmethod
+    def _bg(candidates, pool, phase):
+        """A BloodGroup mid-pipeline, after the second slot was refused."""
+        alleles = [
+            MockAllele(genotype=name, defining_variants=variants)
+            for name, variants in candidates.items()
+        ]
+        bg = BloodGroup(
+            type="RHCE",
+            alleles={AlleleState.RAW: alleles, AlleleState.NORMAL: []},
+            sample="test_sample",
+            variant_pool=dict(pool),
+            variant_pool_phase=dict(phase),
+        )
+        bg.single_slot_genotypes = [
+            f"{name}/{UNDETERMINED_SLOT}" for name in sorted(candidates)
+        ]
+        return bg
+
+    # a subset chain, every heterozygous variant on side two - the HG01527 shape
+    CANDIDATES = {
+        "RHCE*01.01": {"c"},
+        "RHCE*01.02.01": {"a", "c"},
+        "RHCE*01.20.04.02": {"a", "b", "c"},
+    }
+    POOL = {
+        "a": Zygosity.HET,
+        "b": Zygosity.HET,
+        "c": Zygosity.HOM,
+    }
+    ONE_SIDE = {"a": "0|1", "b": "0|1", "c": "1/1"}
+
+    def test_the_superset_is_the_only_answer_left(self):
+        bg = self._bg(self.CANDIDATES, self.POOL, self.ONE_SIDE)
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"RHCE*01.20.04.02/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_what_was_dropped_is_recorded(self):
+        """Every exclusion carries the filter's name - it is not a silent drop."""
+        bg = self._bg(self.CANDIDATES, self.POOL, self.ONE_SIDE)
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        dropped = {
+            allele.genotype
+            for allele in bg.filtered_out["narrow_second_slot_candidates_by_phase"]
+        }
+        self.assertEqual(dropped, {"RHCE*01.01", "RHCE*01.02.01"})
+
+    def test_two_sides_means_the_subset_may_be_the_right_one(self):
+        """Candidates describing different chromosomes must both survive."""
+        bg = self._bg(
+            self.CANDIDATES, self.POOL, {"a": "0|1", "b": "1|0", "c": "1/1"}
+        )
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(len(bg.single_slot_genotypes), 3)
+
+    def test_unphased_heterozygotes_leave_it_alone(self):
+        """Ambiguity is the correct output when nothing locates the variants."""
+        bg = self._bg(
+            self.CANDIDATES, self.POOL, {"a": "0/1", "b": "0/1", "c": "1/1"}
+        )
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(len(bg.single_slot_genotypes), 3)
+
+    def test_does_nothing_without_the_phased_flag(self):
+        bg = self._bg(self.CANDIDATES, self.POOL, self.ONE_SIDE)
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=False)
+        self.assertEqual(len(bg.single_slot_genotypes), 3)
+
+    def test_homozygous_variants_locate_nothing_and_are_not_consulted(self):
+        """A homozygous variant is on both chromosomes, so its phase says nothing.
+
+        Here the only heterozygous variants still share a side, so the narrowing must
+        still happen even though the homozygous one reads '1/1'.
+        """
+        bg = self._bg(
+            {"RHCE*01.01": {"c"}, "RHCE*01.20.04.02": {"a", "c"}},
+            {"a": Zygosity.HET, "c": Zygosity.HOM},
+            {"a": "0|1", "c": "1/1"},
+        )
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"RHCE*01.20.04.02/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_candidates_that_are_not_subsets_all_survive(self):
+        """Nothing to choose between alleles neither of which contains the other."""
+        bg = self._bg(
+            {"RHCE*01.01": {"a"}, "RHCE*02": {"b"}},
+            {"a": Zygosity.HET, "b": Zygosity.HET},
+            {"a": "0|1", "b": "0|1"},
+        )
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(len(bg.single_slot_genotypes), 2)
+
+    def test_a_single_candidate_is_untouched(self):
+        bg = self._bg({"RHCE*01": {"a"}}, {"a": Zygosity.HET}, {"a": "0|1"})
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+        self.assertEqual(len(bg.single_slot_genotypes), 1)
+

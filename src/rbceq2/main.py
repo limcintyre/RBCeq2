@@ -544,6 +544,10 @@ def find_hits(
         ),
         filt.cant_name_second_slot_cuz_ref_impossible,
         partial(
+            filt_phase.narrow_second_slot_candidates_by_phase,
+            phased=args.phased,
+        ),
+        partial(
             filt_phase.no_defining_variant,
             phased=args.phased,
         ),

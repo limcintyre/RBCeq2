@@ -977,6 +977,94 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
+@apply_to_dict_values
+def narrow_second_slot_candidates_by_phase(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Drop a candidate another candidate already accounts for.
+
+    cant_name_second_slot_cuz_ref_impossible names one chromosome and refuses the other,
+    reporting one genotype per candidate allele. Nothing then narrows that list, because
+    it removed the pairs to build it and what it leaves behind is not a pair - so the
+    phase based 'in' filters, which run later and work on pairs, never see it.
+
+    Where the candidates stand in a subset relation and phase puts every heterozygous
+    variant on one side, the subset under-describes the chromosome. Choosing it would
+    leave the superset's extra variants on that same chromosome with nothing to carry
+    them, which is not a reading of the data, it is a gap in one.
+
+    HG01527 RHCE in the long read set: five heterozygous variants, every one '0|1' in
+    phase set 25233074, and six candidates of which RHCE*01.20.04.02 holds all five and
+    the other five are strict subsets of it. Reported as six genotypes whose phenotypes
+    disagree, so the phenotype columns come out empty - the cell has no answer rather
+    than an imprecise one.
+
+    Deliberately narrow. It acts only when **every** heterozygous variant across every
+    candidate shares one side, which is the case where the superset is unambiguously the
+    whole story. Two sides means the candidates describe different chromosomes and the
+    subset may be the right one; unphased means nothing is known and ambiguity is the
+    correct output. Homozygous variants are not consulted at all - they are on both
+    chromosomes and locate nothing.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose second slot was refused by name.
+        phased (bool): The --phased flag. Without it there are no sides to read.
+
+    Returns:
+        BloodGroup: With the superseded candidates dropped from single_slot_genotypes and
+        recorded in filtered_out under this filter's name.
+    """
+    if not phased or len(bg.single_slot_genotypes) < 2:
+        return bg
+
+    by_genotype = {
+        allele.genotype: allele for allele in bg.alleles[AlleleState.RAW]
+    }
+    candidates: dict[str, Allele] = {}
+    for rendered in bg.single_slot_genotypes:
+        name = rendered.split("/")[0]
+        allele = by_genotype.get(name)
+        if allele is None:
+            # A candidate whose allele is not to hand cannot be reasoned about, and
+            # dropping the others on a partial view would be worse than not acting.
+            return bg
+        candidates[name] = allele
+
+    sides = {
+        bg.variant_pool_phase.get(variant)
+        for allele in candidates.values()
+        for variant in allele.defining_variants
+        if bg.variant_pool.get(variant) == Zygosity.HET
+    }
+    if len(sides) != 1:
+        return bg
+    side = sides.pop()
+    if side is None or not carries_phase(side):
+        return bg
+
+    superseded = [
+        allele
+        for name, allele in candidates.items()
+        if any(
+            allele.defining_variants < other.defining_variants
+            for other_name, other in candidates.items()
+            if other_name != name
+        )
+    ]
+    if not superseded or len(superseded) == len(candidates):
+        return bg
+
+    dropped = {allele.genotype for allele in superseded}
+    bg.filtered_out["narrow_second_slot_candidates_by_phase"].extend(superseded)
+    bg.single_slot_genotypes = [
+        rendered
+        for rendered in bg.single_slot_genotypes
+        if rendered.split("/")[0] not in dropped
+    ]
+
+    return bg
+
+
 def carries_phase(value: str) -> bool:
     """Whether a phase pool value says anything about which chromosome a variant is on.
 
