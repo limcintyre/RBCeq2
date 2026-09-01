@@ -1419,14 +1419,76 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
+def locus_has_a_copy_number(variant: str, variant_pool: dict[str, str]) -> bool:
+    """Whether the sample has a copy number at this variant's position.
+
+    A token is absent from the pool for two opposite reasons, and only one of them is
+    evidence. The alternate at the locus being homozygous leaves no reference copy for a
+    '_ref' token to sit on, which is a contradiction. The caller never looking leaves the
+    same gap and contradicts nothing.
+
+    Telling them apart is what the rest of the locus is for: a sibling token carrying a
+    copy number means the position was measured. Zygosity.NO_DATA is the one state that
+    does not count, which is the same rule variant_pool_numeric applies when it omits it -
+    'not measured' has no copy number. Zygosity.NO_COPIES does count: zero copies is a
+    measurement of absence rather than an absence of measurement, and a locus with no
+    copies has no reference copy either.
+
+    Args:
+        variant (str): A defining variant of the reference allele, 'chrom:pos_REF_ALT'
+        or 'chrom:pos_ref'.
+        variant_pool (dict[str, str]): The blood group's pool, variant to zygosity.
+
+    Returns:
+        bool: True if some token at that position carries a copy number.
+
+    Example:
+        HG00109 HPA3 on an array. The probe did not call 17:42453065, so HPA3*02 goes to
+        no_call_at_defining_variant and 17:42453065_ref is not in the pool either:
+
+        17:42453065_A_C : (None) : No_data
+
+        The only token at the locus is NO_DATA, so this returns False and HPA3*01/HPA3*01
+        stands. Reading that absence as impossibility would report Undetermined for a
+        sample nobody measured - 547 of them on this input.
+
+        NA19679 RHCE, short read. RHCE*01 needs 1:25408711_ref, which is absent:
+
+        1:25408711_G_A : c.307C>T : Homozygous
+
+        The alternate is there with a copy number, so this returns True.
+    """
+    chrom, rest = variant.split(":", 1)
+    prefix = f"{chrom}:{rest.split('_', 1)[0]}_"
+
+    return any(
+        token.startswith(prefix) and zygosity != Zygosity.NO_DATA
+        for token, zygosity in variant_pool.items()
+    )
+
+
 @apply_to_dict_values
-def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """Remove allele pairs where reference allele variants are absent from variant pool.
+def no_defining_variant(bg: BloodGroup) -> BloodGroup:
+    """Remove allele pairs where reference allele variants are contradicted by the pool.
 
     Eliminates pairs containing reference alleles that have defining variants not
-    present in the sample's variant pool. This occurs when a reference variant is
+    present in the sample's variant pool, where the pool has something to say about
+    the locus. This occurs when a reference variant is
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
+
+    Runs in both arms. Nothing in here reads phase - the test is against bg.variant_pool
+    and nothing else - so gating it on --phased meant the same sample got the pair removed
+    with the flag and reported without it, a difference decided by a flag that is about
+    something else. That is the same reason cant_name_second_slot_cuz_ref_impossible runs
+    in both arms. Measured over nine datasets: 65 pairs in 59 cells, all of them narrowings
+    and none of them on the array.
+
+    Absence alone is not enough, and locus_has_a_copy_number is the gate. This filter walks
+    both alleles of a pair, so it reaches reference/reference pairs too, and on an array a
+    locus with no call makes every reference pair look impossible - 547 cells on the array
+    input, against 281 pairs where a real call contradicts the reference. The two
+    populations separate perfectly on whether the locus carries a copy number.
 
     The ABO c.261delG insertion is one of those, and for a different reason from the rest:
     the database treats the deletion as the reference sequence, so ABO*A1.01 is a reference
@@ -1451,11 +1513,10 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     Args:
         bg: BloodGroup object containing allele pairs and variant pool information.
-        phased: Boolean indicating whether the sample variants are phased.
 
     Returns:
         The modified BloodGroup object with impossible reference allele pairs removed,
-        or the original object unchanged if not phased or no invalid pairs found.
+        or the original object unchanged if no invalid pairs were found.
 
     Example
     need to rm ref as 1:25390874_ref not possible
@@ -1503,27 +1564,26 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 reference: True
     """
 
-    if not phased:
-        return bg
     if not bg.variant_pool:
         return bg
     to_remove = []
 
     for pair in bg.alleles[AlleleState.NORMAL]:
-        all_defining_vars_for_pair = list(pair.allele1.defining_variants) + list(pair.allele2.defining_variants)
         for allele in pair.alleles:
             if not allele.reference:
                 continue
             if all(variant.endswith(".") for variant in allele.defining_variants):
                 continue
-            for variant in allele.defining_variants:
-                if variant not in all_defining_vars_for_pair:
-                    continue
-                if variant in ABO_DELG_VARIANTS:
-                    continue
-                if variant not in bg.variant_pool:
-                    to_remove.append(pair)
-                    break
+            contradicted = [
+                variant
+                for variant in allele.defining_variants
+                if variant not in ABO_DELG_VARIANTS
+                and variant not in bg.variant_pool
+                and locus_has_a_copy_number(variant, bg.variant_pool)
+            ]
+            if contradicted:
+                to_remove.append(pair)
+                break
     if to_remove:
         bg.remove_pairs(to_remove, "no_defining_variant")
 

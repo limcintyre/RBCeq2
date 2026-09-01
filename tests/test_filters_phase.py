@@ -9,6 +9,7 @@ from rbceq2.core_logic.utils import Zygosity
 
 # Import the functions to be tested
 from rbceq2.filters.phased import (
+    locus_has_a_copy_number,
     no_defining_variant,
     _get_allele_phase_info,
     cant_be_hom_ref_due_to_HET_SNP,
@@ -328,7 +329,7 @@ class TestNoDefiningVariantEmptyPool(TestPhasedFilters):
     def test_empty_pool_keeps_the_reference_pair(self):
         self.mock_bg.alleles[AlleleState.NORMAL] = [self._ref_pair()]
         self.mock_bg.variant_pool = {}
-        no_defining_variant({1: self.mock_bg}, phased=True)
+        no_defining_variant({1: self.mock_bg})
         self.mock_bg.remove_pairs.assert_not_called()
         self.assertEqual(len(self.mock_bg.alleles[AlleleState.NORMAL]), 1)
 
@@ -336,16 +337,90 @@ class TestNoDefiningVariantEmptyPool(TestPhasedFilters):
         """The behaviour the filter is for is unchanged."""
         pair = self._ref_pair()
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
-        # the locus was seen, and the reference token is not what was found there
-        self.mock_bg.variant_pool = {"1:207609571_A_T": Zygosity.HOM}
-        no_defining_variant({1: self.mock_bg}, phased=True)
+        # the locus was seen, and the reference token is not what was found there.
+        # 207609424, not 207609571 - the contradicting call has to be at the locus the
+        # missing token names, which is what locus_has_a_copy_number asks.
+        self.mock_bg.variant_pool = {"1:207609424_C_A": Zygosity.HOM}
+        no_defining_variant({1: self.mock_bg})
         self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
 
-    def test_unphased_is_untouched(self):
-        self.mock_bg.alleles[AlleleState.NORMAL] = [self._ref_pair()]
-        self.mock_bg.variant_pool = {}
-        no_defining_variant({1: self.mock_bg}, phased=False)
+    def test_it_runs_unphased_too(self):
+        """The flag used to decide this, and it is about something else. Nothing in the
+        filter reads phase, so the same pool has to give the same answer in both arms."""
+        pair = self._ref_pair()
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        self.mock_bg.variant_pool = {"1:207609424_C_A": Zygosity.HOM}
+        no_defining_variant({1: self.mock_bg})
+        self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
+
+    def test_a_locus_nobody_called_is_not_evidence(self):
+        """HG00109 HPA3 on an array. The probe did not call the locus, so the reference
+        token is missing for want of a measurement rather than because of one."""
+        pair = self._ref_pair()
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        self.mock_bg.variant_pool = {"1:207609424_C_A": Zygosity.NO_DATA}
+        no_defining_variant({1: self.mock_bg})
         self.mock_bg.remove_pairs.assert_not_called()
+
+    def test_a_locus_with_no_copies_is_evidence(self):
+        """Zero copies is a measurement of absence, and a locus with no copies has no
+        reference copy either. Unobserved on any input to hand; pinned so the choice
+        cannot drift."""
+        pair = self._ref_pair()
+        self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
+        self.mock_bg.variant_pool = {"1:207609424_C_A": Zygosity.NO_COPIES}
+        no_defining_variant({1: self.mock_bg})
+        self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
+
+
+class TestLocusHasACopyNumber(unittest.TestCase):
+    """Which absences are evidence."""
+
+    def test_a_sibling_token_with_a_copy_number_counts(self):
+        self.assertTrue(
+            locus_has_a_copy_number(
+                "1:25408711_ref", {"1:25408711_G_A": Zygosity.HOM}
+            )
+        )
+
+    def test_no_data_does_not_count(self):
+        self.assertFalse(
+            locus_has_a_copy_number(
+                "17:42453065_ref", {"17:42453065_A_C": Zygosity.NO_DATA}
+            )
+        )
+
+    def test_an_empty_locus_does_not_count(self):
+        self.assertFalse(
+            locus_has_a_copy_number(
+                "1:25408711_ref", {"1:25390874_C_G": Zygosity.HOM}
+            )
+        )
+
+    def test_a_longer_position_at_the_same_prefix_is_not_the_same_locus(self):
+        """'1:2540871' must not match '1:25408711'."""
+        self.assertFalse(
+            locus_has_a_copy_number(
+                "1:2540871_ref", {"1:25408711_G_A": Zygosity.HOM}
+            )
+        )
+
+    def test_another_chromosome_at_the_same_position_is_not_the_same_locus(self):
+        """The substring hazard: '1:159205564' is inside '11:159205564'."""
+        self.assertFalse(
+            locus_has_a_copy_number(
+                "1:159205564_ref", {"11:159205564_G_A": Zygosity.HOM}
+            )
+        )
+
+    def test_the_alternate_form_works_too(self):
+        """The missing token is not always a '_ref' one - four references are defined
+        partly by a real alternate at a lane locus."""
+        self.assertTrue(
+            locus_has_a_copy_number(
+                "1:25420739_G_C", {"1:25420739_ref": Zygosity.HOM}
+            )
+        )
 
 class TestNoDefiningVariantAboDelG(TestPhasedFilters):
     """The ABO c.261delG insertion is exempt, and was only exempt on one build.
@@ -369,7 +444,7 @@ class TestNoDefiningVariantAboDelG(TestPhasedFilters):
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
         # the locus was seen, and what was found there is the deletion, ie no insertion
         self.mock_bg.variant_pool = {delg_token.replace("_T_TC", "_ref"): Zygosity.HOM}
-        no_defining_variant({1: self.mock_bg}, phased=True)
+        no_defining_variant({1: self.mock_bg})
 
     def test_exempt_on_grch38(self):
         self._run("9:133257521_T_TC")
@@ -384,7 +459,7 @@ class TestNoDefiningVariantAboDelG(TestPhasedFilters):
         pair = self._abo_ref_pair("1:25390874_ref")
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair]
         self.mock_bg.variant_pool = {"1:25390874_C_G": Zygosity.HOM}
-        no_defining_variant({1: self.mock_bg}, phased=True)
+        no_defining_variant({1: self.mock_bg})
         self.mock_bg.remove_pairs.assert_called_once_with([pair], "no_defining_variant")
 
 

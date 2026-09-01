@@ -547,10 +547,7 @@ def find_hits(
             filt_phase.narrow_second_slot_candidates_by_phase,
             phased=args.phased,
         ),
-        partial(
-            filt_phase.no_defining_variant,
-            phased=args.phased,
-        ),
+        filt_phase.no_defining_variant,
         partial(
             filt_phase.ref_not_phased,
             phased=args.phased,
