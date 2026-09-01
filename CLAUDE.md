@@ -350,6 +350,23 @@ Things that look fine and are not. Verify against these before touching related 
   may be a perfectly good call. `only_keep_alleles_if_FILTER_PASS` will still drop it and revert
   to reference under a QC-sounding name. Since all QC is delegated upstream and `FILTER` is the
   only channel left, check what it means on a new input type before trusting it.
+- **A `FILTER` value only costs anything if it lands on a defining variant of an allele
+  that completes.** `only_keep_alleles_if_FILTER_PASS` walks the alleles that were *built*,
+  and an allele is built only when every one of its defining variants is present — so a
+  doubtful call that never completes an allele is never looked up. Measured over twelve
+  sources and 9,281 samples: **91 values declared in headers, 17 present on a row at a
+  database locus, 4 ever consulted, 1 (`LowQual`) ever excluding.** That funnel is why
+  `filter_values.tsv` can be 26 rows against 91 declared values and still have no gap —
+  and why counting unclassified values in a header says almost nothing about exposure.
+  Two consequences worth knowing before touching the table:
+  - **A value present but never consulted is a watch list entry, not a non-issue.** It is
+    one sample away from mattering, and until it is classified it will exclude and revert
+    to reference under a QC-sounding name.
+  - **The table is keyed by value alone, and that is safe here but not by construction.**
+    81 values are declared by more than one input form and none has a differing
+    description. A value whose meaning differed between callers would need a second key
+    and a loader that knows which caller wrote the file. Also: 9 of the 26 rows are not
+    exercised by any input to hand, so the table's size is not evidence of coverage.
 - **Bare `assert`s carry real validation** (`data_procesing.py:778, 1795`). They vanish under
   `python -O`. Prefer `BeyondLogicError` when replacing them.
 - **An antithetical blood group is not always two subtypes, and the open question is narrower
