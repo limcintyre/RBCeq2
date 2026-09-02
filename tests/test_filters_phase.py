@@ -14,7 +14,9 @@ from rbceq2.filters.phased import (
     _get_allele_phase_info,
     cant_be_hom_ref_due_to_HET_SNP,
     cant_name_second_slot_cuz_hom_ref_impossible,
+    cant_name_second_slot_cuz_ref_not_phased,
     check_phase,
+    ref_not_phased,
     filter_if_all_HET_vars_on_same_side_and_phased,
     filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
     filter_pairs_by_phase,
@@ -613,6 +615,203 @@ class TestCantNameSecondSlotCuzHomRefImpossible(unittest.TestCase):
         with patch("rbceq2.core_logic.alleles.logger") as mock_logger:
             cant_be_hom_ref_due_to_HET_SNP({1: bg}, phased=True)
         mock_logger.warning.assert_not_called()
+
+
+class TestCantNameSecondSlotCuzRefNotPhased(unittest.TestCase):
+    """HG00128 RHCE: the reference is split across both chromosomes and its partner is not.
+
+    Every defining variant is heterozygous and the phase pool separates them cleanly.
+    RHCE*01 wants 25390874_ref from one chromosome and 25408711_ref and 25420739_G_C
+    from the other, so remove_unphased drops it; process_genetic_data re-adds it anyway
+    and ref_not_phased removes the RHCE*01/RHCE*03 pair that made. That leaves nothing,
+    and the answer was 'Undetermined/Undetermined' when one chromosome is plainly
+    RHCE*03.
+
+    The third of the family. TestCantNameSecondSlotCuzHomRefImpossible above covers the
+    hom reference pair, and TestCantNameSecondSlotCuzRefImpossible in
+    test_geno_filters.py covers the reference being the slot that cannot be named.
+    """
+
+    REF_874 = "1:25390874_ref"
+    ALT_874 = "1:25390874_C_G"
+    REF_711 = "1:25408711_ref"
+    ALT_711 = "1:25408711_G_A"
+    REF_739 = "1:25420739_ref"
+    ALT_739 = "1:25420739_G_C"
+
+    def _allele(self, genotype, variants, reference=False):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type="RHCE*01",
+        )
+
+    def _bg(self, phase, pairs=None, co=None, unphased_ref=True):
+        filtered_out = defaultdict(list)
+        if unphased_ref:
+            filtered_out["remove_unphased"].append(self.ref)
+        return BloodGroup(
+            type="RHCE",
+            alleles={AlleleState.NORMAL: [] if pairs is None else pairs,
+                     AlleleState.CO: co},
+            sample="HG00128.vcf",
+            variant_pool=dict(self.pool),
+            variant_pool_phase=phase,
+            filtered_out=filtered_out,
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "RHCE*01", (self.REF_874, self.REF_711, self.ALT_739), reference=True
+        )
+        self.partner = self._allele(
+            "RHCE*03", (self.ALT_874, self.REF_711, self.ALT_739)
+        )
+        self.pair = Pair(allele1=self.ref, allele2=self.partner)
+        self.pool = {
+            self.REF_874: Zygosity.HET,
+            self.ALT_874: Zygosity.HET,
+            self.REF_711: Zygosity.HET,
+            self.ALT_711: Zygosity.HET,
+            self.REF_739: Zygosity.HET,
+            self.ALT_739: Zygosity.HET,
+        }
+        # The reference is split; every one of the partner's variants is on the left.
+        self.coherent = {
+            self.REF_874: "0|1",
+            self.ALT_874: "1|0",
+            self.REF_711: "1|0",
+            self.ALT_711: "0|1",
+            self.REF_739: "0|1",
+            self.ALT_739: "1|0",
+        }
+
+    def _emptied(self, phase):
+        """A blood group ref_not_phased has just emptied."""
+        bg = self._bg(phase, pairs=[self.pair])
+        ref_not_phased({1: bg}, phased=True)
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+        return bg
+
+    def test_the_partner_slot_is_named_and_the_other_refused(self):
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"RHCE*03/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_nothing_further_is_excluded(self):
+        """The pair was removed and recorded by the filter this one reads."""
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(
+            sorted(bg.filtered_out), ["ref_not_phased", "remove_unphased"]
+        )
+
+    def test_unphased_is_left_alone(self):
+        """Without phase there is nothing saying which chromosome carries the partner."""
+        bg = self._emptied(self.coherent)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=False)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_partner_split_across_both_sides_is_left_alone(self):
+        """Neither chromosome carries the whole partner, so refusing both is honest."""
+        split = dict(self.coherent)
+        split[self.ALT_874] = "0|1"
+        bg = self._emptied(split)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_heterozygote_without_a_bar_is_left_alone(self):
+        """A partly phased file says nothing about sides, so this must not guess."""
+        unbarred = dict(self.coherent)
+        for variant in (self.ALT_874, self.REF_711, self.ALT_739):
+            unbarred[variant] = "0/1"
+        bg = self._emptied(unbarred)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_partner_located_by_nothing_is_left_alone(self):
+        """Every defining variant homozygous locates the allele on neither chromosome."""
+        homs = dict(self.coherent)
+        for variant in (self.ALT_874, self.REF_711, self.ALT_739):
+            homs[variant] = "1/1"
+        bg = self._emptied(homs)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_surviving_pair_stops_it_dead(self):
+        """If anything paired the blood group has an answer and this must not touch it."""
+        other = self._allele("RHCE*02", (self.REF_874, self.ALT_711))
+        bg = self._bg(self.coherent, pairs=[self.pair])
+        ref_not_phased({1: bg}, phased=True)
+        bg.alleles[AlleleState.NORMAL] = [Pair(allele1=self.partner, allele2=other)]
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_a_slot_already_named_is_not_overwritten(self):
+        """The filters that ran earlier own their answer."""
+        bg = self._emptied(self.coherent)
+        bg.single_slot_genotypes = [f"RHCE*01/{UNDETERMINED_SLOT}"]
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"RHCE*01/{UNDETERMINED_SLOT}"]
+        )
+
+    def test_a_coexisting_result_is_not_overridden(self):
+        bg = self._bg(self.coherent, pairs=[self.pair])
+        ref_not_phased({1: bg}, phased=True)
+        bg.alleles[AlleleState.CO] = []
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_it_does_nothing_when_that_filter_did_not_fire(self):
+        """An empty blood group emptied by something else is not this filter's case."""
+        bg = self._bg(self.coherent)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [])
+
+    def test_every_settled_candidate_is_named(self):
+        """Two partners, both settled, are two candidates rather than a choice."""
+        second = self._allele("RHCE*03.18", (self.ALT_874, self.REF_711))
+        bg = self._bg(
+            self.coherent,
+            pairs=[self.pair, Pair(allele1=self.ref, allele2=second)],
+        )
+        ref_not_phased({1: bg}, phased=True)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(
+            bg.single_slot_genotypes,
+            [f"RHCE*03.18/{UNDETERMINED_SLOT}", f"RHCE*03/{UNDETERMINED_SLOT}"],
+        )
 
 
 if __name__ == "__main__":

@@ -1766,6 +1766,116 @@ def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
 
 
 @apply_to_dict_values
+def cant_name_second_slot_cuz_ref_not_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Name the partner slot when the only pair was struck for an unphased reference.
+
+    The third filter in the same family, and the same rule as the other two: one slot
+    identified and the other matching no allele is written 'X/Undetermined'.
+    cant_name_second_slot_cuz_ref_impossible covers the shape where the reference is
+    the slot that cannot be named, cant_name_second_slot_cuz_hom_ref_impossible the
+    shape where a hom reference pair was struck, and this one the shape where
+    ref_not_phased struck the pair.
+
+    The shape: remove_unphased has dropped the reference because its defining variants
+    are not all on one chromosome, process_genetic_data has re-added it anyway - the
+    reference comes from the database rather than from the pool - and ref_not_phased
+    has removed the resulting pair. That removal is right. But the pair's *other*
+    allele reached the pairing stage because it survived phasing, so where its own
+    defining variants are all on one chromosome, phase has settled that slot and
+    throwing it away with the pair loses a chromosome the data names.
+
+    Phased only, and the phase is what makes it safe rather than a guess. Every
+    defining variant of the partner that says which chromosome it is on has to say the
+    *same* chromosome; a partner whose variants are split, or which is located by
+    nothing, is left alone and the blood group stays 'Undetermined/Undetermined'.
+
+    Cannot collide with cant_name_second_slot_cuz_hom_ref_impossible, and not only
+    because that one runs first and this returns early once a slot is named. The two
+    are mutually exclusive by construction: ref_not_phased fires only when the
+    reference is in remove_unphased, which means its defining variants are on more
+    than one chromosome, which is exactly the gate the other filter refuses on.
+
+    Nothing is excluded here, so nothing is recorded in filtered_out: the pair was
+    already removed and recorded by ref_not_phased, whose name this reads to find it.
+    This filter only names what that one left unnamed.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object, after ref_not_phased.
+        phased (bool): Whether the sample's variants are phased.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set to one
+        'partner/Undetermined' string per settled candidate, or unchanged if any gate
+        is not met.
+
+    Example:
+        HG00128 RHCE, phased. Every defining variant is heterozygous and the phase
+        pool splits them cleanly in two:
+
+        bg.variant_pool_phase: {'1:25390874_C_G': '1|0',
+                                '1:25390874_ref': '0|1',
+                                '1:25408711_G_A': '0|1',
+                                '1:25408711_ref': '1|0',
+                                '1:25420739_G_C': '1|0',
+                                '1:25420739_ref': '0|1'}
+
+        RHCE*01 is 1:25390874_ref, 1:25408711_ref and 1:25420739_G_C, which is '0|1'
+        and then '1|0' twice, so remove_unphased drops it and ref_not_phased removes
+        the RHCE*01/RHCE*03 pair it was re-added into. RHCE*03 is 1:25390874_C_G,
+        1:25408711_ref and 1:25420739_G_C, all three '1|0', so the left chromosome is
+        RHCE*03 outright. The right carries 25390874_ref, 25408711_G_A and
+        25420739_ref, which is no allele in the database, which is why nothing can
+        name it.
+
+        single_slot_genotypes -> ['RHCE*03/Undetermined']
+
+        Was 'Undetermined/Undetermined'.
+    """
+    if not phased:
+        return bg
+    # .get, not [], because the co-existing stages have not created the key yet. Kept
+    # so that moving this filter later cannot silently override a Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    # Only where nothing survived. If any pair is left the blood group has an answer
+    # and this must not touch it, and a slot already named is not this filter's to
+    # overwrite.
+    if bg.alleles[AlleleState.NORMAL] or bg.single_slot_genotypes:
+        return bg
+
+    removed = bg.filtered_out.get("ref_not_phased", [])
+    partners = {
+        allele
+        for pair in removed
+        if isinstance(pair, Pair)
+        for allele in pair.alleles
+        if not allele.reference
+    }
+
+    named = []
+    for partner in partners:
+        sides = {
+            bg.variant_pool_phase.get(variant)
+            for variant in partner.defining_variants
+        }
+        sides = {side for side in sides if side is not None and carries_phase(side)}
+        # One side, and something to be on a side of. A partner located by nothing -
+        # every defining variant homozygous or unphased - is not settled by phase and
+        # is left alone.
+        if len(sides) == 1:
+            named.append(f"{partner.genotype}/{UNDETERMINED_SLOT}")
+
+    if named:
+        # sorted, because partners came out of a set and the rendered strings are
+        # user visible - the order has to be reproducible run to run.
+        bg.single_slot_genotypes = sorted(named)
+
+    return bg
+
+
+@apply_to_dict_values
 def cant_name_second_slot_cuz_hom_ref_impossible(
     bg: BloodGroup, phased: bool
 ) -> BloodGroup:

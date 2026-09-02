@@ -525,6 +525,18 @@ Things that look fine and are not. Verify against these before touching related 
   the paralogs is considered intractable. Do not extend RH support to short read.
 - Fuzzy SV matching was tuned on ~7 unique real SVs and is acknowledged as probably overfit.
   Treat its thresholds as provisional, not as validated constants.
+- **In the alphanumeric phenotype file a `/` means two different things, and one of them
+  is a delimiter.** `FUT1` and `FUT3` join a cell's alternatives with `/` *inside* a single
+  entry (`choose_pheno.py:86`, `:149`), so `H+,Se+/H+,Se-` is two alternatives in one
+  string where every other blood group would have written `H+,Se+ | H+,Se-`. Both touch
+  `PhenoType.alphanumeric` only, so the numeric file never shows it. And the character
+  cannot simply be split on, because `Ax/Aweak` and `U+alteredU/GPB` are single phenotype
+  names that contain a literal `/`. So anything comparing phenotype cells as sets of
+  ` | ` entries reads a FUT *narrowing* as a disagreement: on the long read phase pair
+  that is 351 of the 381 the alphanumeric file appears to have, and 11 of the truth set's
+  12, while the numeric file and the genotype file show neither. **Compare the genotype
+  file.** Of the conflicts the two phenotype files hold once FUT is set aside, every one
+  is already a conflict in the genotype file, so they add no signal of their own.
 - **The three output files list a cell's alternatives in three different orders, and the
   lists are not even the same length.** The genotype cell is pair order,
   `",".join(bg.genotypes)` (`main.py:638`); both phenotype cells are

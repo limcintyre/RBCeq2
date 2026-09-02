@@ -560,6 +560,10 @@ def find_hits(
             filt_phase.cant_name_second_slot_cuz_hom_ref_impossible,
             phased=args.phased,
         ),
+        partial(
+            filt_phase.cant_name_second_slot_cuz_ref_not_phased,
+            phased=args.phased,
+        ),
         co.homs,
         co.max_rank,
         partial(co.prep_co_putative_combos, allele_relationships=allele_relationships),
