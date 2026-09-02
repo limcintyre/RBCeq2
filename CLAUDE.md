@@ -525,6 +525,27 @@ Things that look fine and are not. Verify against these before touching related 
   the paralogs is considered intractable. Do not extend RH support to short read.
 - Fuzzy SV matching was tuned on ~7 unique real SVs and is acknowledged as probably overfit.
   Treat its thresholds as provisional, not as validated constants.
+- **The three output files list a cell's alternatives in three different orders, and the
+  lists are not even the same length.** The genotype cell is pair order,
+  `",".join(bg.genotypes)` (`main.py:638`); both phenotype cells are
+  `" | ".join(sorted(set(...)))` (`:680`, `:684`), which is alphabetical and
+  **deduplicated**. So position *i* names a different pair in each file, and where two
+  pairs share a phenotype string the phenotype list is *shorter* than the genotype list.
+  **Per-cell lists are sets. Joining the three files by position is silently wrong**, and
+  no promise of alignment can be added without dropping the deduplication, since four
+  pairs really can all mean one phenotype. Measured over all nine datasets, of 19,913
+  cells holding more than one genotype: **13,475** have a phenotype list of a different
+  length, **9,193** have a genotype list in an order the sorted phenotype lists cannot
+  match, **17,424** show at least one. `HG00125` JK is the clean case, six entries in
+  every list, where position 0 gives one pair's genotype, that same pair's numeric
+  phenotype and a *different* pair's alphanumeric phenotype. Two things that make it
+  easy to miss: the `--debug` block prints all three lists one under the other
+  (`record_data.py:213-215`), which is exactly the reading that does not hold; and the
+  orders are **stable run to run**, so this is a systematic ordering difference rather
+  than the `Pair.alleles` frozenset iteration hazard, which is separate and still latent.
+  FUT1, FUT2 and FUT3 are excluded from those counts: the merge at `main.py:631-636`
+  puts the other gene's pairs in the genotype cell, so the lists there are not describing
+  the same thing to begin with.
 
 ## Design constraints inherited from history
 
