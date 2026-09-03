@@ -1688,8 +1688,14 @@ def get_ref(
     confirmed genotype.
 
     The synthesised lane row is the one legitimate assertion of wildtype and carries
-    SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here and is not
-    affected.
+    SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here rather than
+    parsed. What it asserts is the reference base on every copy the sample has, which is
+    two copies only where the sample has two: where either count is 1 it is Hemizygous,
+    for the same reason a called '1' there is. Reading it as Homozygous regardless put a
+    token at two copies in a gene the caller had just reported at one, and the pool then
+    contradicted itself - see copies_an_allele_must_cover, which is what the
+    contradiction stopped from working. No lane locus is on X or Y, so this was only
+    ever reachable through locus_copies.
 
     A haploid GT is interpreted where either count is 1, and they are different claims
     reaching the same zygosity. chrom_copies is 1 outside PAR on X/Y, where the sample
@@ -1750,6 +1756,8 @@ def get_ref(
     GT = ref_dict["GT"]
 
     if GT == SYNTHESISED_HOM_REF_GT:
+        if 1 in (chrom_copies, locus_copies):
+            return Zygosity.HEM
         return Zygosity.HOM
 
     alleles = parse_GT(GT)
@@ -2140,6 +2148,42 @@ def only_keep_alleles_if_FILTER_PASS(
     return bg
 
 
+def copies_an_allele_must_cover(bg: BloodGroup) -> int:
+    """How many copies a token has to sit on to put an allele on all of them.
+
+    The number get_fully_homozygous_alleles and make_pair compare against, and the
+    answer to 'how many copies of this gene does the sample have here'. Two in the
+    ordinary case, and one where either count says so:
+
+    - chrom_copies is 1 outside PAR on X/Y, where the sample has one chromosome and so
+      one copy of everything on it.
+    - locus_copies is 1 where a caller reported one copy of the gene across the whole
+      gene. The sample still has two chromosomes, but only one of them carries a copy,
+      so an allele on that copy is on every copy there is.
+
+    The two reach the same number for opposite reasons and the difference shows up only
+    at output, where get_genotypes renders the second slot as HAPLOID_SECOND_SLOT for
+    the first and NOVEL_DELETION_SLOT for the second. Nothing between here and there
+    needs to tell them apart.
+
+    Reading only chrom_copies is what paired a lone hemizygous allele with the
+    *reference* when a gene had one copy: the reference then sat on a chromosome
+    carrying no copy of the gene, and while get_genotypes wrote that slot as
+    'Novel_gene_deletion', the pair kept the reference and the phenotype came from it. A
+    sample with one copy of FY carrying FY*01N.01 reported Fy(a+b-) - the reference's
+    phenotype - for a chromosome the genotype said had no gene on it at all.
+
+    Args:
+        bg (BloodGroup): The blood group being paired.
+
+    Returns:
+        int: 1 where either count is 1, otherwise chrom_copies.
+    """
+    if bg.chrom_copies == 1 or bg.locus_copies == 1:
+        return 1
+    return bg.chrom_copies
+
+
 def get_fully_homozygous_alleles(
     ranked_chunks: list[list[Allele]],
     variant_pool: dict[str, Any],
@@ -2250,7 +2294,7 @@ class SingleVariantStrategy:
                 reference_alleles,
                 bg.variant_pool_numeric,
                 bg.alleles[AlleleState.FILT],
-                bg.chrom_copies,
+                copies_an_allele_must_cover(bg),
             )
         ]
 
@@ -2266,7 +2310,7 @@ class MultipleVariantDispatcher:
         non_ref_options = get_non_refs(options)
         ranked_chunks = chunk_geno_list_by_rank(non_ref_options)
         homs = get_fully_homozygous_alleles(
-            ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+            ranked_chunks, bg.variant_pool_numeric, copies_an_allele_must_cover(bg)
         )
 
         first_chunk = ranked_chunks[0]
@@ -2334,7 +2378,7 @@ class SomeHomMultiVariantStrategy:
         self, bg: BloodGroup, reference_alleles: dict[str, Allele]
     ) -> list[Pair]:
         homs = get_fully_homozygous_alleles(
-            self.ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+            self.ranked_chunks, bg.variant_pool_numeric, copies_an_allele_must_cover(bg)
         )
         if len(homs) > 2 and len(homs[0]) == 0 and len(homs[1]) == 0:
             flat = [item for sublist in self.ranked_chunks for item in sublist]
@@ -2349,7 +2393,7 @@ class SomeHomMultiVariantStrategy:
                     reference_alleles,
                     bg.variant_pool_numeric.copy(),
                     first_chunk,
-                    bg.chrom_copies,
+                    copies_an_allele_must_cover(bg),
                 )
             ]
         return combine_all(
@@ -2446,7 +2490,7 @@ def find_what_was_excluded_due_to_rank(
                 bg.filtered_out["excluded_due_to_rank_ref"].append(pair)
         ranked_chunks = chunk_geno_list_by_rank(non_ref_options)
         homs = get_fully_homozygous_alleles(
-            ranked_chunks, bg.variant_pool_numeric, bg.chrom_copies
+            ranked_chunks, bg.variant_pool_numeric, copies_an_allele_must_cover(bg)
         )
         for ranked_homs in homs:
             for hom in ranked_homs:
