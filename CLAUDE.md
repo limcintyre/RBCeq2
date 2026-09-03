@@ -142,24 +142,76 @@ How it is used, so agents read the results correctly:
   PASS/FAIL meaning probeset selection rather than call quality — is about arrays specifically,
   and nothing in the default set can see it. Use `--full` before trusting a change that touches
   build handling, `FILTER`, or lane variants.
-- **The last four keys carry a check that needs no gold.** `dragen_per_sample` and
-  `dragen_joint_967` are the same 967 people, and `dragen_per_sample_phased` is the first of
-  those read a second way. Joint calling changes the encoding, not the biology, and phase may
-  narrow a call but must never change one — so a cell where neither arm's set contains the
-  other is the tool contradicting itself, which is a stronger signal than a gold diff because
-  it needs no gold to interpret. Neither comparison is automated; both are read off the three
-  TSVs by hand, comma fields as unordered sets. Last measured over 85,096 cells: the phase
-  comparison is 84,951 agree / 145 narrowed / **0 conflict**, and a conflict there is a defect.
-  It was 84,196 / 900 / 0 before the three filters that read copy number where the phased arm
-  reads phase — the two `..._shared_variant_has_too_few_copies` and `no_defining_variant`
-  ungated — which between them close 755 of those narrowings by reaching the same verdict
-  without phase.
-  The encoding comparison is 85,002 / 19 / **75**, and that 75 is not the tool's fault — the
-  two files disagree about the genotype at some sites, all 75 are RHCE, so read a *change* in
-  the number rather than the number itself. Those same two filters took it from 60 / 34, and
-  the 41 it gained are one shape: the per-sample file calls `1:25408711 G>A` where the joint
-  file calls the same sample `0/0`, so a pair impossible in one arm is genuinely possible in
-  the other. Shrinking the per-sample answer broke a containment that had been accidental —
+- **Seven of the nine keys carry a check that needs no gold, and it is scripted.** Every
+  phased key has an unphased twin, and `dragen_per_sample` and `dragen_joint_967` are the
+  same 967 people read two ways. Joint calling changes the encoding, not the biology, and
+  phase may narrow a call but must never change one — so a cell where neither arm's answer
+  covers the other is worth looking at, and it needs no gold to interpret, which makes it a
+  stronger signal than a gold diff. `survey_phase_comparison.py` runs all four comparisons
+  off the genotype TSVs, comma fields as unordered sets; it used to be done by hand and it
+  reproduced every number that had been derived that way.
+
+  **Genotype file only.** A refusal propagates into both phenotype files, so counting those
+  would count one cell three times, and the alphanumeric file's `/` is not a delimiter.
+
+  Read under the **covering** reading: `Undetermined` is not an allele name, it is the tool
+  declining to name that slot, so `X/Undetermined` covers `X/anything` and the phased arm has
+  refused rather than disagreed. `-` and `?` deliberately do **not** subsume — one says there
+  is no second chromosome and the other that there is one carrying no copy of the gene, and a
+  named allele contradicts those rather than refining them, so letting them cover would
+  launder real conflicts.
+
+  | comparison | cells | agree | narrowed | refused | **conflict** |
+  |---|---|---|---|---|---|
+  | short read phase | 85,096 | 84,951 | 145 | 0 | **0** |
+  | long read phase | 57,904 | 55,343 | 2,530 | 2 | **29** |
+  | truth set phase | 1,496 | 1,412 | 83 | 0 | **1** |
+  | encoding | 85,096 | 85,002 | 20 | 1 | **73** |
+
+  **A conflict is a defect on the phase pairs**, and the short read pair's 0 is the one that
+  has always been held there. It was 84,196 / 900 / 0 before the three filters that read copy
+  number where the phased arm reads phase — the two `..._shared_variant_has_too_few_copies`
+  and `no_defining_variant` ungated — which between them close 755 of those narrowings by
+  reaching the same verdict without phase.
+
+  **The long read 29 and the truth set 1 are adjudicated and parked**, so read a *change*
+  rather than the number. They are all one thing: 27 RHCE plus the truth set's 1, and 2 RAPH,
+  where the unphased arm reaches an answer phase rules out — see below. Not a defect in either
+  arm.
+
+  **A co-existing slot is compared as a set of alleles, not as a string**, and that is a fix
+  to the check rather than a reading of it. Knops writes more than one allele on one
+  chromosome joined with `+`, and phase can only ever *remove* one from that group, so a
+  phased slot holding fewer alleles is a narrowing. Compared as strings, `KN*01.07` against
+  `KN*01.07+KN*01.12` looked like a different allele: that was 13 of the long read conflicts,
+  now 12 narrowings and one refusal, and `NA18499` is the worked case. The direction is
+  asymmetric on purpose — a phased slot carrying an allele the unphased slot never had is
+  still a conflict, because phase *adding* an allele to a chromosome is the thing worth
+  catching. Off Knops every slot holds one allele and this is equality, as it always was.
+
+  **The refused column is not a quiet bucket.** Ten cells sat in it that were a real defect:
+  `ref_not_phased` was discarding a chromosome phase had settled, fixed by
+  `cant_name_second_slot_cuz_ref_not_phased`. A cell arriving there is still a prompt to look.
+
+  **The invariant assumes the unphased arm's candidates contain the truth, and on RHCE they
+  do not.** Two of the four filters that write a single named slot run unphased, so both arms
+  can say `X/Undetermined` — but all four fire only where *nothing* paired. On these cells the
+  unphased arm reaches a pairing that balances the pool, so it never gets there, while phase
+  rules that pairing out and leaves the tool naming one chromosome and refusing the other.
+  `HG00365` is the shape: unphased `RHCE*01.01/RHCE*01.36`, phased `RHCE*01/Undetermined`,
+  and phase puts one token of each unphased allele on each chromosome. So the unphased answer
+  is not less specific, it is wrong, and no reading of the comparison can make the two agree.
+  That is what the 27 RHCE are, and it is why the fix above *raised* the long read count
+  while improving the output. The 2 RAPH are the same shape on a compound heterozygote:
+  `RAPH*01.-01.01` needs two variants and phase puts them in trans, so neither chromosome is
+  a named variant allele and `RAPH*01/RAPH*01`, MER2+, is right — the unphased arm has to
+  assume cis and gets it wrong.
+
+  The encoding comparison's 73 is not the tool's fault either — the two files disagree about
+  the genotype at some sites, all of them RHCE. Those same two filters took it from 60 / 34,
+  and the 41 it gained are one shape: the per-sample file calls `1:25408711 G>A` where the
+  joint file calls the same sample `0/0`, so a pair impossible in one arm is genuinely possible
+  in the other. Shrinking the per-sample answer broke a containment that had been accidental —
   the disagreement was already there, and this is the case the sentence above is warning about.
 - **`--filter-ab` is a third check that needs no gold, and the only automated one.** It runs
   each dataset again with filtering off and counts cells the tool declines to name in the
