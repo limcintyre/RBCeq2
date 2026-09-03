@@ -472,6 +472,23 @@ def locus_copies_for_bg(
     copy on one chromosome is ordinary hemizygosity, on two chromosomes it is a missing
     copy that needs naming.
 
+    **There is no PAR guard here, and that is deliberate.** chrom_copies_for_bg has one,
+    because everyone carries two copies of a pseudoautosomal region and 'one chromosome'
+    cannot be true there - is_single_copy refuses it. The question asked here is
+    answerable in PAR exactly as it is on an autosome, since a gene copy can be deleted
+    wherever it lives. XG and CD99 are the two blood groups inside PAR1 and both carry
+    curated whole-gene deletions, so guarding this the way chrom_copies is guarded would
+    deny the reading precisely where the database documents it best.
+
+    The consequence is worth knowing before reading a trace: a haploid GT inside PAR
+    does *not* reach get_ref's haploid refusal, because that fires only where neither
+    count is 1, and this makes locus_copies 1. It reports two allele slots, the second
+    holding
+    no gene, ie 'XG*01N.01/XG*01N'. The one shape that would make this wrong is a
+    pipeline that masks the Y pseudoautosomal region and so writes haploid genotypes
+    across X PAR for every male; no caller in any test data does that, measured at
+    13,745 haploid GTs outside PAR on X and none inside, across fifty samples.
+
     Args:
         bg (BloodGroup): The blood group being built.
         vcf (VCF): The VCF this sample came from, carrying the per locus ploidy.

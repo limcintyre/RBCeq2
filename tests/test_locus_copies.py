@@ -194,6 +194,30 @@ class TestLocusCopiesForBg(unittest.TestCase):
         vcf = a_vcf([("chr1", "159205564", "1")])
         self.assertIsNone(locus_copies_for_bg(a_bg("RHD"), vcf, self.loci))
 
+    def test_a_par_locus_is_read_like_an_autosome(self) -> None:
+        """B5's other half, and the PAR guard is deliberately on one axis only.
+
+        chrom_copies refuses a haploid GT inside PAR, because everyone has two copies of
+        a pseudoautosomal region and 'one chromosome' is not a thing that can be true
+        there - test_haploid_gt_inside_par_does_not pins that. locus_copies asks a
+        different question, how many copies of the *gene* the caller reported, and that
+        one is answerable in PAR exactly as on an autosome: a copy can be deleted.
+
+        So the two guards differ on purpose. XG and CD99 are the two blood groups inside
+        PAR1 and both carry curated whole-gene deletions - XG*01N.02, XG*01N.03,
+        CD99*01N.01, CD99*01N.02 - so refusing here would deny the reading precisely
+        where the database documents it best.
+
+        The state table's B5 row said this was 'refused by name'. It is not, and never
+        was: the refusal in get_ref only fires where *neither* count is 1, and this makes
+        locus_copies 1.
+        """
+        vcf = a_vcf([("chrX", "2748343", "1")])
+        self.assertEqual(vcf.haploid_chroms, frozenset())
+        self.assertEqual(
+            locus_copies_for_bg(a_bg("XG"), vcf, {"XG": {"X": frozenset({2748343})}}), 1
+        )
+
 
 class TestGetRefWithLocusCopies(unittest.TestCase):
     """Same zygosity as the constitutional case, different shape of result."""
