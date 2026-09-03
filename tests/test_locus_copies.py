@@ -175,6 +175,22 @@ class TestLocusCopiesForBg(unittest.TestCase):
         self.assertEqual(len(vcf.df), 0)
         self.assertEqual(locus_copies_for_bg(a_bg("RHD"), vcf, self.loci), 1)
 
+    def test_one_reported_locus_is_unanimous_on_its_own(self) -> None:
+        """The bar is agreement, not a quantity of evidence, and one locus agrees.
+
+        RHD has three loci here and 322 in the real database, but the quantifier runs
+        over the loci this VCF *reported*, so a single haploid genotype clears it. Worth
+        a test of its own because 'agreement across the gene' reads like a much stronger
+        guarantee than it is: a sparse or targeted call set makes every gene a one-locus
+        gene, and 37 of the 85 blood groups with a small variant locus have only one to
+        begin with.
+
+        Pinning it rather than endorsing it. Requiring two would be a policy about how
+        much evidence is enough, which is decision 6 and nobody's to make here.
+        """
+        vcf = a_vcf([("chr1", "25272548", "1")])
+        self.assertEqual(locus_copies_for_bg(a_bg("RHD"), vcf, self.loci), 1)
+
     def test_a_mixed_coding_is_refused(self) -> None:
         """One haploid genotype among diploid ones claims one copy and two at once."""
         vcf = a_vcf([("chr1", "25272548", "1"), ("chr1", "25272595", "0/1")])

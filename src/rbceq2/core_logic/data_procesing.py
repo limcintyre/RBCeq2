@@ -439,12 +439,32 @@ def locus_copies_for_bg(
     slots, one of them holding no gene at all. Reading it as chromosome ploidy would report
     'RHD*01/-' and lose a chromosome the sample has.
 
-    The evidence required is agreement across the whole gene: every database locus the VCF
-    actually reported for this blood group has to be haploid. One haploid GT among diploid
-    neighbours is a caller quirk, not a copy number, and is left to be rejected by name in
-    get_ref - the same treatment as before. Requiring agreement is what keeps this from
-    firing on stray malformed rows, and it needs no flag and no per-gene list: a caller that
-    encodes copy number this way does it consistently, and one that does not never trips it.
+    The evidence required is agreement among the loci the VCF actually reported for
+    this blood group: every one of them has to be haploid. One haploid GT among
+    diploid neighbours is a caller quirk, not a copy number, and is left to be
+    rejected by name in get_ref - the same treatment as before. It needs no flag and
+    no per-gene list: a caller that encodes copy number this way does it
+    consistently, and one that does not never trips it.
+
+    **Read that quantifier carefully - it is weaker than 'across the whole gene'.**
+    It ranges over the loci this VCF reported, not over the loci the gene has, so
+    where only one was reported it is satisfied unanimously by that one genotype.
+    Two ways that happens:
+
+    - **37 of the 85 blood groups with a small variant locus have exactly one**, so
+      agreement can never fail for them - 34 HPAs plus GATA1, KANNO and XG. Three
+      more have two.
+    - **It is not confined to those.** RHD has 322 database loci and FY has 28, but
+      a VCF reporting one of them, haploid, clears the bar just the same. A sparse
+      or targeted call set makes every gene a one-locus gene.
+
+    So 'agreement' guards against a caller contradicting itself, and it is a good
+    guard - it is what makes a stray malformed row cost nothing. It is not a
+    quantity of evidence, and this function has none to offer: nothing here
+    consults a structural call, so a missing gene copy is inferred from the shape
+    of the genotypes and never from anything observed to be deleted. Whether ploidy
+    alone should be believed without that corroboration is decision 6 of
+    ploidy_state_table.md, and it is open.
 
     Only a *disagreement* is worth a warning, and disagreement means the two readings
     are genuinely competing. A gene the caller wrote diploid with a couple of haploid
