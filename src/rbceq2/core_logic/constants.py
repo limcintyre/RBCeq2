@@ -587,18 +587,40 @@ HAPLOID_SECOND_SLOT = "-"
 a second chromosome, made explicit so a hemizygous male cannot be mistaken in the TSV for
 a homozygous female. User visible and documented; see issue #40."""
 
-UNNAMED_SECOND_SLOT = "No_gene_copy"
-"""Written in the second slot where the sample has two chromosomes but one of them carries
-no copy of the gene, and the database cannot say which allele that absence is, ie
-'GYPB*03/No_gene_copy'.
+NOVEL_DELETION_SLOT = "Novel_gene_deletion"
+"""Written in the second slot where the sample has two chromosomes but one of them
+carries no copy of the gene, and the database cannot name the absence, ie
+'GYPB*03/Novel_gene_deletion'.
 
-Spelled out rather than punctuated. It was '?', which read as missing data rather
-than as a finding, and worse, '?' already means something else in the output: the
-phenotype files use it for an antigen whose expression is unknown, as in 'C?unknown'
-and 'RH:?2u'. One character carrying two unrelated meanings across the three files a
-reader compares side by side is a poor trade for the width saved. Nothing parses these
-markers - no output layer reads them back - and nothing emitted this one at the time
-it was renamed, so the change cost no result.
+Named to be noticed. It was '?', which read as missing data rather than as a finding,
+and worse, '?' already means something else in the output: the phenotype files use it
+for an antigen whose expression is unknown, as in 'C?unknown' and 'RH:?2u'. One
+character carrying two unrelated meanings across the three files a reader compares side
+by side is a poor trade for the width saved. Nothing parses these markers - no output
+layer reads them back - and nothing has ever emitted this one, so renaming it cost no
+result.
+
+The name is deliberately eye-catching, because a cell holding it is worth stopping for:
+a chromosome carrying no copy of a gene, at a gene the database has no deletion for, is
+either a real finding or a bad input, and both deserve a look rather than a shrug.
+
+Two things to know before believing one, both measured 2026-09-04:
+
+- **The only evidence is GT ploidy.** locus_copies_for_bg reads the shape of the
+  genotypes and never consults a structural call, so nothing here was observed to be
+  deleted - a caller wrote haploid genotypes across the gene and this is the reading of
+  that. The corroborated route to a missing copy is the other one, where an actual
+  deletion record matches a database token; that is how every RHD null in the test data
+  is called, 245 of them.
+- **'Novel' is accurate for most of the genes that can reach here, and not all.** Of
+  the 88 blood groups, 12 have a curated whole-gene deletion and never reach this - they
+  name the absence instead, ie 'RHD*01N'. 73 have no whole-gene deletion in the database at
+  all, and for those a missing copy would indeed be new. The remaining 3 are the
+  glycophorins, GYP, GYPA and GYPB, where deletions *are* curated and
+  Db.get_gene_absent_subtypes disqualifies them for a different reason: a deletion there
+  can fuse two genes rather than remove one, so a chimera may be present. On those three
+  the deletion is not novel and the word overstates - what is unknown there is deletion
+  against fusion.
 
 Deliberately not HAPLOID_SECOND_SLOT. The two make different claims and collapsing them
 would undo the distinction the whole chrom_copies/locus_copies split exists to draw: '-'
@@ -615,7 +637,7 @@ UNDETERMINED_SLOT = "Undetermined"
 The sample has two chromosomes and this one carries a copy of the gene, but the variants
 on it match no allele in the database - so there is a real allele there and the tool
 declines to say which. Distinct from both of the other two second slot values:
-HAPLOID_SECOND_SLOT says there is no second chromosome, UNNAMED_SECOND_SLOT says
+HAPLOID_SECOND_SLOT says there is no second chromosome, NOVEL_DELETION_SLOT says
 there is one and it carries no copy of the gene.
 
 Not a new output value. Both slots have been written this way since the empty genotype

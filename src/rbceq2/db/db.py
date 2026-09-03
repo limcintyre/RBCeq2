@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 from rbceq2.core_logic.alleles import Allele, Line
-from rbceq2.core_logic.constants import LOW_WEIGHT, PAR, UNNAMED_SECOND_SLOT
+from rbceq2.core_logic.constants import LOW_WEIGHT, PAR, NOVEL_DELETION_SLOT
 from rbceq2.core_logic.large_variants import _looks_like_sv_token
 from loguru import logger
 from collections import defaultdict
@@ -241,7 +241,7 @@ class Db:
         token beside the deletion, so none of them is defined by a deletion alone.
 
         Blood groups with no answer here are not an error. They report the missing copy as
-        UNNAMED_SECOND_SLOT, which is the honest result when the input lacks the data to
+        NOVEL_DELETION_SLOT, which is the honest result when the input lacks the data to
         call it accurately.
 
         Returns:
@@ -286,7 +286,7 @@ class Db:
         if undecided:
             logger.info(
                 f"Blood groups where copy number alone cannot name a missing gene copy, "
-                f"so it is reported as '{UNNAMED_SECOND_SLOT}': {undecided}"
+                f"so it is reported as '{NOVEL_DELETION_SLOT}': {undecided}"
             )
         logger.info(f"Gene absent subtypes: {absent}")
         return absent

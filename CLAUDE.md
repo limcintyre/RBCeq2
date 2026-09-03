@@ -156,7 +156,7 @@ How it is used, so agents read the results correctly:
 
   Read under the **covering** reading: `Undetermined` is not an allele name, it is the tool
   declining to name that slot, so `X/Undetermined` covers `X/anything` and the phased arm has
-  refused rather than disagreed. `-` and `No_gene_copy` deliberately do **not** subsume — one
+  refused rather than disagreed. `-` and `Novel_gene_deletion` deliberately do **not** subsume — one
   says there
   is no second chromosome and the other that there is one carrying no copy of the gene, and a
   named allele contradicts those rather than refining them, so letting them cover would
@@ -354,7 +354,7 @@ Things that look fine and are not. Verify against these before touching related 
   | which count is 1 | what it means | allele slots | second slot |
   |---|---|---|---|
   | `chrom_copies` | outside PAR on X/Y; the sample has one chromosome | **1** | `-` (`HAPLOID_SECOND_SLOT`) |
-  | `locus_copies` | the caller encoded gene copy number as GT ploidy | **2** | the DB's subtype for a missing copy, else `No_gene_copy` (`UNNAMED_SECOND_SLOT`) |
+  | `locus_copies` | the caller encoded gene copy number as GT ploidy | **2** | the DB's subtype for a missing copy, else `Novel_gene_deletion` (`NOVEL_DELETION_SLOT`) |
   | neither | a haploid GT where the sample has two of everything | — | refuses by name, `get_ref/haploid_GT_where_neither_count_is_one` |
 
   Rows B1 and D2 of `ploidy_state_table.md` are the *same GT* with different correct answers,
@@ -372,7 +372,7 @@ Things that look fine and are not. Verify against these before touching related 
   per gene, a subtype rather than an allele because a copy number carries no breakpoints); the
   detection half is not. Do not assume a CN 0 signal exists to read.
 - **The three second-slot markers are three different claims.** `-` says there is no second
-  chromosome, `No_gene_copy` says there is one and it carries no copy of the gene,
+  chromosome, `Novel_gene_deletion` says there is one and it carries no copy of the gene,
   `Undetermined` says it
   carries a copy whose allele the database cannot name. Collapsing any pair of them undoes the
   distinction `chrom_copies`/`locus_copies` exists to draw, and pairing with the reference
@@ -407,20 +407,38 @@ Things that look fine and are not. Verify against these before touching related 
   carrying one copy of the token; `NO_COPIES` is zero of both. Neither says how many allele
   slots the *result* has — that is `BloodGroup.chrom_copies`, a third number, and it is never
   changed by a deletion. Reading pair shape off a per-token zygosity is the bug issue #40 was.
-- **`pair_can_exist` never checks a pair containing the reference, and cannot be made to.** It
-  subtracts one allele's defining variants from the pool and requires a copy left for the
+- **`pair_can_exist` never checks a pair containing the reference, and must not be made to.**
+  It subtracts one allele's defining variants from the pool and requires a copy left for the
   other's, but returns True unchecked whenever either allele is the reference
   (`data_procesing.py:2502`, short circuit at `:2520-2522`). Deleting those three lines fails
   *every* sample with `KeyError`: the reference arrives from the database rather than from the
   pool — `NoHomMultiVariantStrategy` (`:2361`) adds it whether the sample supports it or not —
-  so its tokens are routinely not keys of a pool built from the alleles that were *built*. Two
-  filters cover the gap instead, both spending only the tokens the pool holds:
+  so its tokens are routinely not keys of a pool built from the alleles that were *built*.
+
+  **That `KeyError` is a property of the naive edit, not of the problem, and it is not the
+  reason to leave this alone.** Skipping absent tokens on both sides — spending and checking,
+  which is what `pool_cant_supply_both` already does — removes the short circuit with no
+  `KeyError` anywhere, and rejects 256 reference pairs on 17 samples. **The reason is that a
+  pair rejected at generation cannot be rescued.** Where removing every impossible pair would
+  leave a blood group with nothing, `cant_name_second_slot_cuz_shared_variant_has_too_few_copies`
+  names both candidates instead; `pair_can_exist` sees one candidate pair in isolation, before
+  anything knows how many will survive, and can only decline to build it. Measured: moving the
+  arithmetic there leaves the truth set and the 967-sample set byte identical — neither
+  exercises the rescue — and on the long read set turns `HG01527` RHCE from
+  `RHCE*01.20.04.02/Undetermined`, and `HG03761` from two named candidates, into
+  `Undetermined/Undetermined`. `HG01527` is the sample item 5 was closed on. Even where
+  answers hold, ~1,500 exclusions on the 967-sample set stop being named: 903 from
+  `cant_pair_with_ref_cuz_shared_variant_has_too_few_copies` and 606 from
+  `filter_pairs_on_antithetical_zygosity`, silently, for identical output. **Covering each gap
+  with a named filter is the design, not a workaround** — it is what buys the exclusion trail.
+
+  Two filters cover the gap instead, both spending only the tokens the pool holds:
   `cant_pair_with_ref_cuz_shared_variant_has_too_few_copies` (`geno.py:473`) removes the pair,
   and `cant_name_second_slot_cuz_shared_variant_has_too_few_copies` (`:661`) runs one line
   earlier and names both candidates where removing would leave the blood group with nothing.
   `pool_cant_supply_both` (`:426`) is the arithmetic, lifted out of
   `ABO_cant_pair_with_ref_cuz_261delG_HET` (`:380`), which had been doing this correctly for
-  one blood group all along. Four things that are easy to get wrong here:
+  one blood group all along. Five things that are easy to get wrong here:
   - **A `_ref` token constrains exactly as hard as an alternate, and is the larger half.**
     Heterozygous at a `_ref` token says the reference base is on one chromosome and an
     alternate on the other, so two alleles both needing it is the same contradiction as two
@@ -438,6 +456,13 @@ Things that look fine and are not. Verify against these before touching related 
     `filter_if_all_HET_vars_on_same_side_and_phased`, the new filter is now credited with
     cases those used to name — 59 in `dragen_per_sample`, 184 in `dragen_joint_3209`. Same
     answers, more specific reason, but the strings are user visible and documented.
+  - **All of this is about *token* copies, and says nothing about *gene* copies.** The pool is
+    the only thing any of it sees, so none of it notices that a reference has been paired onto
+    a chromosome carrying no copy of the gene at all.
+    `cant_have_2_non_ref_alleles_cuz_only_1_gene_copy` (`geno.py:901`) is the gene copy check
+    and covers only the two-non-reference case; there is no reference equivalent. That is why
+    `locus_copies == 1` can still produce a pair holding the reference — user visible as
+    `ALLELE/Novel_gene_deletion`, whose phenotype then comes from the reference.
 - **A missing token is two opposite things and only one of them is evidence.** A reference
   allele's defining variant absent from the pool means either that the alternate at that locus
   is homozygous, so there is no reference copy for it to sit on, or that the caller never

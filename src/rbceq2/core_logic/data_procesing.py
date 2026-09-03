@@ -13,7 +13,7 @@ from rbceq2.core_logic.constants import (
     CRITICAL_VARIANTS,
     HAPLOID_SECOND_SLOT,
     SYNTHESISED_HOM_REF_GT,
-    UNNAMED_SECOND_SLOT,
+    NOVEL_DELETION_SLOT,
 )
 from rbceq2.core_logic.filter_semantics import filter_excludes_allele
 from rbceq2.core_logic.utils import (
@@ -1868,7 +1868,7 @@ def get_genotypes(
     an array reports copy number without a deletion record, so no deletion allele was ever
     built - and pairs the real allele with the reference instead, which asserts wildtype on
     a chromosome there is evidence against. So the reference slot is replaced: by the
-    database's subtype for a missing copy where it has one, and by UNNAMED_SECOND_SLOT
+    database's subtype for a missing copy where it has one, and by NOVEL_DELETION_SLOT
     where it does not. Subtype rather than allele because a copy number carries no
     breakpoints and cannot say which deletion it was.
 
@@ -1883,7 +1883,7 @@ def get_genotypes(
     """
     reference = (reference_alleles or {}).get(bg.type)
     reference_genotype = getattr(reference, "genotype", None)
-    absent_slot = (gene_absent_subtypes or {}).get(bg.type, UNNAMED_SECOND_SLOT)
+    absent_slot = (gene_absent_subtypes or {}).get(bg.type, NOVEL_DELETION_SLOT)
     missing_copy = bg.locus_copies == 1 and bg.chrom_copies == 2
 
     def make_list_of_lists(alleles):
@@ -2619,7 +2619,7 @@ def add_refs(
                 second_slot = HAPLOID_SECOND_SLOT
             elif bg.locus_copies == 1:
                 second_slot = db.gene_absent_subtypes.get(
-                    blood_group, UNNAMED_SECOND_SLOT
+                    blood_group, NOVEL_DELETION_SLOT
                 )
             else:
                 second_slot = reference.genotype

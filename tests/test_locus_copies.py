@@ -25,7 +25,7 @@ from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     AlleleState,
     HAPLOID_SECOND_SLOT,
-    UNNAMED_SECOND_SLOT,
+    NOVEL_DELETION_SLOT,
 )
 from rbceq2.core_logic.data_procesing import (
     add_refs,
@@ -230,7 +230,7 @@ class TestGetRefWithLocusCopies(unittest.TestCase):
 
 
 class TestMissingCopyGenotypeString(unittest.TestCase):
-    """Table decisions 2 and 4: 'RHD*09.01/RHD*01N' and 'GYPB*03/No_gene_copy'."""
+    """Table decisions 2 and 4: 'RHD*09.01/RHD*01N' and 'GYPB*03/Novel_gene_deletion'."""
 
     def _bg(self, bg_type, genotype, locus_copies, chrom_copies=2):
         allele = Allele(
@@ -282,7 +282,7 @@ class TestMissingCopyGenotypeString(unittest.TestCase):
             reference_alleles={"GYPB": reference},
             gene_absent_subtypes={},
         )["GYPB"]
-        self.assertEqual(out.genotypes, [f"GYPB*03/{UNNAMED_SECOND_SLOT}"])
+        self.assertEqual(out.genotypes, [f"GYPB*03/{NOVEL_DELETION_SLOT}"])
 
     def test_two_copies_of_the_gene_are_untouched(self) -> None:
         bg, reference = self._bg("RHD", "RHD*09.01", locus_copies=None)
@@ -329,9 +329,9 @@ class TestMissingCopyGenotypeString(unittest.TestCase):
         self.assertTrue(out.genotypes[0].startswith("GYPB*03/"))
 
     def test_the_two_glyphs_are_different(self) -> None:
-        """'-' says there is no second chromosome, 'No_gene_copy' says there is one
+        """'-' says there is no second chromosome, 'Novel_gene_deletion' says there is one
         carrying no copy of the gene."""
-        self.assertNotEqual(HAPLOID_SECOND_SLOT, UNNAMED_SECOND_SLOT)
+        self.assertNotEqual(HAPLOID_SECOND_SLOT, NOVEL_DELETION_SLOT)
 
     def test_without_the_database_maps_nothing_changes(self) -> None:
         """Every call written before the database maps were added keeps its old
