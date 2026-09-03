@@ -14,6 +14,7 @@ from rbceq2.core_logic.constants import (
     HAPLOID_SECOND_SLOT,
     SYNTHESISED_HOM_REF_GT,
     NOVEL_DELETION_SLOT,
+    UNDETERMINED_SLOT,
 )
 from rbceq2.core_logic.filter_semantics import filter_excludes_allele
 from rbceq2.core_logic.utils import (
@@ -813,10 +814,25 @@ def make_variant_pool(
     variant_pool = {}
 
     for allele in bg.alleles[AlleleState.FILT]:
-        zygosity = {
-            var: get_ref(vcf.variants[var], var, bg.chrom_copies, bg.locus_copies)
-            for var in allele.defining_variants
-        }
+        try:
+            zygosity = {
+                var: get_ref(vcf.variants[var], var, bg.chrom_copies, bg.locus_copies)
+                for var in allele.defining_variants
+            }
+        except BeyondLogicError as refusal:
+            # Per blood group rather than per sample. get_ref refuses a row it cannot
+            # read, and every one of its refusals is about a single locus, which belongs
+            # to this gene - so the answer that is lost is this gene's. Letting it leave
+            # here loses the sample instead, because apply_to_dict_values builds the
+            # whole dict in one comprehension: one odd XK row and a perfectly callable
+            # ABO goes with it. Recorded, warned about by name, and reported Undetermined
+            # rather than reverted to reference - see BloodGroup.unreadable.
+            bg.unreadable = str(refusal)
+            logger.warning(
+                f"{bg.sample}: {bg.type} could not be read and is reported as "
+                f"{UNDETERMINED_SLOT}. The rest of the sample is unaffected. {refusal}"
+            )
+            return bg
         variant_pool = variant_pool | zygosity
 
     for variant, zygo in variant_pool.items():
@@ -2446,6 +2462,18 @@ def process_genetic_data(
     Raises:
         ValueError: When constraints in the multiple-variant scenario are violated.
     """
+
+    if bg.unreadable:
+        # No pairs, so the cell reports Undetermined. Without this NoVariantStrategy
+        # would supply Pair(reference, reference) - rule 3's default when nothing is
+        # buildable - and assert wildtype for a gene whose input could not be read,
+        # which is the one thing worse than declining to answer.
+        #
+        # An empty list rather than an absent key: every filter downstream indexes
+        # NORMAL directly and iterates what it finds, so 'no pairs' has to be spelled
+        # as a pair list with nothing in it.
+        bg.alleles[AlleleState.NORMAL] = []
+        return bg
 
     strategy: GeneticProcessingProtocol = _pick_strategy(
         bg

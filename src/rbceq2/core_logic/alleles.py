@@ -277,6 +277,7 @@ class BloodGroup:
     unused_pool_filters: dict[str, str] = field(default_factory=dict)
     chrom_copies: int = 2
     locus_copies: int | None = None
+    unreadable: str | None = None
     genotypes: list[str] = field(default_factory=list)
     single_slot_genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
@@ -371,6 +372,23 @@ class BloodGroup:
 
             locus_copies < chrom_copies is the interesting state. Equal is ordinary
             diploidy. Greater is impossible and is rejected rather than normalised.
+        unreadable (str | None):
+            Why this blood group's input could not be read, or None. Set by
+            make_variant_pool where get_ref refuses a row - a haploid genotype among
+            diploid ones in the same gene, a dosage between the bounds, a multi-allelic
+            row that was never split - and holds the whole refusal, name and context, so
+            the debug trace and the warning say the same thing.
+
+            The point is the blast radius. That refusal used to leave make_variant_pool
+            as an exception, and make_variant_pool is decorated with apply_to_dict_values,
+            so it took the whole dict of blood groups with it and the sample produced
+            nothing at all - a callable ABO lost because one XK row was odd. Recording it
+            per blood group keeps the other eighty-odd.
+
+            A blood group carrying this is reported Undetermined, never reference.
+            process_genetic_data declines to pair it for exactly that reason: with no
+            alleles and no gate, NoVariantStrategy would hand back the reference pair and
+            the tool would assert wildtype for a gene whose input it could not read.
         genotypes (List[str]):
             List of genotypes associated with the blood group.
         single_slot_genotypes (List[str]):

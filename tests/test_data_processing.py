@@ -250,14 +250,39 @@ class TestMakeVariantPool(unittest.TestCase):
 
         self.assertEqual(result_bg.variant_pool, expected_pool)
 
-    def test_invalid_genotype_format_len(self):
+    def test_a_genotype_it_cannot_read_costs_the_blood_group_not_the_sample(self):
+        """A row get_ref refuses is recorded here rather than raised out of the dict.
+
+        make_variant_pool is decorated with apply_to_dict_values, so an exception
+        leaving it abandons the whole dict of blood groups and the sample produces
+        nothing - one odd row and every other blood group goes with it. Every refusal
+        get_ref makes is about a single locus, and a locus belongs to one gene, so the
+        answer that is genuinely lost is that gene's.
+        """
         invalid_vcf = MagicMock()
         invalid_vcf.variants = {"var1": {"GT": "invalid"}}
         self.allele_invalid = MagicMock(defining_variants={"var1"})
         self.bg.alleles = {AlleleState.FILT: [self.allele_invalid]}
 
-        with self.assertRaises(BeyondLogicError):
-            make_variant_pool({1: self.bg}, invalid_vcf)
+        out = make_variant_pool({1: self.bg}, invalid_vcf)[1]
+        self.assertTrue(out.unreadable)
+        self.assertIn("get_ref/", out.unreadable)
+
+    def test_a_blood_group_it_cannot_read_is_never_reverted_to_reference(self):
+        """Undetermined, not wildtype.
+
+        With no alleles and no gate, _pick_strategy hands an empty blood group to
+        NoVariantStrategy, which returns Pair(reference, reference) - rule 3's default
+        when nothing is buildable. That is right when nothing was buildable and wrong
+        when nothing was readable, because it asserts wildtype for a gene the tool
+        could not parse. No pairs means an empty genotype cell, which main renders as
+        'Undetermined/Undetermined'.
+        """
+        self.bg.unreadable = "[get_ref/dosage_between_the_bounds] ..."
+        self.bg.alleles = {AlleleState.FILT: []}
+        out = process_genetic_data({1: self.bg}, {"FY": MagicMock()})[1]
+        # Empty rather than absent: the filters downstream index NORMAL and iterate it.
+        self.assertEqual(out.alleles[AlleleState.NORMAL], [])
 
 
 class TestDosageOf(unittest.TestCase):
