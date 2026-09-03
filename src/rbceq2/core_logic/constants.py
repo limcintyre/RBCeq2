@@ -587,16 +587,24 @@ HAPLOID_SECOND_SLOT = "-"
 a second chromosome, made explicit so a hemizygous male cannot be mistaken in the TSV for
 a homozygous female. User visible and documented; see issue #40."""
 
-UNNAMED_SECOND_SLOT = "?"
+UNNAMED_SECOND_SLOT = "No_gene_copy"
 """Written in the second slot where the sample has two chromosomes but one of them carries
 no copy of the gene, and the database cannot say which allele that absence is, ie
-'GYPB*03/?'.
+'GYPB*03/No_gene_copy'.
+
+Spelled out rather than punctuated. It was '?', which read as missing data rather
+than as a finding, and worse, '?' already means something else in the output: the
+phenotype files use it for an antigen whose expression is unknown, as in 'C?unknown'
+and 'RH:?2u'. One character carrying two unrelated meanings across the three files a
+reader compares side by side is a poor trade for the width saved. Nothing parses these
+markers - no output layer reads them back - and nothing emitted this one at the time
+it was renamed, so the change cost no result.
 
 Deliberately not HAPLOID_SECOND_SLOT. The two make different claims and collapsing them
 would undo the distinction the whole chrom_copies/locus_copies split exists to draw: '-'
-says there is no second chromosome, '?' says there is one and its allele is unnamed.
-Pairing with the reference instead is the option that is actually wrong - it asserts
-wildtype on a chromosome there is positive evidence against.
+says there is no second chromosome, this says there is one and it carries no copy of
+the gene. Pairing with the reference instead is the option that is actually wrong - it
+asserts wildtype on a chromosome there is positive evidence against.
 
 Not an allele, never matched against the database. User visible and documented; see issue
 #40 and the E1 row of ploidy_state_table.md."""

@@ -230,7 +230,7 @@ class TestGetRefWithLocusCopies(unittest.TestCase):
 
 
 class TestMissingCopyGenotypeString(unittest.TestCase):
-    """Table decisions 2 and 4: 'RHD*09.01/RHD*01N' and 'GYPB*03/?'."""
+    """Table decisions 2 and 4: 'RHD*09.01/RHD*01N' and 'GYPB*03/No_gene_copy'."""
 
     def _bg(self, bg_type, genotype, locus_copies, chrom_copies=2):
         allele = Allele(
@@ -321,7 +321,7 @@ class TestMissingCopyGenotypeString(unittest.TestCase):
         self.assertEqual(out.genotypes, [f"XK*N.16/{HAPLOID_SECOND_SLOT}"])
 
     def test_the_named_allele_comes_first(self) -> None:
-        """'?' must not be sorted into the first slot."""
+        """The absent copy marker must not be sorted into the first slot."""
         bg, reference = self._bg("GYPB", "GYPB*03", locus_copies=1)
         out = get_genotypes(
             {"GYPB": bg}, reference_alleles={"GYPB": reference}, gene_absent_subtypes={}
@@ -329,11 +329,13 @@ class TestMissingCopyGenotypeString(unittest.TestCase):
         self.assertTrue(out.genotypes[0].startswith("GYPB*03/"))
 
     def test_the_two_glyphs_are_different(self) -> None:
-        """'-' says there is no second chromosome, '?' says its allele is unnamed."""
+        """'-' says there is no second chromosome, 'No_gene_copy' says there is one
+        carrying no copy of the gene."""
         self.assertNotEqual(HAPLOID_SECOND_SLOT, UNNAMED_SECOND_SLOT)
 
     def test_without_the_database_maps_nothing_changes(self) -> None:
-        """Every pre-v2.4.5 call of get_genotypes keeps its old behaviour."""
+        """Every call written before the database maps were added keeps its old
+        behaviour."""
         bg, _ = self._bg("RHD", "RHD*09.01", locus_copies=None)
         out = get_genotypes({"RHD": bg})["RHD"]
         self.assertEqual(out.genotypes, ["RHD*01/RHD*09.01"])
@@ -372,7 +374,8 @@ class TestAddRefsMissingCopy(unittest.TestCase):
         self.assertEqual(res["FY"].genotypes, ["FY*01/FY*01"])
 
     def test_no_vcf_keeps_the_old_behaviour(self) -> None:
-        """Every pre-v2.4.5 call of add_refs, and the three-argument test calls."""
+        """Every call written before add_refs took a vcf, and the three-argument test
+        calls."""
         self.assertEqual(add_refs(self.db, {}, [], None)["RHD"].genotypes,
                          ["RHD*01/RHD*01"])
 

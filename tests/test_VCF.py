@@ -463,8 +463,9 @@ class TestVCFMethods(unittest.TestCase):
     def test_remove_home_ref_drops_haploid_zero(self) -> None:
         """Haploid '0' IS hom ref, wherever it is.
 
-        Reversed in v2.4.5. It used to be kept so it would fail loudly downstream, on the
-        grounds that whether the region is single copy was undecided. That turned out to
+        Reversed when a gene reported consistently at one copy started being read as one
+        copy. It used to be kept so it would fail loudly downstream, on the grounds that
+        whether the region is single copy was undecided. That turned out to
         be the wrong thing to wait for: the caller has said the copies it can see are
         reference, so the ALT token has zero copies under every reading of what the
         haploidy means, and raising about a row that carries no allele helped nobody.

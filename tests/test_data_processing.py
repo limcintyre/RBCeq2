@@ -285,10 +285,10 @@ class TestGetRefAboveTwoCopies(unittest.TestCase):
     """A genotype naming more than two copies is ordinary input, not a broken file.
 
     Ploidy is per genotype in a VCF - nothing in the header declares it and it is simply
-    the number of allele indices - so it varies legitimately between records. Until
-    v2.4.7 every genotype above two copies fell into the haploid rejection, which both
-    refused readable input and described it wrongly: a message about a haploid genotype
-    needing one chromosome, for a call naming four.
+    the number of allele indices - so it varies legitimately between records. Before
+    zygosity_of_non_diploid_GT existed every genotype above two copies fell into the
+    haploid rejection, which both refused readable input and described it wrongly: a
+    message about a haploid genotype needing one chromosome, for a call naming four.
 
     The real example is a gene conversion caller reporting four copies of a paralogue
     pair, where every copy carries the alternate.

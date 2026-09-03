@@ -1031,9 +1031,9 @@ class TestFilterPairsByContext(unittest.TestCase):
 class TestCantHave2NonRefAllelesCuzOnly1GeneCopy(unittest.TestCase):
     """One gene copy on two chromosomes leaves one place for a real allele.
 
-    The pair naming two different ones is claiming both are on it. Until v2.4.6 this was
-    warned about at the reporting layer and then written out as called - the one
-    impossible result the pipeline knowingly reported.
+    The pair naming two different ones is claiming both are on it. Until this filter
+    existed that was warned about at the reporting layer and then written out as
+    called - the one impossible result the pipeline knowingly reported.
     """
 
     FILTER = "cant_have_2_non_ref_alleles_cuz_only_1_gene_copy"

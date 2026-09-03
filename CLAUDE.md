@@ -156,7 +156,8 @@ How it is used, so agents read the results correctly:
 
   Read under the **covering** reading: `Undetermined` is not an allele name, it is the tool
   declining to name that slot, so `X/Undetermined` covers `X/anything` and the phased arm has
-  refused rather than disagreed. `-` and `?` deliberately do **not** subsume — one says there
+  refused rather than disagreed. `-` and `No_gene_copy` deliberately do **not** subsume — one
+  says there
   is no second chromosome and the other that there is one carrying no copy of the gene, and a
   named allele contradicts those rather than refining them, so letting them cover would
   launder real conflicts.
@@ -353,7 +354,7 @@ Things that look fine and are not. Verify against these before touching related 
   | which count is 1 | what it means | allele slots | second slot |
   |---|---|---|---|
   | `chrom_copies` | outside PAR on X/Y; the sample has one chromosome | **1** | `-` (`HAPLOID_SECOND_SLOT`) |
-  | `locus_copies` | the caller encoded gene copy number as GT ploidy | **2** | the DB's subtype for a missing copy, else `?` (`UNNAMED_SECOND_SLOT`) |
+  | `locus_copies` | the caller encoded gene copy number as GT ploidy | **2** | the DB's subtype for a missing copy, else `No_gene_copy` (`UNNAMED_SECOND_SLOT`) |
   | neither | a haploid GT where the sample has two of everything | — | refuses by name, `get_ref/haploid_GT_where_neither_count_is_one` |
 
   Rows B1 and D2 of `ploidy_state_table.md` are the *same GT* with different correct answers,
@@ -371,7 +372,8 @@ Things that look fine and are not. Verify against these before touching related 
   per gene, a subtype rather than an allele because a copy number carries no breakpoints); the
   detection half is not. Do not assume a CN 0 signal exists to read.
 - **The three second-slot markers are three different claims.** `-` says there is no second
-  chromosome, `?` says there is one and it carries no copy of the gene, `Undetermined` says it
+  chromosome, `No_gene_copy` says there is one and it carries no copy of the gene,
+  `Undetermined` says it
   carries a copy whose allele the database cannot name. Collapsing any pair of them undoes the
   distinction `chrom_copies`/`locus_copies` exists to draw, and pairing with the reference
   instead — the option that looks tidiest — asserts wildtype on a chromosome there is positive
@@ -389,7 +391,7 @@ Things that look fine and are not. Verify against these before touching related 
     not a rule, so `1/0/1/1` and `0/1/1/1` are the same statement and a shape test misses
     one.
   - **The missing genotype scales too** — `./././.` is what `./.` is at four copies, and
-    it read as an error until v2.4.7 because the no-call test sat after the ploidy gate.
+    it read as an error until the no-call test was moved ahead of the ploidy gate.
   - **`HOM_REF_GTS` covers the high-ploidy spellings by prefix, not by decision.**
     `'0/0/0/0'.startswith('0/0')` is what drops those rows in `remove_home_ref`
     (`vcf.py:587`); "tidying" that into exact matching reopens the gap silently. The

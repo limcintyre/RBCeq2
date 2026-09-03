@@ -189,7 +189,7 @@ class TestRemoveHomRefHaploid(unittest.TestCase):
         self.assertEqual(len(vcf.df), 0)
 
     def test_haploid_zero_is_dropped_on_an_autosome_too(self) -> None:
-        """D3. Reversed in v2.4.5.
+        """D3. Reversed when locus_copies arrived.
 
         It used to be kept so the copy number case would be rejected by name rather than
         buried. Now that a gene reported consistently at one copy is read as one copy,
