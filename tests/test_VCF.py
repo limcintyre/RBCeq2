@@ -184,7 +184,7 @@ class TestVCFMethods(unittest.TestCase):
 
     @staticmethod
     def _df_with_two_rows_for_one_variant(
-        gts: list[str], filters: list[str]
+        gts: list[str], filters: list[str], phase_sets: list[str] | None = None
     ) -> pd.DataFrame:
         """Return a VCF-like DataFrame whose rows are all the same variant.
 
@@ -195,11 +195,15 @@ class TestVCFMethods(unittest.TestCase):
         Args:
             gts (list[str]): One GT per row, in file order.
             filters (list[str]): One FILTER value per row, in file order.
+            phase_sets (list[str] | None): One PS per row, in file order. Defaults to
+                the same set on every row, which is every case where the rows cannot
+                name different ones.
 
         Returns:
             pd.DataFrame: One row per genotype, all T>C at chr2:2000.
         """
         n = len(gts)
+        sets = ["1"] * n if phase_sets is None else phase_sets
         return pd.DataFrame(
             {
                 "CHROM": ["chr2"] * n,
@@ -211,7 +215,7 @@ class TestVCFMethods(unittest.TestCase):
                 "FILTER": filters,
                 "INFO": ["."] * n,
                 "FORMAT": ["GT:AD:GQ:DP:PS"] * n,
-                "SAMPLE": [f"{gt}:1,1:30:30:1" for gt in gts],
+                "SAMPLE": [f"{gt}:1,1:30:30:{ps}" for gt, ps in zip(gts, sets)],
             }
         )
 
@@ -292,6 +296,61 @@ class TestVCFMethods(unittest.TestCase):
             sample="test_sample",
         )
         self.assertEqual(vcf_obj.df["FILTER"].tolist(), ["PASS;TargetedConflict"])
+
+    def test_reconciliation_collapses_rows_that_name_different_phase_sets(self) -> None:
+        """Two phase sets are not two calls.
+
+        Both rows say the alternate is on one chromosome and the reference on the other.
+        They differ only in which set that orientation is measured against, and two sets
+        are by definition not phased relative to one another, so neither row is wrong
+        and neither contradicts the other. rows_make_the_same_call reads the GT and
+        nothing else, so this collapses the way any other agreeing pair does.
+        """
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "0|1"],
+                    ["PASS", "TargetedConflict"],
+                    phase_sets=["1500", "1900"],
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(len(vcf_obj.df), 1)
+
+    def test_reconciliation_keeps_the_first_phased_rows_phase_set(self) -> None:
+        """Where every row is phased, the set left in use is the first row's.
+
+        Collapsing rows that agree means keeping one of them, and the loop stops at the
+        first phased row it finds. That is not 'keep the last', which is what
+        get_variants did before reconciliation ran, and on this case the two never
+        coincide: every row is phased, so the first is always taken and the last never
+        is. Measured over a short read cohort, 589 tokens in 284 samples reach it, four
+        RHCE tokens, and the first phased row wins all 589.
+
+        Defensible on that input rather than arbitrary. The first row is the targeted
+        caller's, whose phase set spans the whole gene conversion event it called, and
+        the second is the general caller's local read backed set, so the wider set is
+        the first row's in every one of the 589. But it is the file's order being read
+        and not the width, which is why this pins the behaviour rather than endorsing
+        it: a file listing the local set first would quietly narrow the phase, and
+        nothing in the output would say so.
+        """
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "0|1"],
+                    ["PASS", "TargetedConflict"],
+                    phase_sets=["1500", "1900"],
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["PS"], "1500")
 
     def test_reconciliation_accepts_a_difference_of_ploidy_alone(self) -> None:
         """'1/1/1/1' and '1/1' are the same claim: every copy carries the alternate.
