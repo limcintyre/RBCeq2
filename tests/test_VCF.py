@@ -297,6 +297,79 @@ class TestVCFMethods(unittest.TestCase):
         )
         self.assertEqual(vcf_obj.df["FILTER"].tolist(), ["PASS;TargetedConflict"])
 
+    @staticmethod
+    def _phased_rows_naming_sets(
+        positions_and_sets: list[tuple[str, str]],
+    ) -> pd.DataFrame:
+        """Rows whose only job is to put weight behind a phase set.
+
+        Each is a distinct variant at a distinct position, so none of them collides with
+        the token under test - they are here to be counted, not reconciled.
+
+        Args:
+            positions_and_sets (list[tuple[str, str]]): One (POS, PS) per row.
+
+        Returns:
+            pd.DataFrame: One phased T>G row per pair, on chr2.
+        """
+        n = len(positions_and_sets)
+        return pd.DataFrame(
+            {
+                "CHROM": ["chr2"] * n,
+                "POS": [pos for pos, _ in positions_and_sets],
+                "ID": ["."] * n,
+                "REF": ["T"] * n,
+                "ALT": ["G"] * n,
+                "QUAL": ["."] * n,
+                "FILTER": ["PASS"] * n,
+                "INFO": ["."] * n,
+                "FORMAT": ["GT:AD:GQ:DP:PS"] * n,
+                "SAMPLE": [f"0|1:1,1:30:30:{ps}" for _, ps in positions_and_sets],
+            }
+        )
+
+    def test_reconciliation_keeps_the_phase_set_the_most_rows_name(self) -> None:
+        """The better attested set wins, even though its row is not the first.
+
+        A phase set is spent a comparison at a time, so the set with more variants in it
+        is the one that lets the phased filters do more: two variants offer one
+        comparison and five offer ten. Here the second row's set is named by three rows
+        and the first row's by one, so the second row is kept - which is the whole point
+        of counting, since reading the file's order would have taken the first.
+        """
+        frame = pd.concat(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "0|1"],
+                    ["PASS", "TargetedConflict"],
+                    phase_sets=["1500", "1900"],
+                ),
+                self._phased_rows_naming_sets([("2100", "1900"), ("2200", "1900")]),
+            ],
+            ignore_index=True,
+        )
+        vcf_obj = VCF([frame], {}, set(), sample="test_sample")
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["PS"], "1900")
+
+    def test_reconciliation_prefers_a_row_that_names_a_set_to_one_that_does_not(
+        self,
+    ) -> None:
+        """A phased row naming no set counts zero, so it loses to one that names a set.
+
+        Phase with nothing to measure it against orients the call relative to nothing
+        the file declares. The row that names a set is the more specific of the two, in
+        the same way a phased genotype is more specific than an unphased one, so the
+        same preference applies - and it has to survive the row naming no set coming
+        first, which is what this pins.
+        """
+        frame = self._df_with_two_rows_for_one_variant(
+            ["0|1", "0|1"], ["PASS", "TargetedConflict"], phase_sets=["1500", "1900"]
+        )
+        frame.loc[0, "FORMAT"] = "GT:AD:GQ:DP"
+        frame.loc[0, "SAMPLE"] = "0|1:1,1:30:30"
+        vcf_obj = VCF([frame], {}, set(), sample="test_sample")
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["PS"], "1900")
+
     def test_reconciliation_collapses_rows_that_name_different_phase_sets(self) -> None:
         """Two phase sets are not two calls.
 
@@ -320,23 +393,13 @@ class TestVCFMethods(unittest.TestCase):
         )
         self.assertEqual(len(vcf_obj.df), 1)
 
-    def test_reconciliation_keeps_the_first_phased_rows_phase_set(self) -> None:
-        """Where every row is phased, the set left in use is the first row's.
+    def test_reconciliation_falls_back_to_the_first_phased_row_on_a_tie(self) -> None:
+        """Two sets each named by one row are equally attested, so order decides.
 
-        Collapsing rows that agree means keeping one of them, and the loop stops at the
-        first phased row it finds. That is not 'keep the last', which is what
-        get_variants did before reconciliation ran, and on this case the two never
-        coincide: every row is phased, so the first is always taken and the last never
-        is. Measured over a short read cohort, 589 tokens in 284 samples reach it, four
-        RHCE tokens, and the first phased row wins all 589.
-
-        Defensible on that input rather than arbitrary. The first row is the targeted
-        caller's, whose phase set spans the whole gene conversion event it called, and
-        the second is the general caller's local read backed set, so the wider set is
-        the first row's in every one of the 589. But it is the file's order being read
-        and not the width, which is why this pins the behaviour rather than endorsing
-        it: a file listing the local set first would quietly narrow the phase, and
-        nothing in the output would say so.
+        The count cannot separate them and nothing else here can either, so the rule
+        runs out and the fallback is what reconciliation did before the count existed.
+        It has to be a stated fallback rather than an accident: max keeps the first of
+        equal keys, and that is load bearing, not incidental.
         """
         vcf_obj = VCF(
             [

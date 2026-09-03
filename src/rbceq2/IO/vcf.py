@@ -9,7 +9,7 @@ from icecream import ic
 os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
 import polars as pl
 from loguru import logger
-from collections import defaultdict
+from collections import Counter, defaultdict
 from rbceq2.core_logic.constants import (
     COMMON_COLS,
     HOM_REF_DUMMY_QUAL,
@@ -46,6 +46,46 @@ def gt_of(sample_field: str) -> str:
     if not isinstance(sample_field, str):
         return ""
     return sample_field.split(":")[0].strip()
+
+
+def phase_set_of(format_field: str, sample_field: str) -> str:
+    """Pull the PS out of a SAMPLE column value, or '' where the row names none.
+
+    Unlike GT, PS has no fixed position and most rows do not carry it at all, so it has
+    to be found through FORMAT. A row can also be phased and still name no set: the
+    orientation is then relative to nothing the file declares, and assign_ref_phase_set
+    (data_procesing.py) fills one in later from the token's partner or its locus.
+
+    '' rather than None for both of those, so the result can be counted and compared
+    without a special case at every call site. It is falsy, which is the test callers
+    want - a set that is not named cannot be reasoned about.
+
+    Args:
+        format_field (str): A raw FORMAT column value, ie 'GT:AD:GQ:DP:PS'.
+        sample_field (str): The SAMPLE column value it describes.
+
+    Returns:
+        str: The PS, or '' if the row declares none or gives it no value.
+
+    Example:
+        >>> phase_set_of("GT:GQ:PS", "0|1:93:25405596")
+        '25405596'
+        >>> phase_set_of("GT:GQ", "0|1:93")
+        ''
+        >>> phase_set_of("GT:GQ:PS", "0|1:93:.")
+        ''
+    """
+    if not isinstance(format_field, str) or not isinstance(sample_field, str):
+        return ""
+    keys = format_field.strip().split(":")
+    if "PS" not in keys:
+        return ""
+    values = sample_field.strip().split(":")
+    index = keys.index("PS")
+    if index >= len(values):
+        return ""
+    value = values[index].strip()
+    return "" if value == MISSING_FIELD else value
 
 
 def is_haploid_gt(GT: str) -> bool:
@@ -618,6 +658,30 @@ class VCF:
         """
         return set(self.df.loci)
 
+    def _rows_per_phase_set(self) -> Counter:
+        """(chrom, phase set) -> how many rows of this frame name it.
+
+        What reconcile_duplicate_rows spends to choose between two phase sets. Only
+        phased rows are counted, which is the same test _create_phase_sets applies: a PS
+        beside an unphased genotype describes no orientation, so counting it would
+        credit a set with a row that tells the filters nothing.
+
+        Keyed by chromosome as well as by set, because a phase set is named for a
+        position and two chromosomes can name the same one. _create_phase_sets nests its
+        map the same way for the same reason.
+
+        Counted over the frame as it stands, before any row is dropped, so the answer is
+        a property of the file rather than of how far reconciliation has got.
+        """
+        counts: Counter = Counter()
+        for row in self.df.itertuples(index=False):
+            if "|" not in gt_of(row.SAMPLE):
+                continue
+            phase_set = phase_set_of(row.FORMAT, row.SAMPLE)
+            if phase_set:
+                counts[(str(row.CHROM), phase_set)] += 1
+        return counts
+
     def reconcile_duplicate_rows(self) -> None:
         """Collapse the rows a file gives more than once for one small variant.
 
@@ -642,9 +706,29 @@ class VCF:
           The duplicate genotype warning already names them.
         - Rows that agree collapse to one. The kept row is a phased one wherever any row
           is phased, since an unphased genotype does not contradict a phased one - it is
-          the same call, less specific - and today's reading discards the phase in 825
-          heterozygous calls for no reason but file order. Where the rows tie, the last
-          is kept, which is what get_variants did.
+          the same call, less specific - and the reading this replaced discarded the
+          phase in 825 heterozygous calls for no reason but file order. Where no row is
+          phased the last is kept, which is what get_variants did.
+        - Where more than one row is phased they can name different phase sets, and
+          keeping one of them means choosing between the sets. Nothing is being
+          arbitrated about the call: two sets are by definition not phased relative to
+          one another, so both rows are right and what differs is how much phase each
+          set carries. The set named by the most rows of this frame is kept, because a
+          set is spent by the filters a comparison at a time - two variants in a set
+          offer one comparison and five offer ten, while a set holding a single row
+          offers none at all. Where the counts tie the first phased row is kept, which
+          is what this did before the count existed.
+
+          A phased row naming no set counts zero, so it loses to any row that names one.
+          The count is taken once, over the frame before any row is dropped, so the
+          answer cannot depend on the order the tokens are walked in.
+
+          Measured over every input to hand this keeps the row that was already being
+          kept, so what changed is the reason and not the output: the case arises on one
+          input form, 589 tokens in 284 samples, and there the widest set is also the
+          best attested and is also the one the file happens to list first. Reading the
+          file's order was getting the right answer for a reason that would not survive
+          a file written in the other order.
         - The kept row's FILTER becomes every distinct value, ';' joined. Not a new
           convention: a FILTER field already carries several values that way, and
           filter_excludes_allele already splits on it and excludes if any one of them
@@ -660,6 +744,7 @@ class VCF:
         if "variant" not in self.df.columns or self.df.empty:
             return
 
+        rows_per_phase_set = self._rows_per_phase_set()
         droppable: list[int] = []
         for token, group in self.df.groupby("variant", sort=False):
             if len(group) < 2:
@@ -674,10 +759,17 @@ class VCF:
                 continue
 
             keep = rows[-1]
-            for row, gt in zip(rows, gts):
-                if "|" in gt:
-                    keep = row
-                    break
+            phased = [row for row, gt in zip(rows, gts) if "|" in gt]
+            if phased:
+                # max keeps the first of equal keys, which is the tie rule: where the
+                # sets are equally well attested - and where only one row is phased, or
+                # none of them names a set - this is the first phased row.
+                keep = max(
+                    phased,
+                    key=lambda row: rows_per_phase_set[
+                        (str(row.CHROM), phase_set_of(row.FORMAT, row.SAMPLE))
+                    ],
+                )
 
             values: list[str] = []
             for row in rows:
