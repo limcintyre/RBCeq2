@@ -759,6 +759,36 @@ def warn_if_critical_variant_not_trusted(bg: BloodGroup, df: pd.DataFrame) -> No
         )
 
 
+def record_unreadable(bg: BloodGroup, refusal: BeyondLogicError) -> BloodGroup:
+    """Record a refusal against this blood group instead of letting it take the sample.
+
+    Shared by the two places make_variant_pool can refuse - get_ref declining a row it
+    cannot read, and check_token_copies_fit_chrom_copies finding a token claiming more
+    copies than the sample has chromosomes there. Both are per blood group: get_ref's
+    refusals are each about a single locus, and the copy count check compares one gene's
+    tokens against that gene's chrom_copies. Neither is a statement about the sample.
+
+    Letting either leave make_variant_pool loses the sample rather than the gene,
+    because apply_to_dict_values builds the whole dict of blood groups in one
+    comprehension - one odd XK row and a perfectly callable ABO goes with it.
+
+    Args:
+        bg (BloodGroup): The blood group whose input could not be read.
+        refusal (BeyondLogicError): The refusal, kept whole - name, message and context.
+
+    Returns:
+        BloodGroup: The same blood group, marked unreadable. process_genetic_data then
+        declines to pair it, so it reports Undetermined rather than reverting to
+        reference.
+    """
+    bg.unreadable = str(refusal)
+    logger.warning(
+        f"{bg.sample}: {bg.type} could not be read and is reported as "
+        f"{UNDETERMINED_SLOT}. The rest of the sample is unaffected. {refusal}"
+    )
+    return bg
+
+
 @apply_to_dict_values
 def make_variant_pool(
     bg: BloodGroup,
@@ -857,19 +887,7 @@ def make_variant_pool(
                 for var in allele.defining_variants
             }
         except BeyondLogicError as refusal:
-            # Per blood group rather than per sample. get_ref refuses a row it cannot
-            # read, and every one of its refusals is about a single locus, which belongs
-            # to this gene - so the answer that is lost is this gene's. Letting it leave
-            # here loses the sample instead, because apply_to_dict_values builds the
-            # whole dict in one comprehension: one odd XK row and a perfectly callable
-            # ABO goes with it. Recorded, warned about by name, and reported Undetermined
-            # rather than reverted to reference - see BloodGroup.unreadable.
-            bg.unreadable = str(refusal)
-            logger.warning(
-                f"{bg.sample}: {bg.type} could not be read and is reported as "
-                f"{UNDETERMINED_SLOT}. The rest of the sample is unaffected. {refusal}"
-            )
-            return bg
+            return record_unreadable(bg, refusal)
         variant_pool = variant_pool | zygosity
 
     for variant, zygo in variant_pool.items():
@@ -887,7 +905,10 @@ def make_variant_pool(
                 if matching2:  # het pair gone
                     variant_pool[variant] = Zygosity.HOM
     bg.variant_pool = variant_pool
-    check_token_copies_fit_chrom_copies(bg)
+    try:
+        check_token_copies_fit_chrom_copies(bg)
+    except BeyondLogicError as refusal:
+        return record_unreadable(bg, refusal)
 
     return bg
 

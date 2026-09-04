@@ -268,6 +268,43 @@ class TestMakeVariantPool(unittest.TestCase):
         self.assertTrue(out.unreadable)
         self.assertIn("get_ref/", out.unreadable)
 
+    def test_a_ploidy_mismatch_also_costs_the_blood_group_not_the_sample(self):
+        """The second way make_variant_pool can refuse, and it used to escape.
+
+        check_token_copies_fit_chrom_copies runs after the pool is built and raises
+        where a token claims more copies than the sample has chromosomes there - one
+        sample mixing ploidy codings, a haploid '1' at one non-PAR X locus and a diploid
+        '1/1' at another. It sat outside the try that covered get_ref, so it took the
+        whole dict of blood groups with it. It is a per blood group check like the
+        others: it compares this gene's tokens against this gene's chrom_copies.
+        """
+        vcf = MagicMock()
+        vcf.variants = {"X:1_A_G": {"GT": "1/1"}}
+        allele = Allele(
+            genotype="XK*01.02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"X:1_A_G"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="XK*01",
+        )
+        # A real BloodGroup, not the mock the rest of this class uses: the check reads
+        # variant_pool_numeric, which is a property derived from the pool.
+        bg = BloodGroup(
+            type="XK", alleles={AlleleState.FILT: [allele]}, sample="s"
+        )
+        # chrom_copies is recomputed at the top of make_variant_pool, so it has to be
+        # made 1 the way the pipeline makes it 1: the database saying XK is outside PAR
+        # on X, and this sample's caller having written haploid genotypes there.
+        vcf.haploid_chroms = frozenset({"X"})
+
+        out = make_variant_pool({1: bg}, vcf, {"XK": "X"})[1]
+        self.assertTrue(out.unreadable)
+        self.assertIn("more copies than the sample has", out.unreadable)
+
     def test_a_blood_group_it_cannot_read_is_never_reverted_to_reference(self):
         """Undetermined, not wildtype.
 
