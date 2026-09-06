@@ -587,6 +587,7 @@ def find_hits(
             antitheticals=db.antitheticals,
         ),
         filt.ensure_HET_SNP_used,
+        filt.cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele,
         filt.ABO_cant_pair_with_ref_cuz_261delG_HET,
         filt.cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
@@ -619,6 +620,7 @@ def find_hits(
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
         filt.cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
+        filt.cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy,
         partial(
             dp.get_genotypes,
             reference_alleles=db.reference_alleles,

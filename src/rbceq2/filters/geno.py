@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import operator
 from collections import defaultdict
-from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
+from rbceq2.core_logic.alleles import (
+    Allele, BloodGroup, Pair, is_deletion_only_allele,
+)
 from rbceq2.core_logic.constants import (
     ABO_DELG_VARIANTS,
     LOW_WEIGHT,
@@ -926,6 +928,11 @@ def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGro
     Nothing here fires unless a caller reported gene copy number, so on an input without
     that channel locus_copies is None and this is a no-op.
 
+    An allele defined only by deletion events names the other chromosome rather than
+    competing for the surviving gene copy. It is not counted as a present allele;
+    the database definition supplies the named event, independently of any subtype
+    that copy number alone could support.
+
     Args:
         bg (BloodGroup): The BloodGroup object containing allele pairs.
 
@@ -945,7 +952,8 @@ def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGro
     to_remove = []
     for pair in bg.alleles[AlleleState.NORMAL]:
         non_ref = {
-            allele.genotype for allele in pair.alleles if not allele.reference
+            allele.genotype for allele in pair.alleles
+            if not allele.reference and not is_deletion_only_allele(allele)
         }
         if len(non_ref) > 1:
             to_remove.append(pair)
@@ -954,6 +962,103 @@ def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGro
             to_remove, "cant_have_2_non_ref_alleles_cuz_only_1_gene_copy"
         )
 
+    return bg
+
+
+@apply_to_dict_values
+def cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Use a surviving named deletion partner for an allele at one gene copy.
+
+    With one gene copy on two chromosomes, a reference/non-deletion pair uses the
+    reference as a placeholder for the missing copy. Where the same non-deletion
+    allele already has a surviving pair with a database-defined deletion, that pair
+    names the missing chromosome. Keeping the reference alternative would let its
+    phenotype assert expression from the chromosome reported as absent.
+
+    The counterpart must still be a normal pair. A filtered-out deletion does not
+    supply an answer, and without a counterpart the copy-number-only fallback is
+    left alone. A reference/deletion pair can name reference on the surviving copy;
+    it is outside this filter. Co-existing alleles have their own path.
+
+    Args:
+        bg (BloodGroup): The blood group after ordinary pair filtering.
+
+    Returns:
+        BloodGroup: With redundant reference placeholders excluded by this name.
+    """
+    if bg.locus_copies != 1 or bg.chrom_copies != 2:
+        return bg
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    present_with_deletion = {
+        allele
+        for pair in pairs
+        if any(is_deletion_only_allele(member) for member in pair)
+        for allele in pair
+        if not allele.reference and not is_deletion_only_allele(allele)
+    }
+    to_remove = [
+        pair for pair in pairs
+        if pair.contains_reference
+        and any(allele in present_with_deletion for allele in pair)
+    ]
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy"
+        )
+    return bg
+
+
+@apply_to_dict_values
+def cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Exclude a reference/deletion alternative denied by a complete HEM allele.
+
+    A single defining token on the remaining copy already names an allele. A
+    reference/deletion pair that omits it names neither the allele nor its token.
+    Only single-token alleles still represented in the normal pairs supply evidence;
+    an incomplete database definition does not rule out the reference.
+
+    Named/named pairs remain subject to the existing rank and relationship filters.
+    Several HEM variants can be on the same surviving chromosome, where a higher
+    ranked allele can displace another without including its token in its definition.
+    Requiring every such token in every pair would discard that valid alternative.
+    Co-existing alleles have their own filtering path.
+
+    Args:
+        bg (BloodGroup): The blood group with normal pairs and adjusted zygosity.
+
+    Returns:
+        BloodGroup: With pairs omitting the required token excluded by this name.
+    """
+    if bg.chrom_copies != 2 or bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    required = {
+        variant
+        for pair in pairs
+        for allele in pair
+        if allele.number_of_defining_variants == 1
+        and not is_deletion_only_allele(allele)
+        for variant in allele.defining_variants
+        if bg.variant_pool.get(variant) == Zygosity.HEM
+    }
+    to_remove = [
+        pair for pair in pairs
+        if pair.contains_reference
+        and any(is_deletion_only_allele(allele) for allele in pair)
+        and not required.issubset(
+            pair.allele1.defining_variants | pair.allele2.defining_variants
+        )
+    ]
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele"
+        )
     return bg
 
 

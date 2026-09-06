@@ -7,7 +7,9 @@ from functools import partial
 from typing import Any, Protocol
 from loguru import logger
 
-from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
+from rbceq2.core_logic.alleles import (
+    Allele, BloodGroup, Pair, is_deletion_only_allele,
+)
 from rbceq2.core_logic.constants import (
     AlleleState,
     CRITICAL_VARIANTS,
@@ -1971,7 +1973,11 @@ def get_genotypes(
     def make_list_of_lists(alleles):
         return [pair.genotypes for pair in alleles]
 
-    def render(genotypes: list[str], co_existing: bool = False) -> str:
+    def render(
+        genotypes: list[str],
+        co_existing: bool = False,
+        deletion_allele_present: bool = False,
+    ) -> str:
         """Join a pair's genotypes, collapsing a slot the sample does not have.
 
         pair.genotypes is already sorted by Pair._ordered, so it is not re-sorted here.
@@ -1986,7 +1992,9 @@ def get_genotypes(
         """
         if bg.chrom_copies == 1 and len(set(genotypes)) == 1:
             return f"{genotypes[0]}/{HAPLOID_SECOND_SLOT}"
-        if missing_copy:
+        # A named deletion is already one chromosome's answer. Copy number must not
+        # replace its partner or append a second description of the same absence.
+        if missing_copy and not deletion_allele_present:
             # dict.fromkeys rather than a set: the duplicate has to go, but the order of
             # what is left has to stay reproducible. Pair.alleles is a frozenset, so the
             # only ordering guarantee here is the one Pair._ordered already applied.
@@ -2017,8 +2025,13 @@ def get_genotypes(
         ]
     elif bg.alleles[AlleleState.NORMAL]:
         bg.genotypes = [
-            render(normal_pair)
-            for normal_pair in make_list_of_lists(bg.alleles[AlleleState.NORMAL])
+            render(
+                normal_pair.genotypes,
+                deletion_allele_present=any(
+                    is_deletion_only_allele(allele) for allele in normal_pair
+                ),
+            )
+            for normal_pair in bg.alleles[AlleleState.NORMAL]
         ]
     else:
         # Nothing paired. Where one slot was named and the other refused the strings are
@@ -2235,10 +2248,11 @@ def copies_an_allele_must_cover(bg: BloodGroup) -> int:
       gene. The sample still has two chromosomes, but only one of them carries a copy,
       so an allele on that copy is on every copy there is.
 
-    The two reach the same number for opposite reasons and the difference shows up only
-    at output, where get_genotypes renders the second slot as HAPLOID_SECOND_SLOT for
-    the first and NOVEL_DELETION_SLOT for the second. Nothing between here and there
-    needs to tell them apart.
+    A deletion-defined allele is an exception to the second case. It names an event
+    on the other chromosome, so both chromosome slots must remain available for
+    pairing. Comparing its one deletion token with the one surviving gene copy would
+    falsely make the deletion fully homozygous and let its rank discard the allele
+    on the surviving copy.
 
     Reading only chrom_copies is what paired a lone hemizygous allele with the
     *reference* when a gene had one copy: the reference then sat on a chromosome
@@ -2251,9 +2265,15 @@ def copies_an_allele_must_cover(bg: BloodGroup) -> int:
         bg (BloodGroup): The blood group being paired.
 
     Returns:
-        int: 1 where either count is 1, otherwise chrom_copies.
+        int: 1 for a single chromosome, or a single gene copy with no deletion-defined
+        candidate; otherwise chrom_copies.
     """
-    if bg.chrom_copies == 1 or bg.locus_copies == 1:
+    if bg.chrom_copies == 1:
+        return 1
+    if bg.locus_copies == 1 and not any(
+        is_deletion_only_allele(allele)
+        for allele in bg.alleles.get(AlleleState.FILT, [])
+    ):
         return 1
     return bg.chrom_copies
 

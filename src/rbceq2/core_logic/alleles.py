@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import operator
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterator
@@ -16,6 +17,26 @@ from frozendict import frozendict
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
+
+
+def is_deletion_only_allele(allele: Allele) -> bool:
+    """Whether the database defines this allele entirely by deletion events.
+
+    This identifies a named chromosome event, not a claim that the whole gene is
+    absent. In particular, a null SNV and a mixed deletion/insertion definition do
+    not meet this test. Classification comes from the defining tokens rather than
+    the allele's name or phenotype.
+
+    Args:
+        allele (Allele): An allele with its database defining variants.
+
+    Returns:
+        bool: True for a nonempty definition containing only structural DEL tokens.
+    """
+    return bool(allele.defining_variants) and all(
+        re.fullmatch(r"[^:]+:\d+_(?:del|DEL)_\d+(?:kb)?", variant)
+        for variant in allele.defining_variants
+    )
 
 
 @dataclass(slots=False, frozen=True)
