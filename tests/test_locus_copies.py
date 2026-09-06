@@ -33,9 +33,14 @@ from rbceq2.core_logic.data_procesing import (
     get_ref,
     locus_copies_for_bg,
 )
-from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
-from rbceq2.db.db import Db, prepare_db, subtype_of
+from rbceq2.core_logic.utils import (
+    BeyondLogicError,
+    Zygosity,
+    sub_alleles_relationships,
+)
+from rbceq2.db.db import Db, build_antigen_map_for_checks, prepare_db, subtype_of
 from rbceq2.IO.vcf import VCF
+from rbceq2.main import find_hits, parse_args
 
 
 COMMON = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -615,6 +620,86 @@ class TestTheContradictionWarning(unittest.TestCase):
         )
         self.assertEqual(result, 1)
         self.assertEqual(messages, [])
+
+
+class TestRhagSnvInsideHeterozygousDeletion(unittest.TestCase):
+    """C1/C2: name the SNV on the surviving copy and the deleted allele once.
+
+    These synthetic GRCh38 rows use the curated RHAG definitions. The deletion is
+    GT=0/1 in both cases. Only the internal SNV encoding changes: GT=1/1 (C1) or
+    GT=1 (C2). The expected biological result is the same in both cases.
+
+    Exercise the sample pipeline, including SV matching, pair selection, filters,
+    genotype rendering and both phenotype outputs. A genotype-text-only correction
+    must not conceal an incorrect internal pair or phenotype.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Load the real database and the same KN relationships used by the CLI."""
+        cls.db = Db(ref="GRCh38", df=prepare_db())
+        cls.ant_mapping = build_antigen_map_for_checks(cls.db.df)
+        kn_alleles = {
+            "KN": [
+                allele for allele in cls.db.make_alleles()
+                if allele.blood_group == "KN"
+            ]
+        }
+        relationships, bg_type = sub_alleles_relationships(kn_alleles, "KN")
+        cls.allele_relationships = {bg_type: relationships}
+
+    def _assert_rhag_result(self, snv_gt: str, sample: str) -> None:
+        """Run both variant rows and check each output independently.
+
+        Args:
+            snv_gt: Genotype for the SNV within the heterozygous deletion.
+            sample: Fixture identifier reported with any failure.
+        """
+        frame = pd.DataFrame(
+            [
+                [
+                    "chr6", "49605174", ".", "N", "<DEL>", "50", "PASS",
+                    "SVTYPE=DEL;END=49637174;SVLEN=-32000", "GT:GQ", "0/1:99",
+                ],
+                [
+                    "chr6", "49619204", ".", "G", "C", "50", "PASS", ".",
+                    "GT:DP:GQ", f"{snv_gt}:30:99",
+                ],
+            ],
+            columns=COMMON + ["SAMPLE"],
+        )
+        result = find_hits(
+            self.db,
+            (frame, sample),
+            args=parse_args(["--reference_genome", "GRCh38", "--HPAs"]),
+            allele_relationships=self.allele_relationships,
+            excluded=["RHD", "RHCE"],
+            ant_mapping=self.ant_mapping,
+        )
+        _, genotypes, numeric, alphanumeric, blood_groups, _ = result
+        expected_pair = "RHAG*01.-01/RHAG*01N.15"
+
+        with self.subTest(sample=sample, output="internal pairs"):
+            pairs = blood_groups["RHAG"].alleles[AlleleState.NORMAL] or []
+            self.assertCountEqual(
+                ["/".join(pair.genotypes) for pair in pairs], [expected_pair]
+            )
+        with self.subTest(sample=sample, output="genotype"):
+            self.assertEqual(genotypes["RHAG"], expected_pair)
+        with self.subTest(sample=sample, output="numeric phenotype"):
+            self.assertEqual(numeric["RHAG"], "RHAG:-1,-2,3,-5,-6,-7")
+        with self.subTest(sample=sample, output="alphanumeric phenotype"):
+            self.assertEqual(
+                alphanumeric["RHAG"], "Duclos-,Ol(a-),DSLK+,Kg-,SHER-,THIN-"
+            )
+
+    def test_c1_homozygous_snv_inside_heterozygous_deletion(self) -> None:
+        """C1 must exclude the additional reference/deletion answer."""
+        self._assert_rhag_result("1/1", "C1_hom_snv_inside_het_del")
+
+    def test_c2_haploid_snv_inside_heterozygous_deletion(self) -> None:
+        """C2 must retain the SNV allele instead of reporting absence twice."""
+        self._assert_rhag_result("1", "C2_haploid_snv_inside_het_del")
 
 
 if __name__ == "__main__":
