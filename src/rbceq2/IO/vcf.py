@@ -1464,6 +1464,10 @@ def check_if_multi_sample_vcf(file_path: str) -> bool:
     Returns:
         bool: True if there's multiple samples
 
+    Raises:
+        VcfMissingHeaderError: If the header has fewer than ten columns or a
+            multi-sample header contains duplicate column names.
+
     """
     header = None
     # Use gzip.open if file is gzipped, else standard open.
@@ -1480,8 +1484,14 @@ def check_if_multi_sample_vcf(file_path: str) -> bool:
                 elif len(header) < 10:
                     raise VcfMissingHeaderError(filename=file_path)
                 else:
-                    assert len(header) == len(set(header))
-                    # unique sample names
+                    if len(header) != len(set(header)):
+                        duplicates = sorted(
+                            name for name, count in Counter(header).items() if count > 1
+                        )
+                        raise VcfMissingHeaderError(
+                            filename=file_path,
+                            reason=f"Duplicate VCF column names: {', '.join(duplicates)}",
+                        )
             break
 
     return True

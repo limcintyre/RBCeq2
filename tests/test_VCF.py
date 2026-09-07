@@ -4,6 +4,7 @@ Unit tests for the VCF module.
 """
 
 import gzip
+import io
 import os
 import tempfile
 import unittest
@@ -13,10 +14,75 @@ from unittest.mock import patch
 import pandas as pd
 import polars as pl
 
-from rbceq2.IO.vcf import VCF, VcfMissingHeaderError, read_vcf, split_vcf_to_dfs
+from rbceq2.IO.vcf import (
+    VCF,
+    VcfMissingHeaderError,
+    check_if_multi_sample_vcf,
+    read_vcf,
+    split_vcf_to_dfs,
+)
 
 # Dummy common columns list
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
+
+
+class TestCheckIfMultiSampleVcf(unittest.TestCase):
+    """Tests for sample-count detection and duplicate cohort header names."""
+
+    @staticmethod
+    def _header(samples: list[str]) -> str:
+        """Return VCF metadata and a header with the supplied sample names."""
+        return "##fileformat=VCFv4.2\n#" + "\t".join(COMMON_COLS + samples) + "\n"
+
+    def test_duplicate_sample_names_raise_header_error(self) -> None:
+        """Reject duplicate names through both text-opening branches."""
+        content = self._header(["Z", "A", "Z", "A"])
+        for suffix, opener in (
+            (".vcf", "builtins.open"),
+            (".vcf.gz", "rbceq2.IO.vcf.gzip.open"),
+        ):
+            with self.subTest(suffix=suffix):
+                file_path = f"cohort{suffix}"
+                with patch(opener, return_value=io.StringIO(content)) as mock_open:
+                    with self.assertRaises(VcfMissingHeaderError) as context:
+                        check_if_multi_sample_vcf(file_path)
+                mock_open.assert_called_once_with(file_path, "rt")
+                self.assertEqual(context.exception.filename, file_path)
+                self.assertEqual(
+                    context.exception.reason, "Duplicate VCF column names: A, Z"
+                )
+
+    def test_sample_name_matching_fixed_column_raises_header_error(self) -> None:
+        """Keep duplicate detection across all columns of a cohort header."""
+        content = self._header(["CHROM", "OTHER"])
+        with patch("builtins.open", return_value=io.StringIO(content)):
+            with self.assertRaises(VcfMissingHeaderError) as context:
+                check_if_multi_sample_vcf("cohort.vcf")
+        self.assertEqual(
+            context.exception.reason, "Duplicate VCF column names: CHROM"
+        )
+
+    def test_unique_multi_sample_header_returns_true(self) -> None:
+        """Continue to recognize a cohort with distinct sample names."""
+        content = self._header(["FIRST", "SECOND"])
+        with patch("builtins.open", return_value=io.StringIO(content)):
+            self.assertTrue(check_if_multi_sample_vcf("cohort.vcf"))
+
+    def test_single_sample_header_returns_false(self) -> None:
+        """Preserve the ten-column branch, including its validation scope."""
+        for sample in ("SINGLE", "CHROM"):
+            with self.subTest(sample=sample):
+                content = self._header([sample])
+                with patch("builtins.open", return_value=io.StringIO(content)):
+                    self.assertFalse(check_if_multi_sample_vcf("single.vcf"))
+
+    def test_header_without_sample_column_raises_header_error(self) -> None:
+        """Preserve the existing error for headers with fewer than ten columns."""
+        content = self._header([])
+        with patch("builtins.open", return_value=io.StringIO(content)):
+            with self.assertRaises(VcfMissingHeaderError) as context:
+                check_if_multi_sample_vcf("missing_sample.vcf")
+        self.assertIsNone(context.exception.reason)
 
 
 class TestVCFInitialization(unittest.TestCase):
