@@ -1761,7 +1761,9 @@ def get_ref(
     microarray call set '0/0' and './.' both appear in the same file with different
     meanings (a confident hom ref call, and a failed probe), so './.' cannot be read as
     hom ref. Half-calls ('0/.', '1/.') are No_data too - one known allele is not a
-    confirmed genotype.
+    confirmed genotype. A bare '.' is No_data even without prior copy-count
+    evidence: declining to call an allele does not claim that only one copy exists.
+    Missing alleles are therefore handled before copy-context validation.
 
     The synthesised lane row is the one legitimate assertion of wildtype and carries
     SYNTHESISED_HOM_REF_GT rather than a real GT, so it is recognised here rather than
@@ -1773,11 +1775,11 @@ def get_ref(
     contradiction stopped from working. No lane locus is on X or Y, so this was only
     ever reachable through locus_copies.
 
-    A haploid GT is interpreted where either count is 1, and they are different claims
+    A called haploid GT is interpreted where either count is 1, and they are different claims
     reaching the same zygosity. chrom_copies is 1 outside PAR on X/Y, where the sample
     carries one chromosome. locus_copies is 1 where a caller reported one copy of the gene
     consistently across it, which now covers autosomes - state table rows D2 and
-    D3. Either way '1' is Hemizygous and '.' is No_data; '0' never arrives, because
+    D3. Either way '1' is Hemizygous; '0' never arrives, because
     remove_home_ref drops it the way it drops '0/0'.
 
     Hemizygous is the honest label - one copy of the locus carrying one copy of the token -
@@ -1790,7 +1792,7 @@ def get_ref(
     one copy of a gene on two chromosomes gives two, the second holding no gene at all. See
     get_genotypes.
 
-    A haploid GT with neither count at 1 is still rejected. That is a locus whose
+    A called haploid GT with neither count at 1 is still rejected. That is a locus whose
     neighbours in the same gene were diploid, so the file is claiming one copy and two at
     once and there is nothing to prefer between them. That rejection now only ever
     describes a haploid genotype, which is what its message says: everything above two
@@ -1824,9 +1826,9 @@ def get_ref(
         'Hemizygous' or 'No_data'.
 
     Raises:
-        BeyondLogicError: If the genotype is haploid where neither the region nor the gene
-        has one copy, is multi-allelic, or names more than two copies with a dosage
-        between the bounds.
+        BeyondLogicError: If a called haploid genotype has neither one chromosome
+        nor one gene copy, is multi-allelic, or names more than two copies with a
+        dosage between the bounds.
     """
     # 0/1:41,47:88:99:1080,0,1068:0.534:99
     GT = ref_dict["GT"]
@@ -1838,9 +1840,10 @@ def get_ref(
 
     alleles = parse_GT(GT)
 
+    if "." in alleles:
+        return Zygosity.NO_DATA
+
     if len(alleles) == 1 and 1 in (chrom_copies, locus_copies):
-        if alleles[0] == ".":
-            return Zygosity.NO_DATA
         if alleles[0] == "0":
             # remove_home_ref drops these, so reaching here means the pool was built from
             # a df that never went through it. Absence is still the right encoding.
@@ -1883,9 +1886,6 @@ def get_ref(
             ),
             raised_by="get_ref/haploid_GT_where_neither_count_is_one",
         )
-
-    if "." in alleles:
-        return Zygosity.NO_DATA
 
     if not set(alleles) <= {"0", "1"}:
         raise BeyondLogicError(

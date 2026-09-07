@@ -322,6 +322,54 @@ class TestMakeVariantPool(unittest.TestCase):
         self.assertEqual(out.alleles[AlleleState.NORMAL], [])
 
 
+
+class TestBareNoCallVariantPool(unittest.TestCase):
+    """A bare dot must reach the same exclusion as the diploid no-call."""
+
+    @classmethod
+    def setUpClass(cls):
+        db = Db(ref="GRCh38", df=prepare_db())
+        cls.allele = next(a for a in db.make_alleles() if a.genotype == "YT*02")
+
+    def test_no_call_keeps_evidence_without_making_the_group_unreadable(self):
+        """Preserve the token and named exclusion through the real VCF/pool path."""
+        token = "7:100893176_G_T"
+        for gt in (".", "./."):
+            for format_field in ("GT", "GT:DP"):
+                with self.subTest(gt=gt, format=format_field):
+                    frame = pd.DataFrame({
+                        "CHROM": ["chr7"], "POS": ["100893176"],
+                        "ID": ["."], "REF": ["G"], "ALT": ["T"],
+                        "QUAL": ["50"], "FILTER": ["PASS"], "INFO": ["."],
+                        "FORMAT": [format_field],
+                        "SAMPLE": [gt if format_field == "GT" else f"{gt}:30"],
+                    })
+                    vcf = VCF(
+                        [frame], {}, {"7:100893176"}, sample="no_call",
+                        reference_genome="GRCh38",
+                    )
+                    bg = BloodGroup(
+                        type="YT", sample="no_call",
+                        alleles={AlleleState.FILT: [self.allele]},
+                    )
+                    groups = make_variant_pool(
+                        {"YT": bg}, vcf,
+                        loci_by_type={"YT": {"7": frozenset({100893176})}},
+                    )
+                    self.assertFalse(bg.unreadable)
+                    self.assertEqual(bg.chrom_copies, 2)
+                    self.assertIsNone(bg.locus_copies)
+                    self.assertEqual(bg.variant_pool, {token: Zygosity.NO_DATA})
+                    self.assertEqual(bg.variant_pool_numeric, {})
+                    remove_alleles_with_no_call_variants(groups)
+                    self.assertEqual(bg.alleles[AlleleState.FILT], [])
+                    self.assertEqual(
+                        bg.filtered_out["no_call_at_defining_variant"],
+                        [self.allele],
+                    )
+                    self.assertEqual(bg.variant_pool, {token: Zygosity.NO_DATA})
+
+
 class TestDosageOf(unittest.TestCase):
     """Dosage is counted, not pattern matched.
 
@@ -456,8 +504,8 @@ class TestGetRef(unittest.TestCase):
             get_ref(ref_dict)
 
     def test_haploid_genotype_rejected(self):
-        """Issue #40 - haploid GTs are rejected, not guessed at."""
-        for GT in ["1", "0", "."]:
+        """Called haploid GTs still require independent copy-count evidence."""
+        for GT in ["1", "0"]:
             with self.assertRaises(BeyondLogicError):
                 get_ref({"GT": GT})
 
@@ -486,6 +534,18 @@ class TestGetRef(unittest.TestCase):
         self.assertEqual(get_ref({"GT": ".|."}), Zygosity.NO_DATA)
         self.assertEqual(get_ref({"GT": "0/."}), Zygosity.NO_DATA)
         self.assertEqual(get_ref({"GT": "./1"}), Zygosity.NO_DATA)
+
+    def test_bare_no_call_does_not_require_copy_evidence(self):
+        """Missing data is readable without inferring a chromosome or gene copy."""
+        for chrom_copies, locus_copies in (
+            (2, None), (2, 2), (2, 1), (1, None), (1, 1),
+        ):
+            with self.subTest(chrom=chrom_copies, locus=locus_copies):
+                self.assertEqual(
+                    get_ref({"GT": "."}, "7:100893176_G_T",
+                            chrom_copies=chrom_copies, locus_copies=locus_copies),
+                    Zygosity.NO_DATA,
+                )
 
     def test_synthesised_lane_row_is_still_hom(self):
         """The synthesised lane '_ref' row is RBCeq2's own wildtype assertion, not a call.
