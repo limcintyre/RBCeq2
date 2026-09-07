@@ -656,7 +656,7 @@ class VCF:
         """True for a haploid '0', anywhere.
 
         The single-copy equivalent of '0/0'. Split out of remove_home_ref so the row-wise
-        test stays readable next to the vectorised startswith it sits beside.
+        test stays readable next to the vectorised all-reference GT check.
 
         Deliberately asks nothing about the coordinate, unlike everything else here that
         touches ploidy. Whether a haploid GT means one chromosome, one copy of a gene, or a
@@ -685,6 +685,11 @@ class VCF:
         dataset emits '0|0' (they all write hom ref unphased even in phased VCFs), so the
         bug was latent rather than observed.
 
+        Match the complete GT, up to the colon before sample metrics or the end of
+        the field. Every allele index must be reference, including above two copies.
+        Intermediate dosage and partial no-calls stay available for their existing
+        downstream interpretation instead of being removed by a '0/0' or '0|0' prefix.
+
         Haploid '0' is matched too, and anywhere rather than only outside PAR on X/Y. It
         means exactly what '0/0' means wherever it appears: the copies the caller
         can see are reference, so the token has zero copies. Until v2.4.4 an
@@ -692,7 +697,7 @@ class VCF:
         raise about a row carrying no allele - state table row D3. The reading of what the
         haploidy *means* still happens later and elsewhere; see _is_haploid_hom_ref.
         """
-        hom_ref = self.df["SAMPLE"].str.startswith(HOM_REF_GTS, na=False)
+        hom_ref = self.df["SAMPLE"].str.match(r"0(?:[/|]0)+(?:$|:)", na=False)
 
         haploid_hom_ref = pd.Series(
             [self._is_haploid_hom_ref(sample_field) for sample_field in self.df["SAMPLE"]],

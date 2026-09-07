@@ -23,7 +23,8 @@ from rbceq2.IO.vcf import (
     read_vcf,
     split_vcf_to_dfs,
 )
-from rbceq2.core_logic.utils import BeyondLogicError
+from rbceq2.core_logic.data_procesing import get_ref
+from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 
 # Dummy common columns list
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -933,6 +934,101 @@ class TestAddLaneVariants(unittest.TestCase):
                     "Expected two rows after adding new lane variants.",
                 )
 
+
+
+class TestHomRefBoundary(unittest.TestCase):
+    """Preserve dosage and no-call evidence before variant interpretation."""
+
+    LOCUS = "7:100893176"
+    TOKEN = "7:100893176_G_T"
+
+    @classmethod
+    def _vcf(cls, gt, format_field, input_type, *, lanes=False):
+        """Construct a sample at the curated YT*02 substitution."""
+        sample_field = gt if format_field == "GT" else f"{gt}:30"
+        frame = pd.DataFrame(
+            [["chr7", "100893176", ".", "G", "T", "50", "PASS", ".",
+              format_field, sample_field]],
+            columns=COMMON_COLS + ["SAMPLE"],
+        )
+        source = [frame] if input_type == "pandas" else pl.from_pandas(frame)
+        return VCF(
+            source,
+            {"chr7": ["100893176"]} if lanes else {},
+            {cls.LOCUS},
+            sample="hom_ref_boundary",
+            reference_genome="GRCh38",
+        )
+
+    def test_all_reference_calls_are_removed_at_every_supported_ploidy(self):
+        """Removing reference rows preserves the earlier locus-copy evidence."""
+        for gt in ("0", "0/0", "0|0", "0/0/0", "0/0/0/0", "0|0|0|0"):
+            for format_field in ("GT", "GT:DP"):
+                for input_type in ("pandas", "polars"):
+                    with self.subTest(gt=gt, format=format_field, input=input_type):
+                        vcf = self._vcf(gt, format_field, input_type)
+                        self.assertTrue(vcf.df.empty)
+                        self.assertEqual(vcf.variants, {})
+                        self.assertNotIn(self.LOCUS, vcf.loci)
+                        if gt == "0":
+                            self.assertIn(100893176, vcf.haploid_loci["7"])
+
+    def test_intermediate_dosage_reaches_the_existing_named_refusal(self):
+        """Reference prefixes cannot bypass dosage handling in either order."""
+        for gt in ("0/0/1", "1/0/0", "0/0/0/1", "1/0/0/0", "0/0/1/1",
+                   "0|0|1", "0|0|0|1"):
+            for format_field in ("GT", "GT:DP"):
+                for input_type in ("pandas", "polars"):
+                    with self.subTest(gt=gt, format=format_field, input=input_type):
+                        vcf = self._vcf(gt, format_field, input_type)
+                        self.assertIn(self.LOCUS, vcf.loci)
+                        self.assertIn(self.TOKEN, vcf.variants)
+                        metrics = vcf.variants[self.TOKEN]
+                        self.assertEqual(metrics["GT"], gt)
+                        with self.assertRaises(BeyondLogicError) as caught:
+                            get_ref(metrics, self.TOKEN)
+                        self.assertEqual(
+                            caught.exception.raised_by,
+                            "get_ref/dosage_between_the_bounds",
+                        )
+                        self.assertIn(self.TOKEN, str(caught.exception))
+
+    def test_partial_no_calls_keep_the_locus_without_synthesising_reference(self):
+        """A missing allele must reach NO_DATA with its original GT intact."""
+        for gt in ("0/0/.", "./0/0", "0|0|.", "./././.", ".|.|.|."):
+            for format_field in ("GT", "GT:DP"):
+                for input_type in ("pandas", "polars"):
+                    with self.subTest(gt=gt, format=format_field, input=input_type):
+                        vcf = self._vcf(gt, format_field, input_type, lanes=True)
+                        self.assertIn(self.LOCUS, vcf.loci)
+                        self.assertEqual(set(vcf.variants), {self.TOKEN})
+                        metrics = vcf.variants[self.TOKEN]
+                        self.assertEqual(metrics["GT"], gt)
+                        self.assertEqual(get_ref(metrics, self.TOKEN), Zygosity.NO_DATA)
+
+    def test_supported_variant_dosage_survives_the_sample_boundary(self):
+        """GT-only and trailing metrics preserve the supported dosage paths."""
+        for gt, expected, locus_copies in (
+            ("1", Zygosity.HEM, 1),
+            ("0/1", Zygosity.HET, None),
+            ("0|1", Zygosity.HET, None),
+            ("1/1", Zygosity.HOM, None),
+            ("1/1/1/1", Zygosity.HOM, None),
+            ("1|1|1|1", Zygosity.HOM, None),
+        ):
+            for format_field in ("GT", "GT:DP"):
+                for input_type in ("pandas", "polars"):
+                    with self.subTest(gt=gt, format=format_field, input=input_type):
+                        vcf = self._vcf(gt, format_field, input_type)
+                        metrics = vcf.variants[self.TOKEN]
+                        expected_metrics = {"GT": gt}
+                        if format_field == "GT:DP":
+                            expected_metrics["DP"] = "30"
+                        self.assertEqual(metrics, expected_metrics)
+                        self.assertEqual(
+                            get_ref(metrics, self.TOKEN, locus_copies=locus_copies),
+                            expected,
+                        )
 
 if __name__ == "__main__":
     unittest.main()
