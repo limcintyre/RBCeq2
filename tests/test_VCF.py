@@ -1030,5 +1030,126 @@ class TestHomRefBoundary(unittest.TestCase):
                             expected,
                         )
 
+
+class TestGtValidityBoundary(unittest.TestCase):
+    """Only supported GTs naming declared alleles may supply evidence."""
+
+    @staticmethod
+    def _vcf(gt, alt="A,C", format_field="GT", input_type="pandas"):
+        sample = gt if format_field == "GT" else f"{gt}:30"
+        frame = pd.DataFrame({
+            "CHROM": ["chr7"], "POS": ["142957921"], "ID": ["."],
+            "REF": ["G"], "ALT": [alt], "QUAL": ["50"],
+            "FILTER": ["PASS"], "INFO": ["."], "FORMAT": [format_field],
+            "SAMPLE": [sample],
+        })
+        source = [frame] if input_type == "pandas" else pl.from_pandas(frame)
+        return VCF(source, {}, {"7:142957921"}, sample="s",
+                   reference_genome="GRCh38")
+
+    @staticmethod
+    def _scan_row(gt, alt="G", format_field="GT"):
+        sample = gt if format_field == "GT" else f"{gt}:30"
+        return ["X", "50000000", ".", "A", alt, "50", "PASS", ".",
+                format_field, sample]
+
+    def test_malformed_calls_are_refused_before_inference_or_recoding(self):
+        for gt in ("garbage", "-1", "1.0", "1//2", "0/0x", "", "0/0/", "1 ", " 1"):
+            for fmt in ("GT", "GT:DP"):
+                for input_type in ("pandas", "polars"):
+                    with self.subTest(gt=gt, format=fmt, input=input_type):
+                        with self.assertRaises(BeyondLogicError) as caught:
+                            self._vcf(gt, format_field=fmt, input_type=input_type)
+                        self.assertEqual(caught.exception.raised_by, "VCF/invalid_GT")
+                        self.assertIn("s", caught.exception.context)
+                        self.assertIn("142957921", caught.exception.context)
+
+    def test_indices_must_name_an_alt_declared_by_the_row(self):
+        for gt, alt in (
+            ("2", "A"), ("2/2", "A"), ("./2", "A"), ("0/0/2", "A"),
+            ("3/3", "A,C"), ("1/3", "A,C"), ("./3", "A,C"),
+            ("1/999999999999999999999", "A,C"), ("1", "."),
+        ):
+            for fmt in ("GT", "GT:DP"):
+                with self.subTest(gt=gt, alt=alt, format=fmt):
+                    with self.assertRaises(BeyondLogicError) as caught:
+                        self._vcf(gt, alt, fmt)
+                    self.assertEqual(
+                        caught.exception.raised_by, "VCF/GT_index_out_of_range"
+                    )
+                    self.assertIn(gt, caught.exception.context)
+
+    def test_unsupported_spellings_are_distinguished_from_malformed_calls(self):
+        for gt in ("/0/1", "|1", "01/2"):
+            with self.subTest(gt=gt):
+                with self.assertRaises(BeyondLogicError) as caught:
+                    self._vcf(gt)
+                self.assertEqual(
+                    caught.exception.raised_by, "VCF/unsupported_GT_encoding"
+                )
+
+    def test_multi_digit_indices_and_no_alt_reference_remain_readable(self):
+        alts = "A,C,T,GA,GC,GT,GAA,GAC,GAT,GCA"
+        vcf = self._vcf("10", alts)
+        self.assertEqual(vcf.variants, {"7:142957921_G_GCA": {"GT": "1"}})
+        self.assertEqual(self._vcf("0", ".").variants, {})
+
+    def test_direct_multi_alt_extraction_cannot_bypass_range_validation(self):
+        vcf = self._vcf("1/2")
+        vcf.df.loc[:, "SAMPLE"] = "1/3"
+        with self.assertRaises(BeyondLogicError) as caught:
+            vcf.get_variants()
+        self.assertEqual(caught.exception.raised_by, "VCF/GT_index_out_of_range")
+
+    def test_bad_scan_candidates_warn_and_supply_no_copy_evidence(self):
+        for gt, reason in (
+            ("garbage", "VCF/invalid_GT"), ("-1", "VCF/invalid_GT"),
+            ("1.0", "VCF/invalid_GT"), ("1 ", "VCF/invalid_GT"),
+            (" 1", "VCF/invalid_GT"), ("2", "VCF/GT_index_out_of_range"),
+            ("01", "VCF/unsupported_GT_encoding"),
+        ):
+            for fmt in ("GT", "GT:DP"):
+                with self.subTest(gt=gt, format=fmt):
+                    scan = PloidyScan("GRCh38")
+                    with patch("rbceq2.IO.vcf.logger.warning") as warning:
+                        scan.observe("X", 50000000, ["s"], self._scan_row(gt, format_field=fmt))
+                    self.assertEqual(scan.for_sample("s"), frozenset())
+                    warning.assert_called_once()
+                    self.assertIn(reason, str(warning.call_args))
+                    self.assertIn("50000000", str(warning.call_args))
+
+    def test_valid_evidence_survives_bad_candidates_in_either_order(self):
+        for gts in (("garbage", "0"), ("0", "garbage")):
+            with self.subTest(gts=gts):
+                scan = PloidyScan("GRCh38")
+                with patch("rbceq2.IO.vcf.logger.warning") as warning:
+                    for gt in gts:
+                        scan.observe("X", 50000000, ["s"], self._scan_row(gt))
+                self.assertEqual(scan.for_sample("s"), frozenset({"X"}))
+                warning.assert_called_once()
+                self.assertIn("VCF/invalid_GT", str(warning.call_args))
+
+    def test_scan_gt_only_line_endings_are_not_part_of_the_genotype(self):
+        for gt in ("1\n", "1\r\n"):
+            with self.subTest(gt=gt):
+                scan = PloidyScan("GRCh38")
+                with patch("rbceq2.IO.vcf.logger.warning") as warning:
+                    scan.observe("X", 50000000, ["s"], self._scan_row(gt))
+                self.assertEqual(scan.for_sample("s"), frozenset({"X"}))
+                warning.assert_not_called()
+
+    def test_scan_index_bounds_and_samples_are_independent(self):
+        scan = PloidyScan("GRCh38")
+        row = self._scan_row("2", alt="G,T") + ["3", ".", "./.", "0"]
+        with patch("rbceq2.IO.vcf.logger.warning") as warning:
+            scan.observe("X", 50000000, ["valid", "bad", "missing", "missing2", "ref"], row)
+        self.assertEqual(scan.for_sample("valid"), frozenset({"X"}))
+        self.assertEqual(scan.for_sample("ref"), frozenset({"X"}))
+        for sample in ("bad", "missing", "missing2"):
+            self.assertEqual(scan.for_sample(sample), frozenset())
+        warning.assert_called_once()
+        self.assertIn("sample=bad", str(warning.call_args))
+
+
 if __name__ == "__main__":
     unittest.main()

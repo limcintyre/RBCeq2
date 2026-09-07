@@ -83,6 +83,77 @@ def _validate_gt_format(frame: pd.DataFrame, *, context: str) -> None:
         _require_first_gt(format_field, context=f"{context}; locus={chrom}:{pos}")
 
 
+def _require_valid_gt(GT: str, n_alts: int, *, context: str) -> None:
+    """Require supported GT syntax and indices declared by the original row.
+
+    Args:
+        GT (str): The extracted genotype, before any alternate recoding.
+        n_alts (int): Number of alleles declared in ALT; zero for ALT='.'.
+        context (str): Consumer, sample and locus for the named refusal.
+
+    Raises:
+        BeyondLogicError: If GT is malformed, names an undeclared allele, or uses
+            an encoding that the inference pipeline does not support.
+    """
+    # Keep the common scan and sample calls cheap without relaxing index bounds.
+    if GT in (".", "0", "./.", ".|.", "0/0", "0|0"):
+        return
+    if n_alts >= 1 and GT in ("1", "0/1", "1/0", "1/1", "0|1", "1|0", "1|1"):
+        return
+
+    error_context = f"{context}; GT={GT!r}; ALT count={n_alts}"
+    initial_phase = isinstance(GT, str) and GT.startswith(("/", "|"))
+    alleles = re.split(r"[/|]", GT) if isinstance(GT, str) else []
+    if initial_phase:
+        alleles = alleles[1:]
+    if not alleles or any(
+        allele != "." and re.fullmatch(r"[0-9]+", allele) is None
+        for allele in alleles
+    ):
+        raise BeyondLogicError(
+            "GT must contain allele indices or '.', separated by '/' or '|'.",
+            context=error_context, raised_by="VCF/invalid_GT",
+        )
+
+    bound = str(n_alts)
+    for allele in alleles:
+        if allele == ".":
+            continue
+        number = allele.lstrip("0") or "0"
+        # Compare decimal strings so an oversized index still gets the named error.
+        if len(number) > len(bound) or (len(number) == len(bound) and number > bound):
+            raise BeyondLogicError(
+                f"GT names an allele outside the row's declared range 0..{n_alts}.",
+                context=error_context, raised_by="VCF/GT_index_out_of_range",
+            )
+    if initial_phase or any(len(a) > 1 and a.startswith("0") for a in alleles):
+        raise BeyondLogicError(
+            "RBCeq2 does not support an initial phasing separator or leading "
+            "zeroes in GT allele indices.",
+            context=error_context, raised_by="VCF/unsupported_GT_encoding",
+        )
+
+
+def _validate_sample_gts(frame: pd.DataFrame, *, context: str) -> None:
+    """Validate original sample GTs before copy inference and row transformations.
+
+    Args:
+        frame (pd.DataFrame): One sample's retained VCF rows with GT first.
+        context (str): Consumer and sample identity for error reporting.
+
+    Raises:
+        BeyondLogicError: If a retained GT is malformed or unsupported.
+    """
+    if frame.empty:
+        return
+    for chrom, pos, alt, sample_field in frame[
+        ["CHROM", "POS", "ALT", "SAMPLE"]
+    ].itertuples(index=False, name=None):
+        n_alts = len(alt.split(",")) if isinstance(alt, str) and alt not in ("", ".") else 0
+        GT = sample_field.split(":", 1)[0] if isinstance(sample_field, str) else ""
+        _require_valid_gt(GT, n_alts, context=f"{context}; locus={chrom}:{pos}")
+
+
 def gt_of(sample_field: str) -> str:
     """Pull the GT out of a SAMPLE column value.
 
@@ -278,10 +349,10 @@ def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:
     get_variants, which drops the token rather than storing it, the same rule
     remove_home_ref applies to a row.
 
-    Deliberately not applied to a row with a single alternate. There the only valid
-    index is 1, so the rewrite would be a no-op for every well formed genotype and would
-    silently turn a malformed one - '2/2' where there is no second alternate - into
-    '0/0' and drop it. That is input worth raising about, so it is left to reach get_ref.
+    Single-alternate rows do not need recoding. The original row is validated before
+    ploidy inference, and get_variants checks multi-alternate input again before calling
+    this helper. alt_index alone cannot establish the maximum legal index; the caller
+    must check against the complete ALT list before an unknown index can become zero.
 
     Args:
         GT (str): The genotype as written, ie '1/2', '1|2', '2'.
@@ -342,6 +413,10 @@ class PloidyScan:
         inside PAR, which is a caller error rather than a ploidy statement.
         Rows without a GT key supply no evidence. A present GT must be first, even
         when earlier rows already supplied evidence for this chromosome.
+        A candidate haploid GT must have supported syntax and name a declared allele.
+        Invalid candidates are warned about and supply no evidence. If the row survives
+        filtering, VCF construction separately refuses the affected sample; the scan
+        must not abort a cohort because one sample has a bad value.
 
         Args:
             chrom (str): Chromosome, 'chr' prefix already stripped.
@@ -362,14 +437,26 @@ class PloidyScan:
             fields[8], context=f"PloidyScan locus={chrom}:{pos}", allow_missing=True
         ):
             return
+        n_alts = len(fields[4].split(",")) if fields[4] not in ("", ".") else 0
         for offset, sample in enumerate(samples):
-            if chrom in self.haploid_chroms.get(sample, ()):
-                continue
             index = 9 + offset
             if index >= len(fields):
                 break
             GT = gt_of(fields[index])
-            if is_haploid_gt(GT) and gt_names_an_allele(GT):
+            if not is_haploid_gt(GT) or not gt_names_an_allele(GT):
+                continue
+            try:
+                _require_valid_gt(
+                    fields[index].rstrip("\r\n").split(":", 1)[0], n_alts,
+                    context=f"PloidyScan sample={sample}; locus={chrom}:{pos}",
+                )
+            except BeyondLogicError as error:
+                logger.warning(
+                    f"{sample}: GT at {chrom}:{pos} ignored for chromosome-copy "
+                    f"evidence. {error}"
+                )
+                continue
+            if chrom not in self.haploid_chroms.get(sample, ()):
                 self.haploid_chroms[sample].add(chrom)
 
     def for_sample(self, sample: str) -> frozenset[str]:
@@ -454,6 +541,7 @@ class VCF:
         """Handle initialization after data class creation."""
         object.__setattr__(self, "df", self.handle_single_or_multi())
         _validate_gt_format(self.df, context=f"VCF sample={self.sample}")
+        _validate_sample_gts(self.df, context=f"VCF sample={self.sample}")
         # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
@@ -1023,6 +1111,10 @@ class VCF:
             if mapped_metrics["GT"] in HOM_REF_GTS:
                 continue
             if "," in variant:
+                _require_valid_gt(
+                    mapped_metrics["GT"], len(variant.split(",")),
+                    context=f"VCF sample={self.sample}; variant={variant}",
+                )
                 for alt_index, alt_variant in enumerate(variant.split(","), start=1):
                     per_alt_metrics = dict(mapped_metrics)
                     per_alt_metrics["GT"] = recode_gt_for_alt_index(
