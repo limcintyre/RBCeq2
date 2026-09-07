@@ -15,12 +15,15 @@ import pandas as pd
 import polars as pl
 
 from rbceq2.IO.vcf import (
+    Interval,
+    PloidyScan,
     VCF,
     VcfMissingHeaderError,
     check_if_multi_sample_vcf,
     read_vcf,
     split_vcf_to_dfs,
 )
+from rbceq2.core_logic.utils import BeyondLogicError
 
 # Dummy common columns list
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
@@ -83,6 +86,153 @@ class TestCheckIfMultiSampleVcf(unittest.TestCase):
             with self.assertRaises(VcfMissingHeaderError) as context:
                 check_if_multi_sample_vcf("missing_sample.vcf")
         self.assertIsNone(context.exception.reason)
+
+
+class TestConsumedFormat(unittest.TestCase):
+    """Check FORMAT where retained rows first supply genotype information."""
+
+    @staticmethod
+    def _frame(format_field="GT:DP", sample_field="0/1:30", chrom="chr6", pos="100"):
+        """Return one plain substitution with the supplied FORMAT and sample."""
+        values = [
+            chrom, pos, ".", "A", "G", ".", "PASS", ".", format_field, sample_field
+        ]
+        return pd.DataFrame([values], columns=COMMON_COLS + ["SAMPLE"])
+
+    @staticmethod
+    def _vcf(frame):
+        """Construct one sample using a retained locus and no lane synthesis."""
+        return VCF(
+            frame, {}, {"6:100"}, sample="test_sample", reference_genome="GRCh38"
+        )
+
+    def test_retained_misplaced_gt_is_refused_before_ploidy_and_removal(self) -> None:
+        """Neither a depth of 30 nor a depth of zero can become a genotype."""
+        for sample_field in ("30:0/1", "0:1/1"):
+            for input_type in ("pandas", "polars"):
+                with self.subTest(sample_field=sample_field, input_type=input_type):
+                    frame = self._frame("DP:GT", sample_field)
+                    original = frame.copy(deep=True)
+                    source = (
+                        [frame] if input_type == "pandas" else pl.from_pandas(frame)
+                    )
+                    with self.assertRaises(BeyondLogicError) as context:
+                        self._vcf(source)
+                    self.assertEqual(context.exception.raised_by, "VCF/GT_not_first")
+                    self.assertIn("6:100", context.exception.context)
+                    self.assertIn("FORMAT='DP:GT'", context.exception.context)
+                    pd.testing.assert_frame_equal(frame, original)
+
+    def test_retained_gt_absence_is_explicitly_unsupported(self) -> None:
+        """GT-less rows at an inference locus cannot become reference calls."""
+        for format_field in ("DP", "GTX:DP", "."):
+            with self.subTest(format_field=format_field):
+                with self.assertRaises(BeyondLogicError) as context:
+                    self._vcf([self._frame(format_field, "30")])
+                self.assertEqual(context.exception.raised_by, "VCF/missing_GT")
+
+    def test_gt_prefix_does_not_satisfy_the_first_key_requirement(self) -> None:
+        """GTX preceding GT must be refused just like DP preceding GT."""
+        with self.assertRaises(BeyondLogicError) as context:
+            self._vcf([self._frame("GTX:GT", "30:0/1")])
+        self.assertEqual(context.exception.raised_by, "VCF/GT_not_first")
+
+    def test_split_refuses_unsupported_format_before_yield(self) -> None:
+        """Standalone splitting cannot read depth as GT for its ploidy log."""
+        for format_field, expected_reason in (
+            ("DP:GT", "VCF/GT_not_first"),
+            ("GTX:GT", "VCF/GT_not_first"),
+            ("DP", "VCF/missing_GT"),
+        ):
+            with self.subTest(format_field=format_field):
+                frame = self._frame(format_field, "30:0/1")
+                frame["SECOND"] = "0:1/1"
+                with patch("rbceq2.IO.vcf.logger.info") as log_info:
+                    with self.assertRaises(BeyondLogicError) as context:
+                        next(split_vcf_to_dfs(frame))
+                self.assertEqual(context.exception.raised_by, expected_reason)
+                log_info.assert_not_called()
+
+    def test_split_without_rows_or_samples_does_not_validate_format(self) -> None:
+        """No row or no sample leaves no genotype for the splitter to consume."""
+        frame = self._frame("DP", "30")
+        self.assertEqual(list(split_vcf_to_dfs(frame[COMMON_COLS])), [])
+        split_frames = list(split_vcf_to_dfs(frame.iloc[:0]))
+        self.assertEqual(len(split_frames), 1)
+        self.assertTrue(split_frames[0][0].empty)
+
+    def test_direct_get_variants_refuses_misplaced_gt(self) -> None:
+        """Direct helper callers receive the same named input refusal."""
+        vcf = self._vcf([self._frame()])
+        vcf.df.loc[0, "FORMAT"] = "DP:GT"
+        vcf.df.loc[0, "SAMPLE"] = "30:0/1"
+        with self.assertRaises(BeyondLogicError) as context:
+            vcf.get_variants()
+        self.assertEqual(context.exception.raised_by, "VCF/GT_not_first")
+        self.assertIn("6:100_A_G", context.exception.context)
+
+    def test_gt_only_and_reordered_trailing_fields_keep_their_meaning(self) -> None:
+        """The guard preserves GT alone, metrics, phasing and ordinary ploidy."""
+        for format_field, sample_field, expected in (
+            ("GT", "0/1", {"GT": "0/1"}),
+            ("GT:GQ:PS", "0|1:99:150", {"GT": "0|1", "GQ": "99", "PS": "150"}),
+            ("GT:PS:GQ", "0|1:150:99", {"GT": "0|1", "PS": "150", "GQ": "99"}),
+        ):
+            with self.subTest(format_field=format_field):
+                vcf = self._vcf([self._frame(format_field, sample_field)])
+                self.assertEqual(vcf.variants["6:100_A_G"], expected)
+                self.assertEqual(vcf.haploid_chroms, frozenset())
+                self.assertEqual(vcf.diploid_loci["6"], frozenset({100}))
+
+    def test_ignored_autosomal_and_unused_phase_neighbor_rows_remain_ignored(self) -> None:
+        """Raw chr9 PS candidates need validation only if final selection uses them."""
+        frame = pd.concat(
+            [
+                self._frame(),
+                self._frame("DP:GT", "30:0/1", "chr1", "50"),
+                self._frame("DP:GT:PS", "0:1/1:100", "chr9", "100"),
+                self._frame("GT:PS", "0|1:200", "chr9", "200"),
+                self._frame("GT:PS", "0|1:300", "chr9", "300"),
+            ],
+            ignore_index=True,
+        )
+        content = "##fileformat=VCFv4.2\n#" + frame.to_csv(sep="\t", index=False)
+        scan = PloidyScan("GRCh38")
+        with patch("builtins.open", return_value=io.StringIO(content)):
+            raw_frame = read_vcf(
+                "sample.vcf", {"6": [Interval(1, 1000)], "9": [Interval(1, 1000)]},
+                unique_variants={"6:100"}, ploidy_scan=scan,
+            )
+        self.assertEqual(raw_frame.height, 4)
+        vcf = self._vcf(raw_frame)
+        self.assertEqual(
+            set(vcf.variants), {"6:100_A_G", "9:200_A_G", "9:300_A_G"}
+        )
+        self.assertEqual(scan.for_sample("SAMPLE"), frozenset())
+
+    def test_discarded_gt_absent_non_par_row_supplies_no_evidence(self) -> None:
+        """A discarded depth-only X row has the same result as omitting it."""
+        expected = self._vcf([self._frame()])
+        for format_field, sample_field in (("DP", "30"), ("GTX:DP", "1:30")):
+            with self.subTest(format_field=format_field):
+                frame = pd.concat(
+                    [
+                        self._frame(),
+                        self._frame(format_field, sample_field, "chrX", "10000000"),
+                    ],
+                    ignore_index=True,
+                )
+                content = "##fileformat=VCFv4.2\n#" + frame.to_csv(sep="\t", index=False)
+                scan = PloidyScan("GRCh38")
+                with patch("builtins.open", return_value=io.StringIO(content)):
+                    raw_frame = read_vcf(
+                        "sample.vcf", {"6": [Interval(1, 1000)]},
+                        unique_variants={"6:100"}, ploidy_scan=scan,
+                    )
+                actual = self._vcf(raw_frame)
+                self.assertEqual(scan.for_sample("SAMPLE"), frozenset())
+                self.assertEqual(actual.variants, expected.variants)
+                self.assertEqual(actual.haploid_chroms, expected.haploid_chroms)
 
 
 class TestVCFInitialization(unittest.TestCase):

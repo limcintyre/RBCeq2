@@ -18,6 +18,7 @@ from rbceq2.core_logic.constants import (
     PAR,
 )
 from rbceq2.core_logic.filter_semantics import FILTER_VALUE_SEPARATOR
+from rbceq2.core_logic.utils import BeyondLogicError
 from rbceq2.IO.encoders import VariantEncoderFactory
 
 # How many contradicted tokens get named in the warning before it says "and N more".
@@ -30,11 +31,63 @@ MAX_CONTRADICTED_TOKENS_LOGGED = 4
 MISSING_FIELD = "."
 
 
+def _require_first_gt(
+    format_field: str, *, context: str, allow_missing: bool = False
+) -> bool:
+    """Check FORMAT before interpreting the first sample field as genotype.
+
+    Args:
+        format_field (str): The row's FORMAT value.
+        context (str): The consumer and locus being checked.
+        allow_missing (bool): Whether a row without GT can supply no evidence.
+
+    Returns:
+        bool: True when GT is first, False when absent GT is allowed.
+
+    Raises:
+        BeyondLogicError: If GT is misplaced or required but absent.
+    """
+    keys = format_field.split(":") if isinstance(format_field, str) else []
+    if "GT" not in keys:
+        if allow_missing:
+            return False
+        raise BeyondLogicError(
+            "RBCeq2 requires a GT field to infer genotypes from retained VCF rows.",
+            context=f"{context}; FORMAT={format_field!r}",
+            raised_by="VCF/missing_GT",
+        )
+    if keys[0] != "GT":
+        raise BeyondLogicError(
+            "RBCeq2 requires GT to be the first FORMAT key when interpreting genotypes.",
+            context=f"{context}; FORMAT={format_field!r}",
+            raised_by="VCF/GT_not_first",
+        )
+    return True
+
+
+def _validate_gt_format(frame: pd.DataFrame, *, context: str) -> None:
+    """Require GT first on every retained row before genotype interpretation.
+
+    Args:
+        frame (pd.DataFrame): The retained VCF rows with CHROM, POS and FORMAT.
+        context (str): The consumer and available sample context.
+
+    Raises:
+        BeyondLogicError: If a retained row has unsupported FORMAT.
+    """
+    if frame.empty:
+        return
+    for chrom, pos, format_field in frame[["CHROM", "POS", "FORMAT"]].itertuples(
+        index=False, name=None
+    ):
+        _require_first_gt(format_field, context=f"{context}; locus={chrom}:{pos}")
+
+
 def gt_of(sample_field: str) -> str:
     """Pull the GT out of a SAMPLE column value.
 
-    GT is always the first field - get_variants asserts FORMAT starts with 'GT'
-    (vcf.py) and add_lane_variants relies on the same thing.
+    Callers validate that the first FORMAT key is exactly GT before interpreting
+    genotypes. This helper only extracts that first sample field.
 
     Args:
         sample_field (str): A raw SAMPLE column value, ie '0/1:41,47:88:99' or, on an
@@ -287,16 +340,27 @@ class PloidyScan:
 
         A no-call is not evidence - see gt_names_an_allele - and neither is a haploid GT
         inside PAR, which is a caller error rather than a ploidy statement.
+        Rows without a GT key supply no evidence. A present GT must be first, even
+        when earlier rows already supplied evidence for this chromosome.
 
         Args:
             chrom (str): Chromosome, 'chr' prefix already stripped.
             pos (int): 1 based position.
             samples (list[str]): The VCF's sample column names, in column order.
             fields (list[str]): The row's tab separated fields.
+
+        Raises:
+            BeyondLogicError: If an eligible row with sample values has misplaced GT.
         """
         if chrom not in ("X", "Y"):
             return
         if not is_single_copy(chrom, pos, self.reference_genome):
+            return
+        if not samples or len(fields) <= 9:
+            return
+        if not _require_first_gt(
+            fields[8], context=f"PloidyScan locus={chrom}:{pos}", allow_missing=True
+        ):
             return
         for offset, sample in enumerate(samples):
             if chrom in self.haploid_chroms.get(sample, ()):
@@ -389,6 +453,7 @@ class VCF:
     def __post_init__(self):
         """Handle initialization after data class creation."""
         object.__setattr__(self, "df", self.handle_single_or_multi())
+        _validate_gt_format(self.df, context=f"VCF sample={self.sample}")
         # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
@@ -944,7 +1009,9 @@ class VCF:
         ):
             if isinstance(metrics, float):
                 continue
-            assert format.startswith("GT")  # needed for add_lane_variants
+            _require_first_gt(
+                format, context=f"VCF sample={self.sample}; variant={variant}"
+            )
             mapped_metrics = dict(
                 zip(format.strip().split(":"), metrics.strip().split(":"))
             )
@@ -1024,6 +1091,8 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
     """
     # Extract column names related to samples
     sample_cols = [col for col in vcf_df.columns if col not in COMMON_COLS]
+    if sample_cols:
+        _validate_gt_format(vcf_df, context="split_vcf_to_dfs")
 
     for sample in sample_cols:
         # Informational, not validation - a non-diploid GT is reported and kept, and it is

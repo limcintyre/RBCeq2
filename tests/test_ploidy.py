@@ -480,6 +480,89 @@ class TestPloidyScan(unittest.TestCase):
         self.assertEqual(PloidyScan("GRCh38").for_sample("nobody"), frozenset())
 
 
+class TestPloidyScanFormat(unittest.TestCase):
+    """Only declared GT fields can supply non-PAR chromosome-copy evidence."""
+
+    @staticmethod
+    def _row(format_field, *sample_fields):
+        """Return a row at a non-PAR X coordinate."""
+        return [
+            "X", "10000000", ".", "A", "G", ".", "PASS", ".",
+            format_field, *sample_fields,
+        ]
+
+    def test_misplaced_gt_is_refused_before_any_evidence_is_added(self) -> None:
+        """Depth and GT-prefixed keys cannot masquerade as haploid GT."""
+        for format_field in ("DP:GT", "GTX:GT"):
+            with self.subTest(format_field=format_field):
+                scan = PloidyScan("GRCh38")
+                row = self._row(format_field, "30:0/1", "0:1/1")
+                with self.assertRaises(BeyondLogicError) as context:
+                    scan.observe("X", 10000000, ["s1", "s2"], row)
+                self.assertEqual(context.exception.raised_by, "VCF/GT_not_first")
+                self.assertIn("X:10000000", context.exception.context)
+                self.assertEqual(dict(scan.haploid_chroms), {})
+
+    def test_cached_chromosome_evidence_does_not_bypass_format_refusal(self) -> None:
+        """A preceding valid haploid row cannot hide a later misplaced GT."""
+        for format_field in ("DP:GT", "GTX:GT"):
+            with self.subTest(format_field=format_field):
+                scan = PloidyScan("GRCh38")
+                scan.observe("X", 10000000, ["s1", "s2"], self._row("GT", "1", "0"))
+                before = {
+                    sample: frozenset(chroms)
+                    for sample, chroms in scan.haploid_chroms.items()
+                }
+                with self.assertRaises(BeyondLogicError) as context:
+                    scan.observe(
+                        "X", 10000000, ["s1", "s2"],
+                        self._row(format_field, "30:0/1", "0:1/1"),
+                    )
+                self.assertEqual(context.exception.raised_by, "VCF/GT_not_first")
+                self.assertEqual(scan.haploid_chroms, before)
+
+    def test_gt_absence_is_not_evidence_before_or_after_called_gt(self) -> None:
+        """A GT-less row is non-evidence regardless of previously seen ploidy."""
+        for format_field in ("DP", "GTX:DP"):
+            with self.subTest(format_field=format_field):
+                scan = PloidyScan("GRCh38")
+                row = self._row(format_field, "1:30", "0:30")
+                scan.observe("X", 10000000, ["s1", "s2"], row)
+                self.assertEqual(dict(scan.haploid_chroms), {})
+                scan.observe("X", 10000000, ["s1", "s2"], self._row("GT", "1", "0/1"))
+                scan.observe("X", 10000000, ["s1", "s2"], row)
+                self.assertEqual(scan.for_sample("s1"), frozenset({"X"}))
+                self.assertEqual(scan.for_sample("s2"), frozenset())
+
+    def test_autosomal_and_par_rows_do_not_consume_format(self) -> None:
+        """Misplaced GT on a row outside the scan's remit remains ignored."""
+        scan = PloidyScan("GRCh38")
+        for chrom, pos in (("1", 10000000), ("X", 2000000), ("Y", 20000)):
+            with self.subTest(chrom=chrom, pos=pos):
+                scan.observe(chrom, pos, ["s"], self._row("DP:GT", "30:0/1"))
+        self.assertEqual(dict(scan.haploid_chroms), {})
+
+    def test_no_declared_or_present_samples_do_not_consume_format(self) -> None:
+        """No sample value leaves nothing for the scanner to interpret."""
+        scan = PloidyScan("GRCh38")
+        scan.observe("X", 10000000, [], self._row("DP:GT", "30:0/1"))
+        scan.observe("X", 10000000, ["s"], self._row("DP:GT"))
+        self.assertEqual(dict(scan.haploid_chroms), {})
+
+    def test_gt_only_trailing_fields_and_no_calls_keep_existing_evidence(self) -> None:
+        """Valid FORMAT preserves called haploids and excludes both no-call forms."""
+        for format_field, suffix in (
+            ("GT", ""), ("GT:DP", ":30"), ("GT:PS:GQ", ":100:99")
+        ):
+            with self.subTest(format_field=format_field):
+                scan = PloidyScan("GRCh38")
+                row = self._row(format_field, "." + suffix, "./." + suffix, "1" + suffix)
+                scan.observe("X", 10000000, ["missing", "diploid_missing", "called"], row)
+                self.assertEqual(scan.for_sample("missing"), frozenset())
+                self.assertEqual(scan.for_sample("diploid_missing"), frozenset())
+                self.assertEqual(scan.for_sample("called"), frozenset({"X"}))
+
+
 class TestObservedHaploidChromsReachesTheVCF(unittest.TestCase):
     """The scan and the frame are unioned, so either one is enough."""
 
