@@ -23,7 +23,9 @@ from rbceq2.filters.phased import (
     impossible_alleles_phased,
     narrow_second_slot_candidates_by_phase,
     iterate_over_list,
+    low_weight_hom,
     remove_unphased,
+    rm_ref_if_2x_HET_phased,
 )
 
 
@@ -151,16 +153,20 @@ class TestRemoveUnphased(TestPhasedFilters):
 
 class TestFilterIfAllHetVarsOnSameSide(TestPhasedFilters):
     def test_removes_pair_if_het_vars_share_phase(self):
-        a1 = MockAllele(genotype="A1", defining_variants={"het1", "hom1"})
-        a2 = MockAllele(genotype="A2", defining_variants={"het2"})
+        het1 = "1:100_A_G"
+        het2 = "1:200_C_T"
+        hom1 = "1:300_G_A"
+        a1 = MockAllele(genotype="A1", defining_variants={het1, hom1})
+        a2 = MockAllele(genotype="A2", defining_variants={het2})
         pair_to_remove = Pair(a1, a2)
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove]
         self.mock_bg.variant_pool = {
-            "het1": Zygosity.HET,
-            "hom1": Zygosity.HOM,
-            "het2": Zygosity.HET,
+            het1: Zygosity.HET,
+            hom1: Zygosity.HOM,
+            het2: Zygosity.HET,
         }
-        self.mock_bg.variant_pool_phase = {"het1": "0|1", "hom1": "1/1", "het2": "0|1"}
+        self.mock_bg.variant_pool_phase = {het1: "0|1", hom1: "1/1", het2: "0|1"}
+        self.mock_bg.variant_pool_phase_set = {het1: "1000", hom1: ".", het2: "1000"}
         filter_if_all_HET_vars_on_same_side_and_phased({1: self.mock_bg}, phased=True)
         self.assertIn(
             pair_to_remove,
@@ -219,9 +225,12 @@ class TestFilterOnInRelationshipIfHET(TestPhasedFilters):
 class TestFilterPairsByPhase(TestPhasedFilters):
     def test_removes_pair_with_same_phase_set(self):
         # CORRECTED TEST
-        a1_same_phase = MockAllele(genotype="A1", defining_variants={"het1"})
-        a2_same_phase = MockAllele(genotype="A2", defining_variants={"het2"})
-        a3_diff_phase = MockAllele(genotype="A3", defining_variants={"het3"})
+        het1 = "1:100_A_G"
+        het2 = "1:200_C_T"
+        het3 = "1:300_G_A"
+        a1_same_phase = MockAllele(genotype="A1", defining_variants={het1})
+        a2_same_phase = MockAllele(genotype="A2", defining_variants={het2})
+        a3_diff_phase = MockAllele(genotype="A3", defining_variants={het3})
 
         pair_to_remove = Pair(a1_same_phase, a2_same_phase)
         # Add a valid pair to ensure the "replace all with ref" logic is not triggered
@@ -229,15 +238,15 @@ class TestFilterPairsByPhase(TestPhasedFilters):
 
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove, pair_to_keep]
         self.mock_bg.variant_pool = {
-            "het1": Zygosity.HET,
-            "het2": Zygosity.HET,
-            "het3": Zygosity.HET,
+            het1: Zygosity.HET,
+            het2: Zygosity.HET,
+            het3: Zygosity.HET,
         }
-        self.mock_bg.variant_pool_phase = {"het1": "0|1", "het2": "0|1", "het3": "1|0"}
+        self.mock_bg.variant_pool_phase = {het1: "0|1", het2: "0|1", het3: "1|0"}
         self.mock_bg.variant_pool_phase_set = {
-            "het1": "setA",
-            "het2": "setA",
-            "het3": "setA",
+            het1: "setA",
+            het2: "setA",
+            het3: "setA",
         }
 
         filter_pairs_by_phase({1: self.mock_bg}, phased=True, reference_alleles={})
@@ -251,14 +260,16 @@ class TestFilterPairsByPhase(TestPhasedFilters):
     def test_replaces_with_ref_if_all_pairs_removed(self):
         self.mock_bg.type = "FUT2"
         ref_allele = MockAllele(genotype="FUT2*REF", reference=True)
-        a1 = MockAllele(genotype="FUT2*01N.16", defining_variants={"v1"})
-        a2 = MockAllele(genotype="FUT2*01N.02", defining_variants={"v2"})
+        v1 = "19:48703728_G_A"
+        v2 = "19:48703417_G_A"
+        a1 = MockAllele(genotype="FUT2*01N.16", defining_variants={v1})
+        a2 = MockAllele(genotype="FUT2*01N.02", defining_variants={v2})
         pair_to_remove = Pair(a1, a2)
 
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove]
-        self.mock_bg.variant_pool = {"v1": Zygosity.HET, "v2": Zygosity.HET}
-        self.mock_bg.variant_pool_phase = {"v1": "0|1", "v2": "0|1"}
-        self.mock_bg.variant_pool_phase_set = {"v1": "setA", "v2": "setA"}
+        self.mock_bg.variant_pool = {v1: Zygosity.HET, v2: Zygosity.HET}
+        self.mock_bg.variant_pool_phase = {v1: "0|1", v2: "0|1"}
+        self.mock_bg.variant_pool_phase_set = {v1: "setA", v2: "setA"}
 
         filter_pairs_by_phase(
             {1: self.mock_bg}, phased=True, reference_alleles={"FUT2": ref_allele}
@@ -814,6 +825,277 @@ class TestCantNameSecondSlotCuzRefNotPhased(unittest.TestCase):
         )
 
 
+class TestPhaseSetBoundaries(unittest.TestCase):
+    """A GT side is comparable only within a named block on one chromosome."""
+
+    LEFT = "1:100_A_G"
+    EXTRA = "1:150_G_T"
+    HOM = "1:300_G_A"
+    SAME_SIDE = "filter_if_all_HET_vars_on_same_side_and_phased"
+    REMOVE_REF = "rm_ref_if_2x_HET_phased"
+    LOW_WEIGHT = "low_weight_hom"
+
+    @staticmethod
+    def _allele(name, variants=(), *, weight=1, reference=False):
+        """Make a generic definition without changing curated allele biology."""
+        return Allele(
+            genotype=name,
+            phenotype="TEST:1",
+            genotype_alt=name,
+            phenotype_alt="Test+",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=weight,
+            reference=reference,
+            sub_type="TEST*01",
+        )
+
+    def _group(
+        self, *, right_gt="1|0", right_chrom="1", first_variants=None,
+        state=AlleleState.NORMAL,
+    ):
+        """Return two weighted nonreference pairs and three reference choices."""
+        first_variants = first_variants or (self.LEFT,)
+        left = self._allele("TEST*01.01", first_variants, weight=1)
+        right = self._allele("TEST*01.02", (f"{right_chrom}:200_C_T",), weight=2)
+        other = self._allele("TEST*01.03", (f"{right_chrom}:250_G_A",), weight=8)
+        reference = self._allele("TEST*01", reference=True)
+        candidates = [Pair(left, right), Pair(left, other)]
+        reference_pairs = [Pair(reference, allele) for allele in (left, right, other)]
+        phase = {variant: "0|1" for variant in first_variants}
+        phase.update({
+            variant: right_gt
+            for allele in (right, other)
+            for variant in allele.defining_variants
+        })
+        states = {AlleleState.NORMAL: [], AlleleState.CO: []}
+        states[state] = candidates + reference_pairs
+        bg = BloodGroup(
+            # The CO stage is restricted to KN; these definitions remain synthetic.
+            type="KN" if state == AlleleState.CO else "TEST",
+            sample="phase_set_boundary",
+            alleles=states,
+            variant_pool={variant: Zygosity.HET for variant in phase},
+            variant_pool_phase=phase,
+            variant_pool_phase_set={variant: "1000" for variant in phase},
+        )
+        return bg, candidates, reference_pairs
+
+    @staticmethod
+    def _stages():
+        return (
+            (filter_if_all_HET_vars_on_same_side_and_phased, AlleleState.NORMAL),
+            (filter_if_all_HET_vars_on_same_side_and_phased, AlleleState.CO),
+            (rm_ref_if_2x_HET_phased, AlleleState.NORMAL),
+            (low_weight_hom, AlleleState.NORMAL),
+        )
+
+    def _assert_unchanged(self, stage, bg, state, *, phased=True):
+        initial = list(bg.alleles[state])
+
+        result = stage({1: bg}, phased=phased)
+
+        self.assertIs(result[1], bg)
+        self.assertEqual(bg.alleles[state], initial)
+        self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_different_phase_sets_preserve_same_and_opposite_gt_pairs(self):
+        for stage, state in self._stages():
+            for right_gt in ("0|1", "1|0"):
+                with self.subTest(stage=stage.__name__, state=state, right_gt=right_gt):
+                    bg, candidates, _ = self._group(right_gt=right_gt, state=state)
+                    for pair in candidates:
+                        for variant in pair.allele2.defining_variants:
+                            bg.variant_pool_phase_set[variant] = "2000"
+
+                    self._assert_unchanged(stage, bg, state)
+
+    def test_reused_phase_set_label_on_different_chromosomes_preserves_pairs(self):
+        for stage, state in self._stages():
+            for right_gt in ("0|1", "1|0"):
+                with self.subTest(stage=stage.__name__, state=state, right_gt=right_gt):
+                    bg, _, _ = self._group(
+                        right_gt=right_gt, right_chrom="2", state=state
+                    )
+
+                    self._assert_unchanged(stage, bg, state)
+
+    def test_missing_or_unknown_phase_sets_supply_no_block_evidence(self):
+        for stage, state in self._stages():
+            for phase_set in (None, "", ".", "unknown"):
+                for right_gt in ("0|1", "1|0"):
+                    with self.subTest(
+                        stage=stage.__name__, state=state,
+                        phase_set=phase_set, right_gt=right_gt,
+                    ):
+                        bg, candidates, _ = self._group(right_gt=right_gt, state=state)
+                        for pair in candidates:
+                            for variant in pair.allele2.defining_variants:
+                                if phase_set is None:
+                                    bg.variant_pool_phase_set.pop(variant)
+                                else:
+                                    bg.variant_pool_phase_set[variant] = phase_set
+
+                        self._assert_unchanged(stage, bg, state)
+
+    def test_homozygous_and_hemizygous_alleles_cannot_supply_a_side(self):
+        for stage, state in self._stages():
+            for copy_state, gt in (
+                (Zygosity.HOM, "1/1"),
+                (Zygosity.HOM, "1|1"),
+                (Zygosity.HEM, "1"),
+            ):
+                for side in ("first", "second"):
+                    with self.subTest(
+                        stage=stage.__name__, state=state,
+                        copy_state=copy_state, gt=gt, side=side,
+                    ):
+                        bg, candidates, _ = self._group(state=state)
+                        alleles = (
+                            [candidates[0].allele1] if side == "first"
+                            else [pair.allele2 for pair in candidates]
+                        )
+                        for allele in alleles:
+                            for variant in allele.defining_variants:
+                                bg.variant_pool[variant] = copy_state
+                                bg.variant_pool_phase[variant] = gt
+
+                        self._assert_unchanged(stage, bg, state)
+
+    def test_mixed_first_allele_het_sides_do_not_prove_trans(self):
+        for stage in (rm_ref_if_2x_HET_phased, low_weight_hom):
+            with self.subTest(stage=stage.__name__):
+                bg, _, _ = self._group(
+                    first_variants=(self.LEFT, self.EXTRA)
+                )
+                bg.variant_pool_phase[self.EXTRA] = "1|0"
+
+                self._assert_unchanged(stage, bg, AlleleState.NORMAL)
+
+    def test_phased_false_preserves_every_pair_and_exclusion_trail(self):
+        for stage, state in self._stages():
+            for right_gt in ("0|1", "1|0"):
+                with self.subTest(stage=stage.__name__, state=state, right_gt=right_gt):
+                    bg, _, _ = self._group(right_gt=right_gt, state=state)
+
+                    self._assert_unchanged(stage, bg, state, phased=False)
+
+    def test_same_block_cis_exclusions_keep_the_filter_name_in_both_states(self):
+        for state in (AlleleState.NORMAL, AlleleState.CO):
+            with self.subTest(state=state):
+                bg, candidates, reference_pairs = self._group(right_gt="0|1", state=state)
+
+                filter_if_all_HET_vars_on_same_side_and_phased({1: bg}, phased=True)
+
+                self.assertEqual(bg.alleles[state], reference_pairs)
+                self.assertEqual(set(bg.filtered_out), {self.SAME_SIDE})
+                self.assertCountEqual(bg.filtered_out[self.SAME_SIDE], candidates)
+
+    def test_same_block_trans_does_not_trigger_same_side_exclusion(self):
+        for state in (AlleleState.NORMAL, AlleleState.CO):
+            with self.subTest(state=state):
+                bg, _, _ = self._group(state=state)
+
+                self._assert_unchanged(
+                    filter_if_all_HET_vars_on_same_side_and_phased, bg, state
+                )
+
+    def test_same_block_trans_removes_reference_pairs_by_name(self):
+        bg, candidates, reference_pairs = self._group()
+
+        rm_ref_if_2x_HET_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], candidates)
+        self.assertEqual(set(bg.filtered_out), {self.REMOVE_REF})
+        self.assertCountEqual(bg.filtered_out[self.REMOVE_REF], reference_pairs)
+
+    def test_same_block_trans_retains_the_best_weighted_pair_by_name(self):
+        bg, candidates, reference_pairs = self._group()
+
+        low_weight_hom({1: bg}, phased=True)
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [candidates[0]])
+        self.assertEqual(set(bg.filtered_out), {self.LOW_WEIGHT})
+        self.assertCountEqual(
+            bg.filtered_out[self.LOW_WEIGHT], candidates[1:] + reference_pairs
+        )
+
+    def test_cis_pairs_do_not_establish_trans_for_reference_or_weight_filters(self):
+        for stage in (rm_ref_if_2x_HET_phased, low_weight_hom):
+            with self.subTest(stage=stage.__name__):
+                bg, _, _ = self._group(right_gt="0|1")
+
+                self._assert_unchanged(stage, bg, AlleleState.NORMAL)
+
+    def test_hom_tokens_do_not_obscure_valid_het_phase_evidence(self):
+        for hom_gt in ("1/1", "1|1"):
+            for stage, state in self._stages():
+                with self.subTest(hom_gt=hom_gt, stage=stage.__name__, state=state):
+                    same_side = stage is filter_if_all_HET_vars_on_same_side_and_phased
+                    bg, candidates, reference_pairs = self._group(
+                        right_gt="0|1" if same_side else "1|0",
+                        first_variants=(self.LEFT, self.HOM), state=state,
+                    )
+                    bg.variant_pool[self.HOM] = Zygosity.HOM
+                    bg.variant_pool_phase[self.HOM] = hom_gt
+                    bg.variant_pool_phase_set[self.HOM] = "."
+
+                    stage({1: bg}, phased=True)
+
+                    if same_side:
+                        reason, kept, removed = self.SAME_SIDE, reference_pairs, candidates
+                    elif stage is rm_ref_if_2x_HET_phased:
+                        reason, kept, removed = self.REMOVE_REF, candidates, reference_pairs
+                    else:
+                        reason = self.LOW_WEIGHT
+                        kept = [candidates[0]]
+                        removed = candidates[1:] + reference_pairs
+                    self.assertEqual(bg.alleles[state], kept)
+                    self.assertEqual(set(bg.filtered_out), {reason})
+                    self.assertCountEqual(bg.filtered_out[reason], removed)
+
+    def test_pair_phase_filter_keeps_pairs_without_a_known_shared_block(self):
+        scenarios = (
+            ("both_dot", ".", ".", "1"),
+            ("both_unknown", "unknown", "unknown", "1"),
+            ("both_absent", None, None, "1"),
+            ("different_blocks", "1000", "2000", "1"),
+            ("different_chromosomes", "1000", "1000", "2"),
+        )
+        for name, first_ps, second_ps, right_chrom in scenarios:
+            with self.subTest(scenario=name):
+                bg, candidates, _ = self._group(
+                    right_gt="0|1", right_chrom=right_chrom
+                )
+                pair = candidates[0]
+                bg.alleles[AlleleState.NORMAL] = [pair]
+                bg.variant_pool_phase_set = {
+                    variant: phase_set
+                    for allele, phase_set in (
+                        (pair.allele1, first_ps), (pair.allele2, second_ps)
+                    )
+                    if phase_set is not None
+                    for variant in allele.defining_variants
+                }
+
+                result = filter_pairs_by_phase(
+                    {1: bg}, phased=True, reference_alleles={}
+                )
+
+                self.assertIs(result[1], bg)
+                self.assertEqual(bg.alleles[AlleleState.NORMAL], [pair])
+                self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_pair_phase_filter_retains_known_shared_block_cis_exclusion(self):
+        bg, candidates, reference_pairs = self._group(right_gt="0|1")
+
+        filter_pairs_by_phase({1: bg}, phased=True, reference_alleles={})
+
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], reference_pairs)
+        self.assertEqual(set(bg.filtered_out), {"filter_pairs_by_phase"})
+        self.assertCountEqual(bg.filtered_out["filter_pairs_by_phase"], candidates)
+
+
 if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"], exit=False)
 
@@ -927,4 +1209,3 @@ class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
         bg = self._bg({"RHCE*01": {"a"}}, {"a": Zygosity.HET}, {"a": "0|1"})
         narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
         self.assertEqual(len(bg.single_slot_genotypes), 1)
-

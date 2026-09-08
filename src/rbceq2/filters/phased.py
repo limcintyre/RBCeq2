@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from functools import partial
-from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     ABO_DELG_VARIANTS,
@@ -105,6 +103,63 @@ def _get_allele_phase_info(allele, phase_dict):
     return [phase_dict[variant] for variant in allele.defining_variants]
 
 
+def _het_phase_evidence(bg: BloodGroup, variant: str) -> tuple[str, str, str] | None:
+    """Return chromosome, known phase set and orientation for a phased HET token.
+
+    Homozygous and hemizygous tokens do not locate a heterozygous allele on one
+    of two chromosomes. Unknown phase sets cannot connect two orientations.
+    This reads existing normalized evidence without assigning new phase sets.
+
+    Args:
+        bg (BloodGroup): Existing variant and phase pools.
+        variant (str): Defining token with chromosome and position.
+
+    Returns:
+        tuple[str, str, str] | None: Chromosome, phase set and HET orientation,
+        or None when the token supplies no usable block evidence.
+    """
+    if bg.variant_pool.get(variant) != Zygosity.HET:
+        return None
+    phase = bg.variant_pool_phase.get(variant)
+    phase_set = bg.variant_pool_phase_set.get(variant)
+    if phase not in {"0|1", "1|0"}:
+        return None
+    if not isinstance(phase_set, str) or not carries_phase(phase_set):
+        return None
+    chrom, separator, _ = variant.partition(":")
+    if not separator or not chrom:
+        return None
+    return chrom.removeprefix("chr"), phase_set, phase
+
+
+def _allele_het_phase_evidence(
+    bg: BloodGroup, allele: Allele
+) -> tuple[str, str, str] | None:
+    """Return one shared block and orientation supported by every HET definition.
+
+    Each heterozygous defining token must carry usable evidence. Homozygous and
+    hemizygous definitions are ignored only for orientation; copy counts stay intact.
+    An allele without HET definitions supplies no such placement evidence.
+
+    Args:
+        bg (BloodGroup): Existing variant and phase pools.
+        allele (Allele): Definition whose HET tokens must agree.
+
+    Returns:
+        tuple[str, str, str] | None: Shared evidence, or None when any HET token
+        is unknown, the tokens disagree, or the allele has no HET definitions.
+    """
+    evidence = set()
+    for variant in allele.defining_variants:
+        if bg.variant_pool.get(variant) != Zygosity.HET:
+            continue
+        current = _het_phase_evidence(bg, variant)
+        if current is None:
+            return None
+        evidence.add(current)
+    return evidence.pop() if len(evidence) == 1 else None
+
+
 @apply_to_dict_values
 def filter_if_all_HET_vars_on_same_side_and_phased(
     bg: BloodGroup, phased: bool
@@ -191,14 +246,11 @@ def filter_if_all_HET_vars_on_same_side_and_phased(
         to_remove = []
         for pair in bg.alleles[allele_state]:
             for variant in pair.allele1.defining_variants:
-                if bg.variant_pool.get(variant) != Zygosity.HET:
+                evidence = _het_phase_evidence(bg, variant)
+                if evidence is None:
                     continue
-                phase = bg.variant_pool_phase[variant]
                 for variant2 in pair.allele2.defining_variants:
-                    if bg.variant_pool.get(variant2) != Zygosity.HET:
-                        continue
-                    phase2 = bg.variant_pool_phase[variant2]
-                    if phase == phase2 and "|" in phase:
+                    if evidence == _het_phase_evidence(bg, variant2):
                         to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(
@@ -657,6 +709,8 @@ def filter_pairs_by_phase(
     - If `phased` is False, the function returns the BloodGroup object unchanged.
     - For each allele pair in `bg.alleles[AlleleState.NORMAL]`:
         - If the pair contains a reference allele, it is retained.
+        - HET evidence must locate both alleles in one known phase set on the
+          same chromosome; missing or independent blocks retain the pair.
         - Extract the phase sets (`p1` and `p2`) for each allele in the pair.
         - If both alleles are homozygous (phase sets are {"."}), the pair is retained.
         - If the phase sets are identical, the pair is removed.
@@ -762,6 +816,10 @@ def filter_pairs_by_phase(
             continue
         if pair.allele1 == pair.allele2:
             continue  # one allele in two slots, not two alleles on one chromosome
+        first = _allele_het_phase_evidence(bg, pair.allele1)
+        second = _allele_het_phase_evidence(bg, pair.allele2)
+        if first is None or second is None or first[:2] != second[:2]:
+            continue  # equal placeholders or GT strings do not establish a block
         p1_phases = set(_get_allele_phase_info(pair.allele1, bg.variant_pool_phase))
         p1_zygo = set(_get_allele_phase_info(pair.allele1, bg.variant_pool))
         p1_phase_sets = set(
@@ -1222,16 +1280,11 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
         return bg
     to_remove = []
     phased_ref_free_pair_exists = False
-    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
-    same_phase = partial(check_phase, bg.variant_pool_phase)
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.allele1.reference or pair.allele2.reference:
             to_remove.append(pair)
             continue
-        if possible_to_use_phase(same_phase_set, same_phase, pair):
-            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
-            assert phase1 != phase2
+        if possible_to_use_phase(bg, pair):
             phased_ref_free_pair_exists = True
     if to_remove and phased_ref_free_pair_exists:
         bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
@@ -1271,31 +1324,27 @@ def allele_phase(variant_pool, allele):
     )
 
 
-def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
-    """Check if a pair of alleles can be phased using available phasing information.
+def possible_to_use_phase(bg: BloodGroup, pair: Pair) -> bool:
+    """Check whether HET evidence places the two alleles on opposite haplotypes.
 
-    Determines whether both alleles in a pair have consistent phase set assignments
-    and phase information, excluding homozygous variants. Both alleles must have
-    their heterozygous variants in a single phase set and a single phase to be
-    considered phaseable.
+    Both alleles must have consistent HET orientations in the same phase set on
+    the same chromosome. Different sets do not establish relative orientation,
+    even when their GT strings differ. HOM and HEM tokens supply no HET side.
 
     Args:
-        same_phase_set: Callable that checks if an allele's variants belong to one
-            phase set, excluding a specified homozygous indicator.
-        same_phase: Callable that checks if an allele's variants have consistent
-            phase values, excluding a specified homozygous genotype.
-        pair: Pair object containing two alleles to check for phasing consistency.
+        bg (BloodGroup): Existing zygosity, orientation and phase-set evidence.
+        pair (Pair): Alleles whose relative placement is being tested.
 
     Returns:
-        True if both alleles have consistent phase set and phase assignments for
-        their heterozygous variants, False otherwise.
-
-    Note:
-        Uses "." to represent homozygous variants in phase sets and "1/1" to
-        represent homozygous genotypes in phase values.
+        bool: Whether all HET definitions establish opposite sides of one block.
     """
-    return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-        same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+    first = _allele_het_phase_evidence(bg, pair.allele1)
+    second = _allele_het_phase_evidence(bg, pair.allele2)
+    return (
+        first is not None
+        and second is not None
+        and first[:2] == second[:2]
+        and first[2] != second[2]
     )
 
 
@@ -1392,15 +1441,10 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     if not phased:
         return bg
-    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
-    same_phase = partial(check_phase, bg.variant_pool_phase)
     # store as list of tuples: (weight, pair)
     pairs: list[tuple[float, Pair]] = []
     for pair in bg.alleles[AlleleState.NORMAL]:
-        if possible_to_use_phase(same_phase_set, same_phase, pair):
-            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
-            assert phase1 != phase2
+        if possible_to_use_phase(bg, pair):
             pairs.append((pair.allele1.weight_geno + pair.allele2.weight_geno, pair))
     if not pairs:
         return bg
