@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import re
 from collections import defaultdict
 from rbceq2.core_logic.alleles import (
     Allele, BloodGroup, Pair, is_deletion_only_allele,
@@ -965,6 +966,91 @@ def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGro
     return bg
 
 
+def _HEM_SNP_positions(allele: Allele, bg: BloodGroup) -> set[tuple[str, int]]:
+    """Return explicit hemizygous substitutions required by this allele.
+
+    Synthesised reference tokens and structural tokens do not supply this evidence.
+    """
+    positions = set()
+    for variant in allele.defining_variants:
+        if bg.variant_pool.get(variant) != Zygosity.HEM:
+            continue
+        match = re.fullmatch(r"([^:]+):(\d+)_[ACGT]_[ACGT]", variant)
+        if match:
+            positions.add((match[1], int(match[2])))
+    return positions
+
+
+def _deletions_placing_HEM_partners(
+    bg: BloodGroup, pairs: list[Pair]
+) -> dict[Allele, set[tuple[str, int, int]]]:
+    """Find surviving deletion partners that place an allele on the other copy.
+
+    Only a called heterozygous deletion in a normal pair supplies a replacement.
+    Bounds use the same database token and strict interior as HEM normalization.
+    This proves placement at covered SNPs, not loss of a whole gene.
+    """
+    evidence = defaultdict(set)
+    for pair in pairs:
+        for deleted, present in ((pair.allele1, pair.allele2), (pair.allele2, pair.allele1)):
+            if deleted.reference or not is_deletion_only_allele(deleted):
+                continue
+            if present.reference or is_deletion_only_allele(present):
+                continue
+            positions = _HEM_SNP_positions(present, bg)
+            if not positions:
+                continue
+            for variant in deleted.defining_variants:
+                if bg.variant_pool.get(variant) not in (Zygosity.HET, Zygosity.HEM):
+                    continue
+                chrom, token = variant.split(":", 1)
+                start, _, size = token.split("_")
+                start = int(start)
+                length = int(size[:-2]) * 1000 if size.endswith("kb") else int(size)
+                end = start + length
+                if any(c == chrom and start < pos < end for c, pos in positions):
+                    evidence[present].add((chrom, start, end))
+    return evidence
+
+
+@apply_to_dict_values
+def cant_split_HEM_SNPs_across_alleles(bg: BloodGroup) -> BloodGroup:
+    """Exclude pairs placing two deletion-confined SNP alleles on two chromosomes.
+
+    A called heterozygous deletion leaves one chromosome carrying the bases inside
+    it. Two explicit HEM SNPs inside that same deletion must therefore sit on the
+    surviving chromosome. Separate alleles in a normal pair cannot split them
+    between chromosomes. Existing rank filters decide which allele describes that
+    copy; this filter requires a surviving named-deletion counterpart before dropping
+    an alternative. Co-existing alleles keep their separate interpretation.
+
+    Args:
+        bg (BloodGroup): Normal pairs after existing rank and copy filters.
+
+    Returns:
+        BloodGroup: With incompatible pairs recorded under this filter's name.
+    """
+    if bg.chrom_copies != 2 or bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    evidence = _deletions_placing_HEM_partners(bg, pairs)
+    to_remove = []
+    for pair in pairs:
+        if pair.contains_reference or any(is_deletion_only_allele(a) for a in pair):
+            continue
+        for present, other in ((pair.allele1, pair.allele2), (pair.allele2, pair.allele1)):
+            if any(
+                chrom == c and start < pos < end
+                for chrom, start, end in evidence.get(present, ())
+                for c, pos in _HEM_SNP_positions(other, bg)
+            ):
+                to_remove.append(pair)
+                break
+    if to_remove:
+        bg.remove_pairs(to_remove, "cant_split_HEM_SNPs_across_alleles")
+    return bg
+
+
 @apply_to_dict_values
 def cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy(
     bg: BloodGroup,
@@ -977,6 +1063,11 @@ def cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy(
     names the missing chromosome. Keeping the reference alternative would let its
     phenotype assert expression from the chromosome reported as absent.
 
+    The same placement can be established without a gene-copy GT: a HEM SNP
+    inside the counterpart's called heterozygous deletion sits on the surviving
+    chromosome. The named deletion describes the other chromosome. This does not
+    change locus_copies or claim that the deletion spans the whole gene.
+
     The counterpart must still be a normal pair. A filtered-out deletion does not
     supply an answer, and without a counterpart the copy-number-only fallback is
     left alone. A reference/deletion pair can name reference on the surviving copy;
@@ -988,17 +1079,19 @@ def cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy(
     Returns:
         BloodGroup: With redundant reference placeholders excluded by this name.
     """
-    if bg.locus_copies != 1 or bg.chrom_copies != 2:
+    if bg.chrom_copies != 2:
         return bg
     if bg.alleles.get(AlleleState.CO) is not None:
         return bg
     pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    placement = _deletions_placing_HEM_partners(bg, pairs)
     present_with_deletion = {
         allele
         for pair in pairs
         if any(is_deletion_only_allele(member) for member in pair)
         for allele in pair
         if not allele.reference and not is_deletion_only_allele(allele)
+        and (bg.locus_copies == 1 or allele in placement)
     }
     to_remove = [
         pair for pair in pairs

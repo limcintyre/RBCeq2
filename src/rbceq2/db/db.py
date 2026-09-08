@@ -152,7 +152,7 @@ class Db:
         rather than an optimisation. **A breakpoint is not a locus.** The position on a
         structural token is where an event starts or where its replacement sequence was
         taken from; it is not somewhere a caller genotypes, and it is deliberately
-        imprecise - sizes are rounded to the nearest kb because breakpoints wobble. A
+        imprecise - large-event sizes use whole-kilobase tokens by integer division. A
         position like that landing in the ploidy vote is a coincidence, not evidence.
 
         For a paralogue pair it is worse than noise, because the coordinate belongs to

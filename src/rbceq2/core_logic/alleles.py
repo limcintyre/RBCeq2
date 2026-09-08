@@ -385,7 +385,7 @@ class BloodGroup:
             two'.
 
             Set only where a caller encodes gene copy number as GT ploidy and does so
-            consistently across every database locus in the gene - see
+            consistently across the called database small-variant loci reported for the gene - see
             locus_copies_for_bg. A gene at one copy on two chromosomes is the case
             chrom_copies alone cannot express: two allele slots, one of which holds no
             gene at all. That second slot is a reporting decision and is written by

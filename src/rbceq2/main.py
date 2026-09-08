@@ -64,22 +64,18 @@ from rbceq2.core_logic.large_variants import (
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
-    """Parse command-line arguments for somatic variant calling.
+    """Parse command-line options for blood-group allele inference.
 
     Args:
-        args (List[str]): List of strings representing the command-line arguments.
+        args (list[str]): Command-line arguments excluding the program name.
 
     Returns:
-        argparse.Namespace: An object containing the parsed command-line options.
-
-    This function configures and interprets command-line options for a somatic
-    variant caller. It expects paths to VCF files, a database file, and allows
-    specification of output options and genomic references.
+        argparse.Namespace: Parsed inference and output options.
     """
     parser = argparse.ArgumentParser(
         description="Calls ISBT defined alleles from VCF/s. NOT FOR CLINICAL USE",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        usage="rbceq2 --vcf example.vcf.gz --out example --reference_genome GRCh37",
+        usage="rbceq2 --vcf input.vcf.gz --out result --reference_genome GRCh38 [options]",
     )
     version_str = f"%(prog)s {VERSION} (DB: {DB_VERSION})"
 
@@ -105,7 +101,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--no_filter",
         action="store_true",
-        help="Use all variants, not just those where FILTER = PASS in the VCF",
+        help="Disable FILTER-based allele exclusion; other inference checks still apply",
         default=False,
     )
     parser.add_argument(
@@ -139,7 +135,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Enable VCF validation. Doubles run time. Might help you identify input issues",
+        help="Run extra VCF format checks; basic input checks always run",
         default=False,
     )
     parser.add_argument(
@@ -164,11 +160,10 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         "--RH",
         action="store_true",
         help=(
-            "Generate results for RHD and RHCE. Only use this if your VCF actually "
-            "carries information RH can be called from: long reads with structural "
-            "variant calls, or copy number for the RH genes encoded as genotype ploidy. "
-            "Short read data without either will mismap between the two paralogues and "
-            "the results will be wrong."
+            "Generate RHD and RHCE results for long-read VCFs with structural "
+            "variant information, or callers explicitly encoding RH gene copy number "
+            "as GT ploidy. Ordinary short-read variant calls without either source "
+            "of information are unsupported for RH inference."
         ),
         default=False,
     )
@@ -620,6 +615,7 @@ def find_hits(
         filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
         filt_co.filter_co_existing_subsets,
         filt.cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
+        filt.cant_split_HEM_SNPs_across_alleles,
         filt.cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy,
         partial(
             dp.get_genotypes,

@@ -52,7 +52,7 @@ src/rbceq2/
     antigens.py              antigen objects, modifiers, antithetical reconciliation
     choose_pheno.py          genotype pair -> phenotype
   IO/
-    vcf.py                   VCF/gVCF reading, phase sets, lane variants
+    vcf.py                   VCF reading, phase sets, lane variants (native gVCF unsupported)
     record_data.py           TSV output
     PDF_reports.py           optional per-sample PDF
   db/db.py                   DB loading, reference alleles, lane variants

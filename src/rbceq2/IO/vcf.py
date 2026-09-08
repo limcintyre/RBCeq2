@@ -217,7 +217,8 @@ def is_haploid_gt(GT: str) -> bool:
 
     Deliberately a string test and nothing more. Whether a haploid GT is *legitimate*
     depends on the coordinate, and that is is_single_copy's job - a haploid GT inside
-    PAR is a caller error, not a ploidy statement. Whether it carries any information at
+    PAR supplies no constitutional haploidy evidence; a gene-copy interpretation
+    still requires the appropriate caller convention. Whether it carries any information at
     all is gt_names_an_allele's, and '.' passes this test while failing that one.
     """
     return bool(GT) and "/" not in GT and "|" not in GT
@@ -410,7 +411,7 @@ class PloidyScan:
         X or Y leaves on the first line, which is the overwhelming majority of a file.
 
         A no-call is not evidence - see gt_names_an_allele - and neither is a haploid GT
-        inside PAR, which is a caller error rather than a ploidy statement.
+        inside PAR, which supplies no constitutional haploidy evidence.
         Rows without a GT key supply no evidence. A present GT must be first, even
         when earlier rows already supplied evidence for this chromosome.
         A candidate haploid GT must have supported syntax and name a declared allele.

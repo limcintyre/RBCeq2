@@ -632,17 +632,12 @@ Not an allele, never matched against the database. User visible and documented; 
 #40 and the E1 row of ploidy_state_table.md."""
 
 UNDETERMINED_SLOT = "Undetermined"
-"""Written in a genotype slot the database cannot name, ie 'GYPA*08/Undetermined'.
+"""Written where an allele slot cannot be named, e.g. 'GYPA*08/Undetermined'.
 
-The sample has two chromosomes and this one carries a copy of the gene, but the variants
-on it match no allele in the database - so there is a real allele there and the tool
-declines to say which. Distinct from both of the other two second slot values:
-HAPLOID_SECOND_SLOT says there is no second chromosome, NOVEL_DELETION_SLOT says
-there is one and it carries no copy of the gene.
-
-Not a new output value. Both slots have been written this way since the empty genotype
-was first rendered as 'Undetermined/Undetermined', so consumers already meet it; the
-only thing new is that one slot can now be named while the other is not.
+One named partner retains one resolved allele slot. Both slots may be Undetermined
+when a blood group cannot be interpreted; that outcome does not establish its copy
+count. HAPLOID_SECOND_SLOT and NOVEL_DELETION_SLOT make different statements about
+chromosome and gene copies and must not be conflated with unresolved inference.
 
 Not an allele, never matched against the database. User visible and documented."""
 

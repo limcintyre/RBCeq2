@@ -14,56 +14,162 @@
 
 ## Version v2.4.4
 
-RBCeq2 reads in genomic variant data in the form of variant call files (VCF) and outputs blood group (BG) genotype and phenotype inference.
+RBCeq2 infers blood-group genotypes and phenotypes from supplied variant calls using
+the curated ISBT allele definitions distributed with the package. Deterministic
+rules select and exclude candidate alleles and pairs; `--debug` records the evidence
+and named exclusions behind the result.
 
-At the highest level RBCeq2 finds all possible alleles, then filters out those that fail certain logic checks. This allows for an auditable trail of why it has reached a certain result (use --debug to see this in detail). Every effort has been made to be explicit both in encoding alleles in our database and while writing code. This results in verbose but unambiguous results. Last, some liberties have been taken to standardise syntax and nomenclature across blood groups.
+## Install and run
 
-The initial release of RBCeq2 was focused on perfecting the calling of International Society for Blood Transfusion (ISBT) defined BG alleles from simple variants; single nucleotide variants (SNVs) and small insertions and deletions (indels). v2.3.0 focussed on phasing. V2.4.* (current) focuses on large variants and the RH region, using long read sequencing data.
+Python 3.12 or newer is required.
+
+```bash
+python -m pip install rbceq2==2.4.4
+rbceq2 --version
+rbceq2 --vcf sample.vcf.gz --out result --reference_genome GRCh38 --debug
+```
+
+Supply `GRCh37` or `GRCh38` to match the input coordinates. A single-sample VCF,
+multi-sample VCF, or directory of separate `.vcf`/`.vcf.gz` files can be supplied.
+Both ordinary gzip and uncompressed VCF input are read. For a directory:
+
+```bash
+rbceq2 --vcf samples/ --out cohort --reference_genome GRCh38 --processes 4 --debug
+```
+
+Use `rbceq2 --help` for all current options. Useful switches include:
+
+| Option | Purpose |
+|---|---|
+| `--phased` | Use genotype phasing and phase-set information where available. |
+| `--RH` | Include RHD/RHCE for the supported inputs described below. |
+| `--HPAs` | Include human platelet antigen results. |
+| `--no_filter` | Disable FILTER-based allele exclusion; inference checks still apply. |
+| `--validate` | Run additional VCF format checks. Basic input checks always run. |
+| `--PDFs` | Generate per-sample PDF reports. |
+| `--min_size` | Minimum indel/SV size for fuzzy structural matching; default 10. |
+| `--processes` | Worker processes; default 1. Large input loading also uses memory. |
+
+## Input contract
+
+Provide genotyped VCF calls from an upstream caller, with its calling and coverage
+QC completed. **Native gVCFs are not supported in v2.4.4**: unspecified ALT
+placeholders such as `<NON_REF>`/`<*>` and reference blocks require additional
+handling. A gVCF can be read as text and still produce incomplete or misleading
+inference; use the caller's final genotyped VCF.
+
+GT must be the first FORMAT key when the row is used for inference. Called indices
+must refer to REF (`0`) or an ALT declared by that row. Missing alleles use `.`.
+Supported GT spellings use `/` or `|` between canonical integer indices; initial
+phasing separators and leading-zero indices are explicitly unsupported.
+
+Small-variant multiallelic records are processed into per-ALT calls internally.
+Some reference-containing multiallelic configurations can remain partially
+unresolved. Inspect `Undetermined` results and normalize such sites upstream where
+appropriate. Mixed symbolic structural/small-variant records need caller-specific
+assessment and are not a general supported input route.
+
+Fully called genotypes naming more than two copies are interpreted only where the
+per-ALT dosage is zero or all copies. Intermediate dosage receives the named
+`get_ref/dosage_between_the_bounds` refusal. This is not general polyploid or pooled
+sample inference.
+
+### Chromosome copies and gene copies
+
+These are different statements and lead to different output shapes:
+
+- A valid called haploid GT outside PAR on X/Y supplies per-sample evidence for one
+  chromosome in that region. No-calls supply no such evidence. PAR retains its
+  two-chromosome interpretation.
+- Gene copy number can be read from GT ploidy only when the upstream caller
+  explicitly uses that convention. All called database small-variant positions
+  reported for the gene must agree on haploidy; there may be only one reported
+  position. Two chromosome slots remain, with a missing-gene-copy marker in one.
+- GT shape alone cannot establish the caller's convention. Haploid assembly output,
+  masked-PAR encodings, and other conventions must not be assumed equivalent to a
+  gene-copy-number call. An uncalled GT is not evidence of zero gene copies.
+
+Called structural deletions are evaluated against the curated database and can
+constrain which chromosome carries an overlapping allele. The deletion's presence
+and the gene-copy interpretation inferred from GT are kept distinct.
+
+### RHD and RHCE
+
+Use `--RH` for long-read VCFs with structural-variant information, or for callers
+that explicitly encode RH gene copy number as GT ploidy. Ordinary short-read
+variant calls without either source of information are unsupported for RH
+inference because of the similarity between RHD and RHCE.
+
+Compatibility depends on the caller's stated encoding convention. Synthetic
+examples establish the software's behavior; they do not establish compatibility
+with every caller or clinical validity.
+
+### FILTER and missing data
+
+By default, `PASS` and absent filtering (`.` or empty) do not exclude an allele.
+Other FILTER values are classified: recognized values unrelated to call correctness
+can be retained; call-correctness failures and unrecognized values can exclude.
+Unrecognized values are named in warnings. `--no_filter` bypasses this FILTER-based
+exclusion, while genotype validity and inference rules remain active.
+
+A no-call such as `.`, `./.`, or a partial missing GT becomes `NO_DATA` and alleles
+requiring that uncalled variant are excluded by name. All nonmissing indices must
+still be valid for the row.
+
+**A reference output does not establish sequencing coverage.** Missing records can
+lead to reference defaults, and a no-call can still reach a reference fallback when
+no candidate remains. Inspect the debug evidence and exclusions; a fallback is not
+a measured homozygous-reference call.
+
+## Outputs and interpretation
+
+With `--out result`, the main outputs are:
+
+- `result_geno.tsv`
+- `result_pheno_numeric.tsv`
+- `result_pheno_alphanumeric.tsv`
+- `result_<run UUID>_log.txt`
+
+The first TSV column identifies the sample; its heading contains the run UUID.
+Cohort input uses the VCF sample names. Single-file and directory input uses the
+filename with its final suffix removed, so `sample.vcf.gz` is named `sample.vcf`.
+
+| Slot value | Meaning |
+|---|---|
+| A named allele | The selected database allele. |
+| `-` | No second chromosome slot in the inferred single-copy region. |
+| An absent-gene subtype, e.g. `RHAG*01N` | The database's designation for a missing gene copy without naming a specific breakpoint-defined allele. |
+| `Novel_gene_deletion` | A missing gene copy for which no applicable database absence subtype is available. GT-based use depends on the caller convention above. |
+| `Undetermined` | An allele slot that could not be named. Both slots can be undetermined when the blood group cannot be interpreted. |
+
+`allele/Undetermined` retains one resolved slot. `Undetermined/Undetermined` can
+represent a whole-group refusal; it does not establish the physical copy count.
+Neither is a database allele.
+
+Genotype alternatives are comma-separated. Phenotype alternatives are listed
+independently and can be deduplicated, so entries must not be joined by position
+between files. A slash can be part of a phenotype name.
+
+Malformed retained GTs fail the affected sample and are reported with a named error;
+the other samples in a cohort or directory can continue. Shared header/FORMAT
+problems can prevent loading an input file. A nonzero process exit and the log must
+be reviewed even when some result files were written.
 
 ## Database v2.5.1
 
-Our database is a TSV (db.tsv). It is a mirror of the official ISBT database. We will use the ISBT API directly once their databse is finished and polished. At the time of writing their antigen states and modifiers are not finished. There are also a few intentional differences, the main one being adjancent SNVs being merged into a single variant in the official ISBT database. 
+The packaged [db.tsv](src/rbceq2/resources/db.tsv) is the source of allele definitions
+used by inference. It is curated against ISBT definitions and includes explicit
+modelling and nomenclature choices. Package and database versions are reported
+separately by `--version`.
 
-## Bugs
+## Documentation and reporting issues
 
-This software is extensively tested and accurately reports genotypes/phenotypes based on our inhouse definitions of the ‘correct’ answer, however, there are some examples where the ‘correct’ answer is subjective. The docs are detailed – if you find what you think is a bug in the results from RBCeq2 please take the time to understand if it inline with what we intended or not (use --debug and look to see what happened). The RH region is the most likely to produce eroneous allele calls. Please work with us by raising issue here on git.
+This README describes the v2.4.4 input and output contract. Longer PDF worked
+examples attached to earlier releases are historical and may describe earlier
+behavior; use the version-matched contract here when interpreting current output.
 
-## QC
-
-RBCeq2 does not QC your data. You can choose to use all variants in the VCF or just those that have a PASS in the filter column.
-
-## Documentation
-
-Documentation in the form of a PDF can be downloaded from the release page, you will need to be signed in to github to access it. We will convert this into a website at some point.
-
-## How To
-
-Install via pip (python3.12+) or clone the git repository:
-
-```bash
-pip install RBCeq2
-
-rbceq2 -h
-
-usage: rbceq2 --vcf example_multi_sample.vcf.gz --out example --reference_genome GRCh37
-
-options:
-  -h, --help            show this help message and exit
-  -v, --version         Show programs version number and exit.
-  --vcf VCF             Path to VCF file/s. Give a folder if you want to pass multiple separate files (file names must end in .vcf or .vcf.gz), or alternatively give a file if using a
-                        multi-sample VCF. (default: None)
-  --out OUT             Prefix for output files (default: None)
-  --no_filter           Use all variants, not just those where FILTER = PASS in the VCF (default: False)
-  --processes PROCESSES
-                        Number of processes. I.e., how many CPUs are available? ~1GB RAM required per process (default: 1)
-  --reference_genome {GRCh37,GRCh38}
-                        GRCh37/8 (default: None)
-  --phased              Use phase information (default: False)
-  --debug               Enable debug logging. If not set, logging will be at info level. (default: False)
-  --validate            Enable VCF validation. Doubles run time. Might help you identify input issues (default: False)
-  --PDFs                Generate a per sample PDF report (default: False)
-  --HPAs                Generate results for HPA (default: False)
-  --min_size MIN_SIZE   Minimum size indel/SV to apply fuzzy matching to (default: 10)
-  --RH                  Generate results for RHD and RHCE. WARNING! Long read only! (default: False)
-
-```
+When reporting an issue, include the package/database versions, genome build,
+command, and the complete affected sample/blood-group debug block where shareable.
+State the caller and its genotype/copy-number convention. Expected answers can
+require biological adjudication; a successful run or agreement with stored gold
+does not establish clinical validity.

@@ -702,5 +702,62 @@ class TestRhagSnvInsideHeterozygousDeletion(unittest.TestCase):
         self._assert_rhag_result("1", "C2_haploid_snv_inside_het_del")
 
 
+
+class TestRhagAllelesOnSurvivingCopy(unittest.TestCase):
+    """Deletion overlap places the null SNV on the remaining chromosome."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.db = Db(ref="GRCh38", df=prepare_db())
+        cls.ant_mapping = build_antigen_map_for_checks(cls.db.df)
+        kn = {"KN": [a for a in cls.db.make_alleles() if a.blood_group == "KN"]}
+        relationships, bg_type = sub_alleles_relationships(kn, "KN")
+        cls.allele_relationships = {bg_type: relationships}
+
+    def _assert_result(self, gt):
+        for add_missense in (False, True):
+            for phased in (False, True):
+                with self.subTest(gt=gt, missense=add_missense, phased=phased):
+                    rows = [[
+                        "chr6", "49605174", ".", "N", "<DEL>", "50", "PASS",
+                        "SVTYPE=DEL;END=49637174;SVLEN=-32000", "GT:GQ", "0/1:99",
+                    ]]
+                    if add_missense:
+                        rows.append([
+                            "chr6", "49619204", ".", "G", "C", "50", "PASS",
+                            ".", "GT:DP:GQ", f"{gt}:30:99",
+                        ])
+                    rows.append([
+                        "chr6", "49619210", ".", "G", "A", "50", "PASS",
+                        ".", "GT:DP:GQ", f"{gt}:30:99",
+                    ])
+                    args = ["--reference_genome", "GRCh38", "--HPAs"]
+                    if phased:
+                        args.append("--phased")
+                    result = find_hits(
+                        self.db, (pd.DataFrame(rows, columns=COMMON + ["SAMPLE"]), "RHAG_bounds"),
+                        args=parse_args(args), allele_relationships=self.allele_relationships,
+                        excluded=["RHD", "RHCE"], ant_mapping=self.ant_mapping,
+                    )
+                    _, genotypes, numeric, alphanumeric, groups, _ = result
+                    bg = groups["RHAG"]
+                    self.assertEqual(bg.chrom_copies, 2)
+                    self.assertEqual(bg.locus_copies, 1 if gt == "1" else None)
+                    self.assertEqual(bg.variant_pool["6:49619210_G_A"], Zygosity.HEM)
+                    self.assertEqual(genotypes["RHAG"], "RHAG*01N.15/RHAG*01N.16")
+                    self.assertCountEqual(
+                        ["/".join(p.genotypes) for p in bg.alleles[AlleleState.NORMAL]],
+                        ["RHAG*01N.15/RHAG*01N.16"],
+                    )
+                    self.assertEqual(numeric["RHAG"], "RHAG:-1,-2,-3,-5,-6,-7")
+                    self.assertEqual(alphanumeric["RHAG"], "Duclos-,Ol(a-),DSLK-,Kg-,SHER-,THIN-")
+
+    def test_homozygous_spelling_uses_the_deletion_placement_evidence(self):
+        self._assert_result("1/1")
+
+    def test_haploid_spelling_retains_the_same_named_deletion_pair(self):
+        self._assert_result("1")
+
+
 if __name__ == "__main__":
     unittest.main()
