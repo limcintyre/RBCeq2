@@ -16,6 +16,9 @@ from rbceq2.filters.shared_filter_functionality import (
     all_hom,
     identify_unphased,
     proceed,
+    carries_phase,
+    _het_phase_evidence,
+    _het_phase_summary,
 )
 from rbceq2.core_logic.alleles import Allele
 from icecream import ic
@@ -103,35 +106,6 @@ def _get_allele_phase_info(allele, phase_dict):
     return [phase_dict[variant] for variant in allele.defining_variants]
 
 
-def _het_phase_evidence(bg: BloodGroup, variant: str) -> tuple[str, str, str] | None:
-    """Return chromosome, known phase set and orientation for a phased HET token.
-
-    Homozygous and hemizygous tokens do not locate a heterozygous allele on one
-    of two chromosomes. Unknown phase sets cannot connect two orientations.
-    This reads existing normalized evidence without assigning new phase sets.
-
-    Args:
-        bg (BloodGroup): Existing variant and phase pools.
-        variant (str): Defining token with chromosome and position.
-
-    Returns:
-        tuple[str, str, str] | None: Chromosome, phase set and HET orientation,
-        or None when the token supplies no usable block evidence.
-    """
-    if bg.variant_pool.get(variant) != Zygosity.HET:
-        return None
-    phase = bg.variant_pool_phase.get(variant)
-    phase_set = bg.variant_pool_phase_set.get(variant)
-    if phase not in {"0|1", "1|0"}:
-        return None
-    if not isinstance(phase_set, str) or not carries_phase(phase_set):
-        return None
-    chrom, separator, _ = variant.partition(":")
-    if not separator or not chrom:
-        return None
-    return chrom.removeprefix("chr"), phase_set, phase
-
-
 def _allele_het_phase_evidence(
     bg: BloodGroup, allele: Allele
 ) -> tuple[str, str, str] | None:
@@ -149,15 +123,7 @@ def _allele_het_phase_evidence(
         tuple[str, str, str] | None: Shared evidence, or None when any HET token
         is unknown, the tokens disagree, or the allele has no HET definitions.
     """
-    evidence = set()
-    for variant in allele.defining_variants:
-        if bg.variant_pool.get(variant) != Zygosity.HET:
-            continue
-        current = _het_phase_evidence(bg, variant)
-        if current is None:
-            return None
-        evidence.add(current)
-    return evidence.pop() if len(evidence) == 1 else None
+    return _het_phase_summary(bg, allele.defining_variants)
 
 
 @apply_to_dict_values
@@ -268,7 +234,8 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
 ) -> BloodGroup:
     """
     If an allele is HOM and it's 'in' every other properly phased allele
-    AND the there's at least 1 of those on each side, it can't exist
+    AND the there's at least 1 of those on each side, it can't exist.
+    Opposite HET placements must share a known chromosome and phase set.
 
     Sample: HG03774 BG Name: LU
 
@@ -347,19 +314,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                 bg.variant_pool, pair.allele2
             ):
                 continue
-            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
-                continue  # TODO - next refactor this type of functionality
-            # should move into a new PhasedAllele class
-            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
-                continue
-            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
-
-            if phase1 == {None} or phase2 == {None}:
-                continue
-            if phase1 == {"unknown"} or phase2 == {"unknown"}:
-                continue
-            if len(phase1) == 1 and len(phase2) == 1:
+            if possible_to_use_phase(bg, pair):
                 pairs_with_HET.append(pair)
 
         if pairs_with_HET:
@@ -512,17 +467,17 @@ def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
                     else:
                         homs_partner_allele = pair.allele1
                         hom_allele = pair.allele2
-                    phase_of_homs_partner = find_phase(
-                        bg.variant_pool_phase, homs_partner_allele
-                    )
+                    partner_evidence = _allele_het_phase_evidence(bg, homs_partner_allele)
+                    if partner_evidence is None:
+                        continue
                     for flat_allele in flattened_alleles:
                         if flat_allele in pair.alleles:
                             continue
-                        phase_of_flat_allele = find_phase(
-                            bg.variant_pool_phase, flat_allele
-                        )
+                        other_evidence = _allele_het_phase_evidence(bg, flat_allele)
                         if (
-                            phase_of_flat_allele != phase_of_homs_partner
+                            other_evidence is not None
+                            and partner_evidence[:2] == other_evidence[:2]
+                            and partner_evidence[2] != other_evidence[2]
                             and hom_allele in flat_allele
                         ):
                             to_remove.append(pair)
@@ -980,48 +935,23 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             ]
             return bool(zygos) and all(z == Zygosity.HEM for z in zygos)
 
-        alleles_with_variants_in_same_phase_set = [
-            allele
-            for allele in alleles
-            if all_hemizygous(allele)
-            or check_phase(bg.variant_pool_phase_set, allele, ".")
-        ]
-
-        alleles_with_variants_in_same_phase = [
-            allele
-            for allele in alleles_with_variants_in_same_phase_set
-            if all_hemizygous(allele)
-            or check_phase(bg.variant_pool_phase, allele, "1/1")
-        ]
-
-        # split by phase
-        l1, l2, l3 = [], [], []  # 1|0, 0|1, or 1 (hemi)
+        # Reference containment can be a subtype shortcut, not a literal token
+        # subset. Keep comparisons inside one block even when tokens do not overlap.
+        by_phase = {}
+        hemizygous = []
         for allele in sorted(
-            alleles_with_variants_in_same_phase,
-            key=lambda allele: len(allele.defining_variants),
-            reverse=True,
+            alleles, key=lambda allele: len(allele.defining_variants), reverse=True
         ):
-            phases = set([])
-            for variant in allele.defining_variants:
-                phase = bg.variant_pool_phase[variant]
-                if phase != "1/1":
-                    phases.add(bg.variant_pool_phase[variant])
+            if all_hemizygous(allele):
+                hemizygous.append(allele)
+                continue
+            evidence = _allele_het_phase_evidence(bg, allele)
+            if evidence is not None:
+                by_phase.setdefault(evidence, []).append(allele)
 
-            assert len(phases) == 1
-            phase = phases.pop()
-            if phase == "1|0":
-                l1.append(allele)
-            elif phase == "0|1":
-                l2.append(allele)
-            elif phase == "1":
-                l3.append(allele)
-            else:
-                assert phase in "unknown" or "/" in phase
-        # figure out what to remove
-
-        alleles_to_remove = iterate_over_list(l1)
-        alleles_to_remove += iterate_over_list(l2)
-        alleles_to_remove += iterate_over_list(l3)
+        alleles_to_remove = iterate_over_list(hemizygous)
+        for same_block_and_side in by_phase.values():
+            alleles_to_remove += iterate_over_list(same_block_and_side)
         to_remove = []
         for pair in bg.alleles[allele_state]:
             if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
@@ -1046,10 +976,14 @@ def narrow_second_slot_candidates_by_phase(
     it removed the pairs to build it and what it leaves behind is not a pair - so the
     phase based 'in' filters, which run later and work on pairs, never see it.
 
-    Where the candidates stand in a subset relation and phase puts every heterozygous
-    variant on one side, the subset under-describes the chromosome. Choosing it would
-    leave the superset's extra variants on that same chromosome with nothing to carry
-    them, which is not a reading of the data, it is a gap in one.
+    A strict subset is superseded when every additional defining token of a larger
+    candidate is forced onto its chromosome. An additional HOM token is present on
+    both copies. An additional HET token must share chromosome, phase set and side
+    with a HET token already required by the smaller candidate.
+
+    This comparison is conditional on the smaller candidate existing. Its own HET
+    definitions may span independent blocks: uncertainty about their relative
+    placement does not erase a forced extension within one of those blocks.
 
     HG01527 RHCE in the long read set: five heterozygous variants, every one '0|1' in
     phase set 25233074, and six candidates of which RHCE*01.20.04.02 holds all five and
@@ -1057,12 +991,10 @@ def narrow_second_slot_candidates_by_phase(
     disagree, so the phenotype columns come out empty - the cell has no answer rather
     than an imprecise one.
 
-    Deliberately narrow. It acts only when **every** heterozygous variant across every
-    candidate shares one side, which is the case where the superset is unambiguously the
-    whole story. Two sides means the candidates describe different chromosomes and the
-    subset may be the right one; unphased means nothing is known and ambiguity is the
-    correct output. Homozygous variants are not consulted at all - they are on both
-    chromosomes and locate nothing.
+    A candidate containing only HOM definitions supplies no side itself. Preserve
+    the existing narrowing of that candidate when all candidate HET evidence locates
+    one known block and side. Missing, unphased or independent additional HET evidence
+    cannot justify a forced extension. HEM and no-data tokens do not stand in for HOM.
 
     Args:
         bg (BloodGroup): A BloodGroup whose second slot was refused by name.
@@ -1088,23 +1020,46 @@ def narrow_second_slot_candidates_by_phase(
             return bg
         candidates[name] = allele
 
-    sides = {
-        bg.variant_pool_phase.get(variant)
+    variants = {
+        variant
         for allele in candidates.values()
         for variant in allele.defining_variants
-        if bg.variant_pool.get(variant) == Zygosity.HET
     }
-    if len(sides) != 1:
-        return bg
-    side = sides.pop()
-    if side is None or not carries_phase(side):
-        return bg
+    evidence = {variant: _het_phase_evidence(bg, variant) for variant in variants}
+    shared_phase = _het_phase_summary(bg, variants)
+
+    def forced_extension(smaller: Allele, larger: Allele) -> bool:
+        """Whether the larger definition follows whenever the smaller one exists."""
+        if not smaller.defining_variants < larger.defining_variants:
+            return False
+        anchors = {
+            evidence[variant]
+            for variant in smaller.defining_variants
+            if evidence[variant] is not None
+        }
+        if (
+            not anchors
+            and smaller.defining_variants
+            and all(
+                bg.variant_pool.get(variant) == Zygosity.HOM
+                for variant in smaller.defining_variants
+            )
+            and shared_phase is not None
+        ):
+            # The existing HOM-only subset case uses the globally located slot.
+            anchors.add(shared_phase)
+        for variant in larger.defining_variants - smaller.defining_variants:
+            if bg.variant_pool.get(variant) == Zygosity.HOM:
+                continue
+            if evidence[variant] is None or evidence[variant] not in anchors:
+                return False
+        return True
 
     superseded = [
         allele
         for name, allele in candidates.items()
         if any(
-            allele.defining_variants < other.defining_variants
+            forced_extension(allele, other)
             for other_name, other in candidates.items()
             if other_name != name
         )
@@ -1121,40 +1076,6 @@ def narrow_second_slot_candidates_by_phase(
     ]
 
     return bg
-
-
-def carries_phase(value: str) -> bool:
-    """Whether a phase pool value says anything about which chromosome a variant is on.
-
-    Three ways a value says nothing, and only the first was recognised before:
-
-    '.' marks a homozygote in the phase set pool. 'unknown' marks a variant the caller
-    did not phase - data_procesing already treats the two alike (see the ['unknown', '.']
-    test there) and this brings the phase filters into line.
-
-    An unphased genotype - '0/1', '1/1', './.' - has no bar, so it does not say which
-    chromosome anything is on. Every heterozygote in a partly phased file looks like
-    '0/1', and they all look like each other, which is how two different alleles came to
-    be read as identically phased.
-
-    A homozygous genotype says nothing either, and it can be written with a bar: '1|1'
-    and '0|0' are on both chromosomes. Only '1/1' was filtered out by name, so '1|1'
-    survived as if it located something.
-
-    SYNTHESISED_HOM_REF_GT is rejected by name for a different reason. The final branch
-    has to accept a bare token, because a caller's phase set id is one - '25233074' has
-    no separator to test. The sentinel is a bare token too, so it fell through there and
-    was read as a phase set. Named rather than shape checked: nothing guarantees a phase
-    set id is numeric, so testing for digits would risk refusing a real one.
-    """
-    if value in {".", "unknown", "", SYNTHESISED_HOM_REF_GT}:
-        return False
-    if "/" in value:
-        return False
-    if "|" in value:
-        left, _, right = value.partition("|")
-        return left != right
-    return True
 
 
 def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) -> bool:
@@ -1898,17 +1819,11 @@ def cant_name_second_slot_cuz_ref_not_phased(
         if not allele.reference
     }
 
+    # Every HET definition must be placed; discarding an unphased HET would
+    # incorrectly let partial evidence name the entire allele.
     named = []
     for partner in partners:
-        sides = {
-            bg.variant_pool_phase.get(variant)
-            for variant in partner.defining_variants
-        }
-        sides = {side for side in sides if side is not None and carries_phase(side)}
-        # One side, and something to be on a side of. A partner located by nothing -
-        # every defining variant homozygous or unphased - is not settled by phase and
-        # is left alone.
-        if len(sides) == 1:
+        if _allele_het_phase_evidence(bg, partner) is not None:
             named.append(f"{partner.genotype}/{UNDETERMINED_SLOT}")
 
     if named:
@@ -2000,12 +1915,8 @@ def cant_name_second_slot_cuz_hom_ref_impossible(
         return bg
     reference = references[0]
 
-    sides = {
-        bg.variant_pool_phase.get(variant)
-        for variant in reference.defining_variants
-    }
-    sides = {side for side in sides if side is not None and carries_phase(side)}
-    if len(sides) != 1:
+    # Equal GT strings across independent blocks do not establish a reference slot.
+    if _allele_het_phase_evidence(bg, reference) is None:
         return bg
 
     bg.single_slot_genotypes = [f"{reference.genotype}/{UNDETERMINED_SLOT}"]

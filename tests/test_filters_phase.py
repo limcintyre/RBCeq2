@@ -1,5 +1,7 @@
+import csv
 import unittest
 from collections import defaultdict
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # --- Import the actual components from your project ---
@@ -19,6 +21,8 @@ from rbceq2.filters.phased import (
     ref_not_phased,
     filter_if_all_HET_vars_on_same_side_and_phased,
     filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
+    filter_on_in_relationship_if_all_HOM_and_phased,
+    filter_on_in_relationship_when_HOM_cant_be_on_one_side,
     filter_pairs_by_phase,
     impossible_alleles_phased,
     narrow_second_slot_candidates_by_phase,
@@ -177,38 +181,40 @@ class TestFilterIfAllHetVarsOnSameSide(TestPhasedFilters):
 class TestFilterOnInRelationshipIfHET(TestPhasedFilters):
     def test_removes_hom_subset_pair_when_hets_are_opposite(self):
         """
-        Mixed Hom/Het alleles are now skipped by find_phase (returns len=2),
-        so the filter does NOT remove this pair.
+        One defining HET has no known phase set, so the apparent opposite GTs
+        cannot establish both child alleles on opposite chromosomes.
         """
+        hom1 = "19:44812188_ref"
+        het1, het2, het3 = "19:44819059_C_T", "19:44819705_A_T", "19:44819487_A_G"
         hom_allele = MockAllele(
-            genotype="LU*02", defining_variants={"hom1"}, reference=True
+            genotype="LU*02", defining_variants={hom1}, reference=True
         )
         het_allele1 = MockAllele(
-            genotype="LU*02.-13", defining_variants={"hom1", "het1", "het2"}
+            genotype="LU*02.-13", defining_variants={hom1, het1, het2}
         )
         het_allele2 = MockAllele(
-            genotype="LU*02.19", defining_variants={"hom1", "het3"}
+            genotype="LU*02.19", defining_variants={hom1, het3}
         )
         pair_to_remove = Pair(hom_allele, het_allele1)
         pair_to_keep = Pair(het_allele1, het_allele2)
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove, pair_to_keep]
         self.mock_bg.variant_pool = {
-            "hom1": Zygosity.HOM,
-            "het1": Zygosity.HET,
-            "het2": Zygosity.HET,
-            "het3": Zygosity.HET,
+            hom1: Zygosity.HOM,
+            het1: Zygosity.HET,
+            het2: Zygosity.HET,
+            het3: Zygosity.HET,
         }
         self.mock_bg.variant_pool_phase = {
-            "hom1": "1/1",
-            "het1": "1|0",
-            "het2": "1|0",
-            "het3": "0|1",
+            hom1: "1/1",
+            het1: "1|0",
+            het2: "1|0",
+            het3: "0|1",
         }
         self.mock_bg.variant_pool_phase_set = {
-            "hom1": "1",
-            "het1": "",
-            "het2": "1",
-            "het3": "1",
+            hom1: "1",
+            het1: "",
+            het2: "1",
+            het3: "1",
         }
         filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
             {1: self.mock_bg}, phased=True
@@ -286,33 +292,35 @@ class TestFilterPairsByPhase(TestPhasedFilters):
 
 class TestImpossibleAllelesPhased(TestPhasedFilters):
     def test_removes_phased_subset_allele_pair(self):
+        het1, het2, het3 = "4:100_A_G", "4:200_C_T", "4:300_G_A"
+        hom1 = "4:400_T_C"
         allele_subset = MockAllele(
-            genotype="GYPB*03N.03", defining_variants={"het1", "hom1"}
+            genotype="GYPB*03N.03", defining_variants={het1, hom1}
         )
         allele_superset = MockAllele(
-            genotype="GYPB*03N.04", defining_variants={"het1", "hom1", "het2", "het3"}
+            genotype="GYPB*03N.04", defining_variants={het1, hom1, het2, het3}
         )
         other_allele = MockAllele(genotype="Other")
         pair_to_remove = Pair(allele_subset, other_allele)
         pair_to_keep = Pair(allele_superset, other_allele)
         self.mock_bg.alleles[AlleleState.NORMAL] = [pair_to_remove, pair_to_keep]
         self.mock_bg.variant_pool = {
-            "het1": Zygosity.HET,
-            "hom1": Zygosity.HOM,
-            "het2": Zygosity.HET,
-            "het3": Zygosity.HET,
+            het1: Zygosity.HET,
+            hom1: Zygosity.HOM,
+            het2: Zygosity.HET,
+            het3: Zygosity.HET,
         }
         self.mock_bg.variant_pool_phase = {
-            "het1": "0|1",
-            "hom1": "1/1",
-            "het2": "0|1",
-            "het3": "0|1",
+            het1: "0|1",
+            hom1: "1/1",
+            het2: "0|1",
+            het3: "0|1",
         }
         self.mock_bg.variant_pool_phase_set = {
-            "het1": "setA",
-            "hom1": ".",
-            "het2": "setA",
-            "het3": "setA",
+            het1: "setA",
+            hom1: ".",
+            het2: "setA",
+            het3: "setA",
         }
         impossible_alleles_phased({1: self.mock_bg}, phased=True)
         self.assertIn(
@@ -515,6 +523,10 @@ class TestCantNameSecondSlotCuzHomRefImpossible(unittest.TestCase):
             sample="NA18571.vcf",
             variant_pool=dict(self.pool),
             variant_pool_phase=phase,
+            variant_pool_phase_set={
+                variant: "25211850" if zygosity == Zygosity.HET else "."
+                for variant, zygosity in self.pool.items()
+            },
             filtered_out=defaultdict(list),
         )
 
@@ -562,6 +574,48 @@ class TestCantNameSecondSlotCuzHomRefImpossible(unittest.TestCase):
         self.assertEqual(
             list(bg.filtered_out), ["cant_be_hom_ref_due_to_HET_SNP"]
         )
+
+    def test_independent_block_flip_does_not_settle_the_reference(self):
+        for orientation in ("1|0", "0|1"):
+            with self.subTest(orientation=orientation):
+                bg = self._emptied(dict(self.coherent))
+                bg.variant_pool_phase_set[self.ALT_739] = "2000"
+                bg.variant_pool_phase[self.ALT_739] = orientation
+                before = {reason: list(items) for reason, items in bg.filtered_out.items()}
+
+                cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, [])
+                self.assertEqual(dict(bg.filtered_out), before)
+
+    def test_an_unplaced_het_definition_prevents_reference_naming(self):
+        for field, value in (
+            ("PS", "."), ("PS", "unknown"), ("PS", None),
+            ("GT", "0/1"), ("GT", "unknown"), ("GT", None),
+        ):
+            with self.subTest(field=field, value=value):
+                bg = self._emptied(dict(self.coherent))
+                pool = bg.variant_pool_phase_set if field == "PS" else bg.variant_pool_phase
+                if value is None:
+                    pool.pop(self.ALT_739)
+                else:
+                    pool[self.ALT_739] = value
+
+                cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, [])
+                self.assertEqual(list(bg.filtered_out), ["cant_be_hom_ref_due_to_HET_SNP"])
+
+    def test_flipping_the_whole_shared_block_still_names_the_reference(self):
+        phase = {
+            variant: {"0|1": "1|0", "1|0": "0|1"}.get(gt, gt)
+            for variant, gt in self.coherent.items()
+        }
+        bg = self._emptied(phase)
+
+        cant_name_second_slot_cuz_hom_ref_impossible({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [f"RHCE*01/{UNDETERMINED_SLOT}"])
 
     def test_unphased_is_left_alone(self):
         """Without phase there is nothing saying which chromosome carries the reference."""
@@ -674,6 +728,7 @@ class TestCantNameSecondSlotCuzRefNotPhased(unittest.TestCase):
             sample="HG00128.vcf",
             variant_pool=dict(self.pool),
             variant_pool_phase=phase,
+            variant_pool_phase_set={variant: "25214110" for variant in self.pool},
             filtered_out=filtered_out,
         )
 
@@ -728,6 +783,52 @@ class TestCantNameSecondSlotCuzRefNotPhased(unittest.TestCase):
         self.assertEqual(
             sorted(bg.filtered_out), ["ref_not_phased", "remove_unphased"]
         )
+
+    def test_independent_block_flip_does_not_settle_the_partner(self):
+        for orientation in ("1|0", "0|1"):
+            with self.subTest(orientation=orientation):
+                bg = self._emptied(dict(self.coherent))
+                bg.variant_pool_phase_set[self.ALT_739] = "2000"
+                bg.variant_pool_phase_set[self.REF_739] = "2000"
+                bg.variant_pool_phase[self.ALT_739] = orientation
+                bg.variant_pool_phase[self.REF_739] = {
+                    "1|0": "0|1", "0|1": "1|0"
+                }[orientation]
+                before = {reason: list(items) for reason, items in bg.filtered_out.items()}
+
+                cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, [])
+                self.assertEqual(dict(bg.filtered_out), before)
+
+    def test_an_unplaced_het_definition_prevents_partner_naming(self):
+        for field, value in (
+            ("PS", "."), ("PS", "unknown"), ("PS", None),
+            ("GT", "0/1"), ("GT", "unknown"), ("GT", None),
+        ):
+            with self.subTest(field=field, value=value):
+                bg = self._emptied(dict(self.coherent))
+                pool = bg.variant_pool_phase_set if field == "PS" else bg.variant_pool_phase
+                if value is None:
+                    pool.pop(self.ALT_739)
+                else:
+                    pool[self.ALT_739] = value
+
+                cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, [])
+                self.assertEqual(sorted(bg.filtered_out), ["ref_not_phased", "remove_unphased"])
+
+    def test_flipping_the_whole_shared_block_still_names_the_partner(self):
+        phase = {
+            variant: {"0|1": "1|0", "1|0": "0|1"}.get(gt, gt)
+            for variant, gt in self.coherent.items()
+        }
+        bg = self._emptied(phase)
+
+        cant_name_second_slot_cuz_ref_not_phased({1: bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [f"RHCE*03/{UNDETERMINED_SLOT}"])
 
     def test_unphased_is_left_alone(self):
         """Without phase there is nothing saying which chromosome carries the partner."""
@@ -1109,9 +1210,19 @@ class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
     pairs, so they never see it.
     """
 
-    @staticmethod
-    def _bg(candidates, pool, phase):
+    TOKEN_COORDS = {
+        "a": "1:25385759_G_A", "b": "1:25390817_G_C", "c": "1:25420739_ref"
+    }
+
+    @classmethod
+    def _bg(cls, candidates, pool, phase):
         """A BloodGroup mid-pipeline, after the second slot was refused."""
+        candidates = {
+            name: {cls.TOKEN_COORDS.get(variant, variant) for variant in variants}
+            for name, variants in candidates.items()
+        }
+        pool = {cls.TOKEN_COORDS.get(variant, variant): value for variant, value in pool.items()}
+        phase = {cls.TOKEN_COORDS.get(variant, variant): value for variant, value in phase.items()}
         alleles = [
             MockAllele(genotype=name, defining_variants=variants)
             for name, variants in candidates.items()
@@ -1122,6 +1233,10 @@ class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
             sample="test_sample",
             variant_pool=dict(pool),
             variant_pool_phase=dict(phase),
+            variant_pool_phase_set={
+                variant: "25233074" if zygosity == Zygosity.HET else "."
+                for variant, zygosity in pool.items()
+            },
         )
         bg.single_slot_genotypes = [
             f"{name}/{UNDETERMINED_SLOT}" for name in sorted(candidates)
@@ -1209,3 +1324,513 @@ class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
         bg = self._bg({"RHCE*01": {"a"}}, {"a": Zygosity.HET}, {"a": "0|1"})
         narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
         self.assertEqual(len(bg.single_slot_genotypes), 1)
+
+    def test_independent_block_flip_keeps_every_single_slot_candidate(self):
+        for orientation in ("0|1", "1|0"):
+            with self.subTest(orientation=orientation):
+                bg = self._bg(self.CANDIDATES, self.POOL, self.ONE_SIDE)
+                token = self.TOKEN_COORDS["b"]
+                bg.variant_pool_phase_set[token] = "2000"
+                bg.variant_pool_phase[token] = orientation
+                before = list(bg.single_slot_genotypes)
+
+                narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, before)
+                self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_an_unknown_candidate_block_cannot_narrow_the_list(self):
+        for phase_set in (None, ".", "unknown"):
+            with self.subTest(phase_set=phase_set):
+                bg = self._bg(self.CANDIDATES, self.POOL, self.ONE_SIDE)
+                token = self.TOKEN_COORDS["b"]
+                if phase_set is None:
+                    bg.variant_pool_phase_set.pop(token)
+                else:
+                    bg.variant_pool_phase_set[token] = phase_set
+                before = list(bg.single_slot_genotypes)
+
+                narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, before)
+                self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_flipping_the_whole_shared_block_preserves_named_narrowing(self):
+        bg = self._bg(
+            self.CANDIDATES, self.POOL, {"a": "1|0", "b": "1|0", "c": "1/1"}
+        )
+
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, [f"RHCE*01.20.04.02/{UNDETERMINED_SLOT}"])
+        self.assertEqual(
+            {allele.genotype for allele in bg.filtered_out["narrow_second_slot_candidates_by_phase"]},
+            {"RHCE*01.01", "RHCE*01.02.01"},
+        )
+
+
+class _CuratedPhaseFixtures(unittest.TestCase):
+    """Read allele definitions for small phase examples from the curated database."""
+
+    WANTED_ALLELES = {
+        "LU*02", "LU*02.-04.1", "LU*02.-05",
+        "KN*01", "KN*01.-05", "KN*02", "KN*01.10", "KN*01.07",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        wanted = cls.WANTED_ALLELES
+        cls.curated = {}
+        db = Path(__file__).resolve().parents[1] / "src/rbceq2/resources/db.tsv"
+        with db.open(newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                name = row["Genotype"]
+                if name not in wanted:
+                    continue
+                if name in cls.curated:
+                    raise ValueError(f"Duplicate curated phase fixture: {name}")
+                chrom = row["Chrom"].removeprefix("chr")
+                cls.curated[name] = Allele(
+                    genotype=name,
+                    genotype_alt=row["Genotype_alt"],
+                    defining_variants=frozenset(
+                        f"{chrom}:{token.strip()}" for token in row["GRCh38"].split(",")
+                    ),
+                    phenotype=row["Phenotype_change"] or row["Phenotype"],
+                    phenotype_alt=row["Phenotype_alt_change"] or row["Phenotype_alt"],
+                    null=False,
+                    weight_geno=int(row["Weight_of_genotype"] or 1000),
+                    reference=row["Reference_genotype"] == "Yes",
+                    sub_type=row["Sub_type"],
+                )
+        if set(cls.curated) != wanted:
+            raise ValueError("Missing curated phase fixture")
+
+    def _assert_pairs_unchanged(self, stage, bg, state=AlleleState.NORMAL, *, phased=True):
+        before = list(bg.alleles[state])
+
+        stage({bg.type: bg}, phased=phased)
+
+        self.assertEqual(bg.alleles[state], before)
+        self.assertEqual(dict(bg.filtered_out), {})
+
+
+class TestRelationshipPhaseBlocks(_CuratedPhaseFixtures):
+    """A HOM parent is displaced only by children proved to occupy both sides."""
+
+    STAGES = (
+        filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased,
+        filter_on_in_relationship_when_HOM_cant_be_on_one_side,
+    )
+    REASONS = {
+        filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased:
+            "filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased",
+        filter_on_in_relationship_when_HOM_cant_be_on_one_side:
+            "filter_on_in_relationship_when_HOM_cant_be_on_one_side",
+    }
+
+    def _lu_group(self, right_gt="0|1", right_ps="1000"):
+        reference = self.curated["LU*02"]
+        left = self.curated["LU*02.-04.1"]
+        right = self.curated["LU*02.-05"]
+        pairs = [Pair(reference, left), Pair(reference, right), Pair(left, right)]
+        pool = {variant: Zygosity.HOM for variant in reference.defining_variants}
+        phase = {variant: "1/1" for variant in pool}
+        phase_sets = {variant: "." for variant in pool}
+        for current, gt, ps in ((left, "1|0", "1000"), (right, right_gt, right_ps)):
+            for variant in current.defining_variants - reference.defining_variants:
+                pool[variant] = Zygosity.HET
+                phase[variant] = gt
+                if ps is not None:
+                    phase_sets[variant] = ps
+        return BloodGroup(
+            type="LU", sample="relationship_phase_blocks",
+            alleles={AlleleState.RAW: [reference, left, right],
+                     AlleleState.NORMAL: pairs, AlleleState.CO: None},
+            variant_pool=pool, variant_pool_phase=phase,
+            variant_pool_phase_set=phase_sets,
+        )
+
+    def test_independent_block_flip_keeps_all_relationship_choices(self):
+        for stage in self.STAGES:
+            for right_gt in ("1|0", "0|1"):
+                with self.subTest(stage=stage.__name__, right_gt=right_gt):
+                    bg = self._lu_group(right_gt=right_gt, right_ps="2000")
+
+                    self._assert_pairs_unchanged(stage, bg)
+
+    def test_shared_block_trans_removes_hom_parent_pairs_by_name(self):
+        for stage in self.STAGES:
+            with self.subTest(stage=stage.__name__):
+                bg = self._lu_group()
+                before = list(bg.alleles[AlleleState.NORMAL])
+
+                stage({"LU": bg}, phased=True)
+
+                self.assertEqual(bg.alleles[AlleleState.NORMAL], before[2:])
+                reason = self.REASONS[stage]
+                self.assertEqual(set(bg.filtered_out), {reason})
+                self.assertCountEqual(bg.filtered_out[reason], before[:2])
+
+    def test_shared_block_cis_does_not_displace_the_hom_parent(self):
+        for stage in self.STAGES:
+            with self.subTest(stage=stage.__name__):
+                self._assert_pairs_unchanged(stage, self._lu_group(right_gt="1|0"))
+
+    def test_unknown_child_block_does_not_displace_the_hom_parent(self):
+        for stage in self.STAGES:
+            for phase_set in (None, ".", "unknown"):
+                with self.subTest(stage=stage.__name__, phase_set=phase_set):
+                    self._assert_pairs_unchanged(stage, self._lu_group(right_ps=phase_set))
+
+    def test_relationship_filters_do_nothing_without_phased_flag(self):
+        for stage in self.STAGES:
+            with self.subTest(stage=stage.__name__):
+                self._assert_pairs_unchanged(stage, self._lu_group(), phased=False)
+
+    def test_all_hom_subset_rule_is_invariant_to_an_independent_block_flip(self):
+        for right_gt in ("1|0", "0|1"):
+            with self.subTest(right_gt=right_gt):
+                bg = self._lu_group(right_gt=right_gt, right_ps="2000")
+                remaining = list(bg.alleles[AlleleState.NORMAL])
+                hom_pair = Pair(self.curated["LU*02"], self.curated["LU*02"])
+                bg.alleles[AlleleState.NORMAL].insert(0, hom_pair)
+
+                filter_on_in_relationship_if_all_HOM_and_phased({"LU": bg}, phased=True)
+
+                self.assertEqual(bg.alleles[AlleleState.NORMAL], remaining)
+                reason = "filter_on_in_relationship_if_all_HOM_and_phased"
+                self.assertEqual(set(bg.filtered_out), {reason})
+                self.assertEqual(bg.filtered_out[reason], [hom_pair])
+
+
+class TestImpossibleAllelePhaseBlocks(_CuratedPhaseFixtures):
+    """Reference containment cannot connect independently oriented KN blocks."""
+
+    BACKGROUND = "1:207609571_A_T"
+    REF_TOKEN = "1:207609424_ref"
+    OTHER_TOKEN = "1:207609424_G_A"
+    CHILD_TOKEN = "1:207587428_C_T"
+
+    def _kn_group(self, child_gt="0|1", child_ps="2000", state=AlleleState.NORMAL):
+        reference, child, other = (self.curated[name] for name in ("KN*01", "KN*01.-05", "KN*02"))
+        states = {AlleleState.NORMAL: [], AlleleState.CO: None}
+        states[state] = [Pair(reference, other), Pair(child, other)]
+        bg = BloodGroup(
+            type="KN", sample="reference_shortcut_blocks", alleles=states,
+            variant_pool={self.BACKGROUND: Zygosity.HOM, self.REF_TOKEN: Zygosity.HET,
+                          self.OTHER_TOKEN: Zygosity.HET, self.CHILD_TOKEN: Zygosity.HET},
+            variant_pool_phase={self.BACKGROUND: "1/1", self.REF_TOKEN: "0|1",
+                                self.OTHER_TOKEN: "1|0", self.CHILD_TOKEN: child_gt},
+            variant_pool_phase_set={self.BACKGROUND: ".", self.REF_TOKEN: "1000",
+                                    self.OTHER_TOKEN: "1000", self.CHILD_TOKEN: child_ps},
+        )
+        if state == AlleleState.CO:
+            # Two unresolved normal choices keep the existing CO entry gate open.
+            # Their unphased HET definitions cannot trigger phase exclusions first.
+            subset, superset = self.curated["KN*01.10"], self.curated["KN*01.07"]
+            bg.alleles[AlleleState.NORMAL] = [Pair(subset, other), Pair(superset, other)]
+            for variant in superset.defining_variants - {self.BACKGROUND}:
+                bg.variant_pool[variant] = Zygosity.HET
+                bg.variant_pool_phase[variant] = "0/1"
+                bg.variant_pool_phase_set[variant] = "."
+        return bg
+
+    def test_reference_shortcut_keeps_independent_blocks_before_and_after_flip(self):
+        reference, child = self.curated["KN*01"], self.curated["KN*01.-05"]
+        self.assertIn(reference, child)
+        self.assertFalse(reference.defining_variants < child.defining_variants)
+        for state in (AlleleState.NORMAL, AlleleState.CO):
+            for child_gt in ("0|1", "1|0"):
+                with self.subTest(state=state, child_gt=child_gt):
+                    bg = self._kn_group(child_gt=child_gt, state=state)
+
+                    self._assert_pairs_unchanged(impossible_alleles_phased, bg, state)
+
+    def test_shared_block_reference_containment_keeps_its_named_exclusion(self):
+        for state in (AlleleState.NORMAL, AlleleState.CO):
+            with self.subTest(state=state):
+                bg = self._kn_group(child_ps="1000", state=state)
+                before = list(bg.alleles[state])
+
+                impossible_alleles_phased({"KN": bg}, phased=True)
+
+                self.assertEqual(bg.alleles[state], before[1:])
+                self.assertEqual(set(bg.filtered_out), {"filter_impossible_alleles_phased"})
+                self.assertEqual(bg.filtered_out["filter_impossible_alleles_phased"], before[:1])
+
+    def test_shared_block_opposite_sides_do_not_subsume_the_reference(self):
+        bg = self._kn_group(child_gt="1|0", child_ps="1000")
+
+        self._assert_pairs_unchanged(impossible_alleles_phased, bg)
+
+    def test_genuine_subset_exclusion_survives_a_whole_block_flip(self):
+        subset, superset, other = (self.curated[name] for name in ("KN*01.10", "KN*01.07", "KN*02"))
+        self.assertLess(subset.defining_variants, superset.defining_variants)
+        for orientation in ("0|1", "1|0"):
+            with self.subTest(orientation=orientation):
+                tokens = superset.defining_variants - {self.BACKGROUND}
+                pairs = [Pair(subset, other), Pair(superset, other)]
+                bg = BloodGroup(
+                    type="KN", sample="genuine_subset_blocks",
+                    alleles={AlleleState.NORMAL: list(pairs), AlleleState.CO: None},
+                    variant_pool={self.BACKGROUND: Zygosity.HOM, self.OTHER_TOKEN: Zygosity.HET,
+                                  **{token: Zygosity.HET for token in tokens}},
+                    variant_pool_phase={self.BACKGROUND: "1/1", self.OTHER_TOKEN: "1|0",
+                                        **{token: orientation for token in tokens}},
+                    variant_pool_phase_set={self.BACKGROUND: ".", self.OTHER_TOKEN: "1000",
+                                            **{token: "2000" for token in tokens}},
+                )
+
+                impossible_alleles_phased({"KN": bg}, phased=True)
+
+                self.assertEqual(bg.alleles[AlleleState.NORMAL], pairs[1:])
+                self.assertEqual(set(bg.filtered_out), {"filter_impossible_alleles_phased"})
+                self.assertEqual(bg.filtered_out["filter_impossible_alleles_phased"], pairs[:1])
+
+    def test_impossible_filter_does_nothing_without_phased_flag(self):
+        self._assert_pairs_unchanged(
+            impossible_alleles_phased, self._kn_group(child_ps="1000"), phased=False
+        )
+
+
+class TestRHCEConditionalBlockNarrowing(_CuratedPhaseFixtures):
+    """The corrected RHCE definitions leave two candidates across independent blocks."""
+
+    WANTED_ALLELES = {
+        "RHCE*01.01",
+        "RHCE*01.02.01",
+        "RHCE*01.20.02.01",
+        "RHCE*01.20.02.02",
+        "RHCE*01.20.04.01",
+        "RHCE*01.20.04.02",
+    }
+    INDEPENDENT = "1:25385759_G_A"
+    LINKED = {
+        "1:25390806_A_G", "1:25390817_G_C",
+        "1:25408711_ref", "1:25420682_G_A",
+    }
+    HOM = {"1:25390874_ref", "1:25420739_ref"}
+    REASON = "narrow_second_slot_candidates_by_phase"
+
+    def _group(self, independent_gt="0|1", *, shared_block=False):
+        alleles = [self.curated[name] for name in sorted(self.WANTED_ALLELES)]
+        pool = {variant: Zygosity.HOM for variant in self.HOM}
+        pool.update({variant: Zygosity.HET for variant in self.LINKED})
+        pool[self.INDEPENDENT] = Zygosity.HET
+        self.assertEqual(
+            set().union(*(allele.defining_variants for allele in alleles)), set(pool)
+        )
+        phase = {variant: "1/1" for variant in self.HOM}
+        phase.update({variant: "0|1" for variant in self.LINKED})
+        phase[self.INDEPENDENT] = independent_gt
+        phase_sets = {variant: "." for variant in self.HOM}
+        phase_sets.update({variant: "25233074" for variant in self.LINKED})
+        phase_sets[self.INDEPENDENT] = "25233074" if shared_block else "25385759"
+        bg = BloodGroup(
+            type="RHCE",
+            sample="RHCE_corrected_definition_blocks",
+            alleles={AlleleState.RAW: alleles, AlleleState.NORMAL: [], AlleleState.CO: None},
+            variant_pool=pool,
+            variant_pool_phase=phase,
+            variant_pool_phase_set=phase_sets,
+        )
+        bg.single_slot_genotypes = [
+            f"{allele.genotype}/{UNDETERMINED_SLOT}" for allele in alleles
+        ]
+        return bg
+
+    def _assert_named_result(self, bg, retained):
+        self.assertEqual(
+            bg.single_slot_genotypes,
+            [f"{name}/{UNDETERMINED_SLOT}" for name in sorted(retained)],
+        )
+        self.assertEqual(set(bg.filtered_out), {self.REASON})
+        self.assertCountEqual(
+            bg.filtered_out[self.REASON],
+            [self.curated[name] for name in self.WANTED_ALLELES - set(retained)],
+        )
+
+    def test_independent_block_either_orientation_retains_exactly_two_candidates(self):
+        for orientation in ("0|1", "1|0"):
+            with self.subTest(independent_orientation=orientation):
+                bg = self._group(independent_gt=orientation)
+
+                narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+
+                self._assert_named_result(
+                    bg, {"RHCE*01.20.02.02", "RHCE*01.20.04.02"}
+                )
+
+    def test_one_aligned_shared_block_retains_only_the_full_superset(self):
+        bg = self._group(shared_block=True)
+
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=True)
+
+        self._assert_named_result(bg, {"RHCE*01.20.04.02"})
+
+    def test_unphased_flag_preserves_all_six_candidates(self):
+        bg = self._group()
+        before = list(bg.single_slot_genotypes)
+
+        narrow_second_slot_candidates_by_phase({"RHCE": bg}, phased=False)
+
+        self.assertEqual(bg.single_slot_genotypes, before)
+        self.assertEqual(dict(bg.filtered_out), {})
+
+
+class TestConditionalSubsetPhaseEvidence(unittest.TestCase):
+    """A subset's own token can force an addition without joining its other block."""
+
+    ANCHOR = "1:100_A_G"
+    OTHER_BLOCK = "1:200_C_T"
+    EXTRA = "1:150_G_T"
+    REASON = "narrow_second_slot_candidates_by_phase"
+
+    @staticmethod
+    def _allele(name, variants):
+        return Allele(
+            genotype=name, genotype_alt=name,
+            phenotype="TEST:1", phenotype_alt="Test+",
+            defining_variants=frozenset(variants), null=False,
+            weight_geno=1000, sub_type="TEST*01",
+        )
+
+    def _group(self, other_gt="0|1"):
+        subset = self._allele("TEST*01.01", (self.ANCHOR, self.OTHER_BLOCK))
+        superset = self._allele(
+            "TEST*01.02", (self.ANCHOR, self.OTHER_BLOCK, self.EXTRA)
+        )
+        bg = BloodGroup(
+            type="TEST", sample="conditional_subset_blocks",
+            alleles={AlleleState.RAW: [subset, superset], AlleleState.NORMAL: []},
+            variant_pool={variant: Zygosity.HET for variant in superset.defining_variants},
+            variant_pool_phase={self.ANCHOR: "0|1", self.OTHER_BLOCK: other_gt,
+                                self.EXTRA: "0|1"},
+            variant_pool_phase_set={self.ANCHOR: "1000", self.OTHER_BLOCK: "2000",
+                                    self.EXTRA: "1000"},
+        )
+        bg.single_slot_genotypes = [
+            f"{allele.genotype}/{UNDETERMINED_SLOT}" for allele in (subset, superset)
+        ]
+        return bg, subset, superset
+
+    def test_forced_extra_prunes_subset_without_placing_its_other_block(self):
+        for orientation in ("0|1", "1|0"):
+            with self.subTest(other_block_orientation=orientation):
+                bg, subset, superset = self._group(other_gt=orientation)
+
+                narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+                self.assertEqual(
+                    bg.single_slot_genotypes, [f"{superset.genotype}/{UNDETERMINED_SLOT}"]
+                )
+                self.assertEqual(set(bg.filtered_out), {self.REASON})
+                self.assertEqual(bg.filtered_out[self.REASON], [subset])
+
+    def test_an_unforced_extra_cannot_justify_pruning(self):
+        scenarios = (
+            ("variant_pool", None),
+            ("variant_pool", Zygosity.HEM),
+            ("variant_pool", Zygosity.NO_DATA),
+            ("variant_pool", Zygosity.NO_COPIES),
+            ("variant_pool_phase", None),
+            ("variant_pool_phase", "unknown"),
+            ("variant_pool_phase", "0/1"),
+            ("variant_pool_phase", "1|0"),
+            ("variant_pool_phase_set", None),
+            ("variant_pool_phase_set", "."),
+            ("variant_pool_phase_set", "unknown"),
+            ("variant_pool_phase_set", "3000"),
+        )
+        for field, value in scenarios:
+            with self.subTest(field=field, value=value):
+                bg, _, _ = self._group()
+                pool = getattr(bg, field)
+                if value is None:
+                    pool.pop(self.EXTRA)
+                else:
+                    pool[self.EXTRA] = value
+                before = list(bg.single_slot_genotypes)
+
+                narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, before)
+                self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_added_hom_is_forced_even_without_a_het_anchor(self):
+        for hom_gt in ("1/1", "1|1"):
+            for hom_only_subset in (False, True):
+                with self.subTest(hom_gt=hom_gt, hom_only_subset=hom_only_subset):
+                    bg, subset, superset = self._group(other_gt="1|0")
+                    bg.variant_pool[self.EXTRA] = Zygosity.HOM
+                    bg.variant_pool_phase[self.EXTRA] = hom_gt
+                    bg.variant_pool_phase_set[self.EXTRA] = "."
+                    if hom_only_subset:
+                        for token in subset.defining_variants:
+                            bg.variant_pool[token] = Zygosity.HOM
+                            bg.variant_pool_phase[token] = hom_gt
+                            bg.variant_pool_phase_set[token] = "."
+
+                    narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+                    self.assertEqual(
+                        bg.single_slot_genotypes, [f"{superset.genotype}/{UNDETERMINED_SLOT}"]
+                    )
+                    self.assertEqual(set(bg.filtered_out), {self.REASON})
+                    self.assertEqual(bg.filtered_out[self.REASON], [subset])
+
+    def test_nonempty_hom_subset_keeps_the_shared_het_block_compatibility(self):
+        bg, subset, superset = self._group()
+        self.assertTrue(subset.defining_variants)
+        for token in subset.defining_variants:
+            bg.variant_pool[token] = Zygosity.HOM
+            bg.variant_pool_phase[token] = "1/1"
+            bg.variant_pool_phase_set[token] = "."
+
+        narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+        self.assertEqual(
+            bg.single_slot_genotypes, [f"{superset.genotype}/{UNDETERMINED_SLOT}"]
+        )
+        self.assertEqual(set(bg.filtered_out), {self.REASON})
+        self.assertEqual(bg.filtered_out[self.REASON], [subset])
+
+    def test_empty_subset_does_not_gain_the_hom_subset_compatibility(self):
+        subset = self._allele("TEST*01.01", ())
+        superset = self._allele("TEST*01.02", (self.EXTRA,))
+        bg = BloodGroup(
+            type="TEST", sample="empty_subset_has_no_hom_evidence",
+            alleles={AlleleState.RAW: [subset, superset], AlleleState.NORMAL: []},
+            variant_pool={self.EXTRA: Zygosity.HET},
+            variant_pool_phase={self.EXTRA: "0|1"},
+            variant_pool_phase_set={self.EXTRA: "1000"},
+        )
+        bg.single_slot_genotypes = [
+            f"{allele.genotype}/{UNDETERMINED_SLOT}" for allele in (subset, superset)
+        ]
+        before = list(bg.single_slot_genotypes)
+
+        narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+        self.assertEqual(bg.single_slot_genotypes, before)
+        self.assertEqual(dict(bg.filtered_out), {})
+
+    def test_non_hom_subset_without_a_het_anchor_has_no_compatibility(self):
+        for zygosity in (Zygosity.HEM, Zygosity.NO_DATA, Zygosity.NO_COPIES, None):
+            with self.subTest(zygosity=zygosity):
+                bg, subset, _ = self._group()
+                for token in subset.defining_variants:
+                    bg.variant_pool[token] = Zygosity.HOM
+                    bg.variant_pool_phase[token] = "1/1"
+                    bg.variant_pool_phase_set[token] = "."
+                if zygosity is None:
+                    bg.variant_pool.pop(self.ANCHOR)
+                else:
+                    bg.variant_pool[self.ANCHOR] = zygosity
+                before = list(bg.single_slot_genotypes)
+
+                narrow_second_slot_candidates_by_phase({"TEST": bg}, phased=True)
+
+                self.assertEqual(bg.single_slot_genotypes, before)
+                self.assertEqual(dict(bg.filtered_out), {})
