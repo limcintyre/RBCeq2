@@ -1168,6 +1168,11 @@ def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     pair. If multiple such matches are found, the pair is considered invalid and is
     removed from the allele pairs.
 
+    For ordinary diploid pairs, all measured HOM definitions are also available
+    on the copy carrying a HET token. A surviving strict superset requiring only
+    that one HET token and HOM background must occur on one copy. A pair of its
+    HOM-only subsets is excluded when a named replacement pair is available.
+
     Args:
         bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool
         information.
@@ -1248,8 +1253,39 @@ def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
                         bg.variant_pool, pair.allele2
                     ):
                         hits = check_var(bg, pair, allele_state, variant)
+                        if (
+                            not hits
+                            and allele_state == AlleleState.NORMAL
+                            and bg.chrom_copies == 2
+                            and bg.alleles.get(AlleleState.CO) is None
+                        ):
+                            parents = (pair.allele1, pair.allele2)
+                            for replacement in bg.alleles[allele_state]:
+                                for required, other in (
+                                    (replacement.allele1, replacement.allele2),
+                                    (replacement.allele2, replacement.allele1),
+                                ):
+                                    if other not in parents:
+                                        continue
+                                    if variant not in required.defining_variants:
+                                        continue
+                                    if not all(
+                                        parent.defining_variants < required.defining_variants
+                                        for parent in parents
+                                    ):
+                                        continue
+                                    if all(
+                                        bg.variant_pool.get(token) == Zygosity.HOM
+                                        for token in required.defining_variants
+                                        if token != variant
+                                    ):
+                                        hits = 1
+                                        break
+                                if hits:
+                                    break
                         if hits:
-                            to_remove.append(pair)
+                            if pair not in to_remove:
+                                to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(to_remove, "ensure_HET_SNP_used", allele_state)
 

@@ -440,47 +440,60 @@ def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
+        pairs = list(bg.alleles.get(allele_state) or [])
         to_remove = []
-        fully_phased_pairs = []
-        for pair in bg.alleles[allele_state]:
-            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
-                continue  # TODO - next refactor this type of functionality
-            # should move into a new PhasedAllele class
-            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
-                continue
-            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
-            if phase1 == {None} or phase2 == {None}:
-                continue
-            if phase1 == {"unknown"} or phase2 == {"unknown"}:
-                continue
-            fully_phased_pairs.append(pair)
-        if fully_phased_pairs:
-            flattened_alleles = flatten_alleles(fully_phased_pairs)
-            for pair in fully_phased_pairs:
-                if all_hom(bg.variant_pool, pair.allele1) or all_hom(
-                    bg.variant_pool, pair.allele2
-                ):
-                    if all_hom(bg.variant_pool, pair.allele1):
-                        homs_partner_allele = pair.allele2
-                        hom_allele = pair.allele1
-                    else:
-                        homs_partner_allele = pair.allele1
-                        hom_allele = pair.allele2
-                    partner_evidence = _allele_het_phase_evidence(bg, homs_partner_allele)
-                    if partner_evidence is None:
+        for pair in pairs:
+            for hom_allele, partner in (
+                (pair.allele1, pair.allele2), (pair.allele2, pair.allele1)
+            ):
+                if not all_hom(bg.variant_pool, hom_allele):
+                    continue
+                # Conditional on this partner existing, its usable HET tokens
+                # locate its copy even when other requirements are unphased.
+                anchors = {}
+                for variant in partner.defining_variants:
+                    evidence = _het_phase_evidence(bg, variant)
+                    if evidence is None:
                         continue
-                    for flat_allele in flattened_alleles:
-                        if flat_allele in pair.alleles:
+                    block, side = evidence[:2], evidence[2]
+                    if block in anchors and anchors[block] != side:
+                        anchors = {}
+                        break  # inconsistent definitions supply no usable witness
+                    anchors[block] = side
+                if not anchors:
+                    continue
+                for replacement in pairs:
+                    if replacement.allele1 == partner:
+                        required = replacement.allele2
+                    elif replacement.allele2 == partner:
+                        required = replacement.allele1
+                    else:
+                        continue
+                    if required in (pair.allele1, pair.allele2):
+                        continue
+                    if hom_allele not in required:
+                        continue
+                    if not any(
+                        bg.variant_pool.get(token) == Zygosity.HET
+                        for token in required.defining_variants
+                    ):
+                        continue
+                    forced = True
+                    for token in required.defining_variants:
+                        if bg.variant_pool.get(token) == Zygosity.HOM:
                             continue
-                        other_evidence = _allele_het_phase_evidence(bg, flat_allele)
+                        evidence = _het_phase_evidence(bg, token)
                         if (
-                            other_evidence is not None
-                            and partner_evidence[:2] == other_evidence[:2]
-                            and partner_evidence[2] != other_evidence[2]
-                            and hom_allele in flat_allele
+                            evidence is None
+                            or evidence[:2] not in anchors
+                            or anchors[evidence[:2]] == evidence[2]
                         ):
+                            forced = False
+                            break
+                    if forced:
+                        if pair not in to_remove:
                             to_remove.append(pair)
+                        break
         if to_remove:
             bg.remove_pairs(
                 to_remove,
