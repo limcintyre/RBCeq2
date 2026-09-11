@@ -305,6 +305,16 @@ def rows_make_the_same_call(gts: list[str]) -> bool:
     on both sides, or every copy alternate on both sides. Ploidy is per genotype in a
     VCF, so differing ploidy is not by itself a disagreement.
 
+    One more case, and it is why '1|0' and '0/1' are not read off the first test. Both
+    rows report one alternate copy; they differ in that one of them also says which
+    haplotype carries it. An unphased genotype makes no claim about order, so it cannot
+    contradict one - the same reasoning that already lets '0|1' and '0/1' agree, which
+    they do only because normalising the separator happens to make those two identical
+    while '1|0' and '0/1' stay distinct. So an order is only a disagreement against
+    another order: two phased rows writing different ones are left alone, since within
+    one phase set that is a real contradiction, across two the orders are not
+    comparable, and this function is not given the phase sets to tell those apart.
+
     Args:
         gts (list[str]): The genotypes of the rows carrying one token, in file order.
 
@@ -319,8 +329,12 @@ def rows_make_the_same_call(gts: list[str]) -> bool:
         return False
     if all(set(call) == {"0"} for call in calls):
         return True
+    if all(set(call) == {"1"} for call in calls):
+        return True
+    if len({gt for gt in gts if "|" in gt}) > 1:
+        return False
 
-    return all(set(call) == {"1"} for call in calls)
+    return len({tuple(sorted(call)) for call in calls}) == 1
 
 
 def recode_gt_for_alt_index(GT: str, alt_index: int) -> str:

@@ -1551,6 +1551,20 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
                 continue
 
             if "|" in phase:  # Only consider phased variants
+                # The orientation written below is recorded against common_phase_set,
+                # so the token it comes from has to be in that block. A bar on a token
+                # whose own phase set is "." or "unknown", or is some other block, is
+                # relative to something else, and copying it here would state a linkage
+                # the input never reported - while being indistinguishable afterwards
+                # from one it did. Those tokens are excluded from the phase set gate
+                # above for the same reason, so admitting them as seeds contradicts it.
+                if bg.variant_pool_phase_set.get(variant) != common_phase_set:
+                    continue
+                # A homozygous or hemizygous token sits on both copies, or on the only
+                # copy, so it does not place anything on one side and cannot say which
+                # side the deletion took.
+                if bg.variant_pool.get(variant) != Zygosity.HET:
+                    continue
                 variant_pos = get_start_pos(variant)
                 if start < variant_pos < end:
                     overlapping_variants.append(variant)
