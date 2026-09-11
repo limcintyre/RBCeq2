@@ -216,54 +216,56 @@ def add_phasing(
     def assign_ref_phase_set(current_variant):
         """ """
 
-        def get_phase_set_for_loci() -> str:
-            """Queries for a phase set ID given a locus.
+        def no_phase_set_evidence() -> str:
+            """Decline to name a phase set the input never stated.
 
-            Args:
-                loci (str): A locus in "CHROM:POS" format (e.g., "1:12345"
-                            or "chr1:12345").
+            This used to answer with the identifier of any block whose span contained
+            the position. A block's span is only the lowest and highest position of the
+            rows carrying it, and a caller may emit interleaved blocks, so a token
+            lying between two members of a block may belong to another block or to
+            none. Containment is a statement about coordinates, not about linkage, and
+            the answer it gave was indistinguishable downstream from a phase set the
+            file had actually reported.
+
+            Returning "unknown" keeps the token out of the heterozygous phase evidence
+            the filters read, which is the same treatment a token with an explicit "."
+            already receives. The same-position partner borrow above is unaffected: a
+            reference token sharing a position with a non-reference token is the same
+            locus, so sharing its block states nothing the input did not.
 
             Returns:
-                int | None: The phase set ID if the locus falls within a known
-                            phased block, otherwise None.
+                str: Always "unknown" - no block membership can be established here.
             """
-            chrom, pos_str = current_variant.split("_")[0].split(":")
-            pos = int(pos_str)
-
-            # Normalize chromosome name to match internal representation (e.g. '1' not 'chr1')
-            chrom = chrom.replace("chr", "")
-
-            # Get all phase sets for the given chromosome
-            chrom_phase_sets = phase_sets.get(chrom)
-            if not chrom_phase_sets:
-                return "unknown"
-
-            # Check if the position falls within any of the phase set ranges
-            for ps_id, (min_pos, max_pos) in chrom_phase_sets.items():
-                if min_pos <= pos <= max_pos:
-                    return str(ps_id)
-
-            # If no matching phase set is found
             return "unknown"
 
         zygosity = bg.variant_pool.get(current_variant)
         if zygosity == Zygosity.HOM:
             return "."
-        # 2. Find the corresponding alternate allele variant at the same position
+        # 2. Use the phase set this token's own row reports, if it has one. A lane
+        # reference row is synthesised by copying the measured row at that position and
+        # flipping its genotype, so it carries that row's PS - a value the file stated
+        # about this locus rather than one inferred about it. Reading it here is what
+        # keeps a genuinely phased reference token in its real block.
+        #
+        # A hom-ref row RBCeq2 asserts for itself is different: it is built from
+        # HOM_REF_DUMMY_QUAL rather than copied from a caller's row, so every field
+        # after the GT is a placeholder and whatever sits under PS is not a phase set.
+        # Its GT is the SYNTHESISED_HOM_REF_GT sentinel, which is how carries_phase
+        # already recognises the same class of value, so the sentinel gates this read.
+        own = variant_metrics.get(current_variant, {})
+        if own.get("GT") != SYNTHESISED_HOM_REF_GT and own.get("PS") is not None:
+            return own["PS"]
+        # 3. Otherwise borrow from the alternate measured at the same position, which
+        # describes the same locus and so states nothing the input did not.
         position = current_variant.split("_")[0]
-        partner_variant = None
-        for key in phase_set_pool:
+        for key, measured in variant_metrics.items():
             # Match keys that start with the same position but are not the ref variant itself
-            if key.startswith(position + "_") and key != current_variant:
-                partner_variant = key
-                break  # Found the partner, no need to continue searching
-        if partner_variant is None:
-            return get_phase_set_for_loci()
-        partner = phase_set_pool.get(partner_variant)
-        if partner is not None:
-            return partner
-        else:
-            return get_phase_set_for_loci()
+            if not key.startswith(position + "_") or key == current_variant:
+                continue
+            partner = measured.get("PS")
+            if partner is not None:
+                return partner
+        return no_phase_set_evidence()
 
     if phased:  # TODO enum for GT, PS etc
         phase_pool = {
