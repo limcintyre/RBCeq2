@@ -593,8 +593,8 @@ class TestVCFMethods(unittest.TestCase):
         Both rows say the alternate is on one chromosome and the reference on the other.
         They differ only in which set that orientation is measured against, and two sets
         are by definition not phased relative to one another, so neither row is wrong
-        and neither contradicts the other. rows_make_the_same_call reads the GT and
-        nothing else, so this collapses the way any other agreeing pair does.
+        and neither contradicts the other. rows_make_the_same_call compares orders only
+        inside one set, so this collapses the way any other agreeing pair does.
         """
         vcf_obj = VCF(
             [
@@ -609,6 +609,35 @@ class TestVCFMethods(unittest.TestCase):
             sample="test_sample",
         )
         self.assertEqual(len(vcf_obj.df), 1)
+
+    def test_reconciliation_collapses_opposite_orders_in_different_sets(self) -> None:
+        """Which way round a set is written cannot decide whether two rows agree.
+
+        The pair above with one set's orientation reversed, which is the same claim: a
+        set says how its own members sit relative to each other and nothing about how it
+        sits against another set. Both rows still report one alternate copy, so they
+        still collapse, and the tie rule still keeps the first phased row.
+
+        This is the shape a run emitting both a targeted caller's calls and the general
+        caller's produces - the two rows carrying the orientation from a small local set
+        and from the wider one. Reading the genotypes alone, this pair was refused as a
+        contradiction while the pair above collapsed, so whether the duplicate survived
+        depended on which way round a caller happened to write a set.
+        """
+        vcf_obj = VCF(
+            [
+                self._df_with_two_rows_for_one_variant(
+                    ["0|1", "1|0"],
+                    ["PASS", "TargetedConflict"],
+                    phase_sets=["1500", "1900"],
+                )
+            ],
+            {},
+            set(),
+            sample="test_sample",
+        )
+        self.assertEqual(len(vcf_obj.df), 1)
+        self.assertEqual(vcf_obj.variants["2:2000_T_C"]["PS"], "1500")
 
     def test_reconciliation_falls_back_to_the_first_phased_row_on_a_tie(self) -> None:
         """Two sets each named by one row are equally attested, so order decides.

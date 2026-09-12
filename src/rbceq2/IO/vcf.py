@@ -288,7 +288,7 @@ def is_single_base_substitution(ref: str, alt: str, info: str) -> bool:
     )
 
 
-def rows_make_the_same_call(gts: list[str]) -> bool:
+def rows_make_the_same_call(gts: list[str], phase_sets: list[str]) -> bool:
     """Do these genotypes say the same thing about the alternate?
 
     Not string equality. Two callers can write the same call three ways and only one of
@@ -310,13 +310,30 @@ def rows_make_the_same_call(gts: list[str]) -> bool:
     haplotype carries it. An unphased genotype makes no claim about order, so it cannot
     contradict one - the same reasoning that already lets '0|1' and '0/1' agree, which
     they do only because normalising the separator happens to make those two identical
-    while '1|0' and '0/1' stay distinct. So an order is only a disagreement against
-    another order: two phased rows writing different ones are left alone, since within
-    one phase set that is a real contradiction, across two the orders are not
-    comparable, and this function is not given the phase sets to tell those apart.
+    while '1|0' and '0/1' stay distinct.
+
+    So an order is only a disagreement against another order in the same phase set. A
+    phase set says how its own members are oriented relative to each other and nothing
+    about how it sits against another set, so two phased rows in different sets are no
+    more comparable than a phased row and an unphased one, and the rows are judged on
+    the copies they report. Rows that name no set are compared with each other, because
+    the specification puts phased genotypes carrying no PS in one common set, but not
+    with a row that names one.
+
+    Why it matters, and it is not hypothetical. A run emitting both a targeted caller's
+    calls and the general caller's writes each variant twice, and the two rows can carry
+    the orientation from different phase sets - a small local set and the wider one. On
+    the per-sample form of one cohort, 145 of 967 samples hold that shape at RHCE. Their
+    bars happen to agree as the file is written, so the rows reconciled; had either set
+    been written the other way round - the same claim, since a set's orientation is
+    arbitrary - the identical input would have been refused as a contradiction, the last
+    row would have won, and the surviving row would have carried the other set. Whether
+    those rows reconcile was decided by nothing the file states.
 
     Args:
         gts (list[str]): The genotypes of the rows carrying one token, in file order.
+        phase_sets (list[str]): The phase set each of those rows names, in the same
+            order, '' where it names none - what phase_set_of returns.
 
     Returns:
         bool: True where every row makes the same claim about the alternate.
@@ -331,7 +348,11 @@ def rows_make_the_same_call(gts: list[str]) -> bool:
         return True
     if all(set(call) == {"1"} for call in calls):
         return True
-    if len({gt for gt in gts if "|" in gt}) > 1:
+    orders_by_set: dict[str, set[str]] = {}
+    for gt, phase_set in zip(gts, phase_sets):
+        if "|" in gt:
+            orders_by_set.setdefault(phase_set, set()).add(gt)
+    if any(len(orders) > 1 for orders in orders_by_set.values()):
         return False
 
     return len({tuple(sorted(call)) for call in calls}) == 1
@@ -928,7 +949,8 @@ class VCF:
             ):
                 continue
             gts = [gt_of(row.SAMPLE) for row in rows]
-            if not rows_make_the_same_call(gts):
+            sets = [phase_set_of(row.FORMAT, row.SAMPLE) for row in rows]
+            if not rows_make_the_same_call(gts, sets):
                 continue
 
             keep = rows[-1]
