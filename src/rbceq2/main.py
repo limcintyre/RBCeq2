@@ -467,7 +467,7 @@ def find_hits(
     reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
 
-    db_defs = load_db_defs(db.df)
+    db_defs = load_db_defs(db.df, svtoken_col=args.reference_genome)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
