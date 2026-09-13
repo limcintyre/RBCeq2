@@ -18,6 +18,7 @@ from rbceq2.core_logic.co_existing import (
     sub_alleles,
 )
 from rbceq2.core_logic.constants import AlleleState
+from rbceq2.db.db import Db, prepare_db
 
 ALLELE_RELATIONSHIPS = {
     "KN": {
@@ -2179,6 +2180,21 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             "CO should remain unchanged if no combos exist.",
         )
 
+    def test_empty_combos_preserve_co_none(self):
+        """Leave absent CO state unchanged when there are no candidate combinations."""
+        bg = BloodGroup(
+            type="KN",
+            sample="no_kn_combinations",
+            alleles={AlleleState.CO: None},
+            misc={"combos": []},
+            filtered_out={},
+        )
+
+        list_excluded_co_existing_pairs({"KN": bg}, self.reference_alleles)
+
+        self.assertEqual(bg.filtered_out[AlleleState.CO], [])
+        self.assertIsNone(bg.alleles[AlleleState.CO])
+
     def test_some_combos_reference_in_alleles_co(self):
         """If we have combos in misc and some pre-existing CO pairs,
         ensure only pairs not in 'CO' go to filtered_out."""
@@ -2216,18 +2232,15 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
         out_dict = list_excluded_co_existing_pairs({99: bg}, self.reference_alleles)
         out_bg = out_dict[99]
 
-        # tested => we generate a Pair(A_mushed, B_mushed), Pair(A_mushed, A_mushed), etc., plus Pair(ref, X).
-        # preexisting_pairs has exactly [Pair(alleleA, alleleB)] => So only that pair won't be filtered out
-        filtered = out_bg.filtered_out[AlleleState.CO]
-        # Check that all tested pairs except the (alleleA, alleleB) are in filtered_out
-        self.assertTrue(
-            len(filtered) >= 1, "Expected at least some pairs filtered out."
+        self.assertCountEqual(
+            [tuple(pair.genotypes) for pair in out_bg.filtered_out[AlleleState.CO]],
+            [("A", "A"), ("A", "KN*01"), ("B", "B"), ("B", "KN*01")],
+            "Neither orientation of retained A/B should be listed as excluded.",
         )
-        self.assertNotIn(
-            Pair(alleleA, alleleB),
-            filtered,
-            "Pair(alleleA, alleleB) was in CO => should NOT be in filtered_out.",
-        )
+        self.assertIs(out_bg.alleles[AlleleState.CO], preexisting_pairs)
+        self.assertEqual(len(preexisting_pairs), 1)
+        self.assertIs(preexisting_pairs[0].allele1, alleleA)
+        self.assertIs(preexisting_pairs[0].allele2, alleleB)
 
     def test_multiple_combos_ensures_all_pairs_tested(self):
         """Checks that for each combo1 in misc['combos'] and combo2, we produce tested pairs,
@@ -2268,10 +2281,17 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
         #   Pair(mushed(Y), mushed(X)), Pair(mushed(Y), mushed(Y))
         #   Pair(ref, mushed(X)), Pair(ref, mushed(Y))
         # => 6 total pairs. Since CO was empty => all 6 => filtered_out
-        self.assertEqual(
-            len(out_bg.filtered_out[AlleleState.CO]),
-            6,
-            "Expected 2 combos => 2x2 + 2 for reference => 6 tested => all filtered out.",
+        self.assertCountEqual(
+            [tuple(pair.genotypes) for pair in out_bg.filtered_out[AlleleState.CO]],
+            [
+                ("X", "X"),
+                ("X", "Y"),
+                ("X", "Y"),
+                ("Y", "Y"),
+                ("KN*01", "X"),
+                ("KN*01", "Y"),
+            ],
+            "Absent pairs retain both tested orientations in the exclusion list.",
         )
 
     def test_co_is_not_modified_if_already_has_pairs(self):
@@ -2286,7 +2306,8 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             phenotype_alt="X+",
         )
         combos = [[aX]]
-        existing_pairs = [Pair(aX, aX)]  # nonsense, but enough to verify it remains
+        existing_pair = Pair(aX, aX)
+        existing_pairs = [existing_pair]
 
         bg = BloodGroup(
             type="KN",
@@ -2296,11 +2317,53 @@ class TestListExcludedCoExistingPairs(unittest.TestCase):
             filtered_out={},
         )
         out = list_excluded_co_existing_pairs({999: bg}, self.reference_alleles)[999]
-        self.assertEqual(
-            out.alleles[AlleleState.CO],
-            existing_pairs,
-            "We do not expect the function to remove or alter existing CO pairs.",
+        self.assertCountEqual(
+            [tuple(pair.genotypes) for pair in out.filtered_out[AlleleState.CO]],
+            [("KN*01", "X")],
+            "Retained X/X must not be listed as excluded.",
         )
+        self.assertIs(out.alleles[AlleleState.CO], existing_pairs)
+        self.assertEqual(len(existing_pairs), 1)
+        self.assertIs(existing_pairs[0], existing_pair)
+
+    def test_curated_composite_reference_survives_without_exclusion(self):
+        """Exclude absent KN pairs while retaining the mushed composite/reference pair."""
+        db = Db(ref="GRCh38", df=prepare_db())
+        names = {"KN*01", "KN*01.-05", "KN*01.10"}
+        curated = {
+            allele.genotype: allele
+            for allele in db.make_alleles()
+            if allele.genotype in names
+        }
+        reference = curated["KN*01"]
+        combo = (curated["KN*01.-05"], curated["KN*01.10"])
+        composite = "KN*01.-05+KN*01.10"
+        for reverse in (False, True):
+            with self.subTest(reverse=reverse):
+                raw_pair = ((reference,), combo) if reverse else (combo, (reference,))
+                bg = BloodGroup(
+                    type="KN",
+                    sample="curated_kn_audit",
+                    alleles={AlleleState.CO: [raw_pair]},
+                    misc={"combos": [combo]},
+                    filtered_out={},
+                )
+                mush({"KN": bg})
+                survivors = bg.alleles[AlleleState.CO]
+                self.assertEqual(len(survivors), 1)
+                retained = survivors[0]
+                self.assertEqual(retained.genotypes, ["KN*01", composite])
+
+                list_excluded_co_existing_pairs({"KN": bg}, {"KN": reference})
+
+                self.assertCountEqual(
+                    [tuple(pair.genotypes) for pair in bg.filtered_out[AlleleState.CO]],
+                    [(composite, composite)],
+                    "Only the absent homozygous composite pair should be excluded.",
+                )
+                self.assertIs(bg.alleles[AlleleState.CO], survivors)
+                self.assertEqual(len(survivors), 1)
+                self.assertIs(survivors[0], retained)
 
     def test_reference_allele_not_provided_for_kn_raises_key_error(self):
         """If reference_alleles lacks an entry for bg.type, we might get a KeyError."""

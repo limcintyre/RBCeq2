@@ -628,9 +628,12 @@ def list_excluded_co_existing_pairs(
     bg: BloodGroup,
     reference_alleles: dict[str, Allele],
 ) -> BloodGroup:
-    """Check all combinations of alleles against all other combinations to see if
-    they can co-exist once the variant pool is reduced by the respective defining
-    variants.
+    """Record tested co-existing genotype pairs absent from the current survivors.
+
+    Audit candidates have placeholder phenotypes, so full Allele/Pair equality
+    cannot identify their surviving counterparts. Compare the sorted genotype
+    names in their two chromosome slots, retaining co-existing groups within each
+    slot. Later filters record their own exclusions separately.
 
     Args:
         bg (BloodGroup): A BloodGroup object containing alleles, type, and misc
@@ -658,8 +661,11 @@ def list_excluded_co_existing_pairs(
             Pair(ref, make_mushed_allele(combo1, geno_str(combo1), "numeric", "alpha"))
         )
 
+    surviving_genotypes = {
+        tuple(pair.genotypes) for pair in (bg.alleles[AlleleState.CO] or [])
+    }
     bg.filtered_out[AlleleState.CO] = [
-        pair for pair in tested if pair not in bg.alleles[AlleleState.CO]
+        pair for pair in tested if tuple(pair.genotypes) not in surviving_genotypes
     ]
     # print(1111112,bg.alleles[AlleleState.CO], '\n', bg.filtered_out[AlleleState.CO])
 
