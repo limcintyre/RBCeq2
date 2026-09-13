@@ -1,6 +1,6 @@
+import hashlib
 import html
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -133,13 +133,30 @@ DEFAULT_ROW_COLOR_ODD = colors.Color(1.0, 1.0, 1.0)  # White
 
 
 def _normalize_sample_id(sample_id: str) -> str:
-    """Removes common suffixes from sample IDs for consistent matching."""
-    sample_id_str = str(sample_id)
-    normalized = re.sub(
-        r"_GRCh38_1_22_v4\.2\.1_benchmark_filtered(\.vcf)?$", "", sample_id_str
+    """Validate an exact sample ID without removing suffixes or converting types.
+
+    Raises:
+        ValueError: The identity is empty or is not a string.
+    """
+    if not isinstance(sample_id, str) or not sample_id:
+        raise ValueError(f"PDF sample IDs must be nonempty strings: {sample_id!r}")
+    return sample_id
+
+
+def _pdf_filename(sample_id: str) -> str:
+    """Build a bounded ASCII filename tied to the complete, exact sample ID.
+
+    The readable prefix is for navigation; the full digest distinguishes IDs
+    whose prefixes sanitize alike, differ only in case, or exceed its length.
+    The name depends only on the identity, not the other samples in a run.
+    """
+    sample_id = _normalize_sample_id(sample_id)
+    prefix = "".join(
+        c if c.isascii() and (c.isalnum() or c in "_-") else "_"
+        for c in sample_id[:48]
     )
-    normalized = re.sub(r"\.vcf$", "", normalized)
-    return normalized
+    digest = hashlib.sha256(sample_id.encode("utf-8")).hexdigest()
+    return f"{prefix}__{digest}_BloodGroupReport.pdf"
 
 
 def _format_cell_content(text: Optional[Any], separator: Optional[str] = None) -> str:
@@ -215,30 +232,32 @@ def _prepare_dataframes(
     df_pheno_alpha: Optional[pd.DataFrame],
     df_pheno_num: Optional[pd.DataFrame],
 ) -> Tuple[Dict[str, Optional[pd.DataFrame]], Set[str], Dict[str, str]]:
-    """Normalizes sample IDs in DataFrames and identifies unique samples."""
+    """Copy report frames while preserving exact, unique string sample identities.
+
+    No metadata column is inserted into the biological data. Missing rows in a
+    phenotype frame stay missing rather than borrowing another sample's row.
+
+    Raises:
+        ValueError: A frame contains an invalid or duplicate sample identity.
+    """
     dfs = {"genotype": df_genotypes, "alpha": df_pheno_alpha, "numeric": df_pheno_num}
     processed_dfs: Dict[str, Optional[pd.DataFrame]] = {}
     original_id_map: Dict[str, str] = {}
-    all_normalized_ids: Set[str] = set()
+    all_sample_ids: Set[str] = set()
 
     for df_type, df in dfs.items():
         if df is not None and not df.empty:
-            df_processed = df.copy()
-            original_ids = df_processed.index.astype(str).tolist()
-            df_processed["SampleID_Normalized"] = df_processed.index.map(
-                _normalize_sample_id
-            )
-            all_normalized_ids.update(df_processed["SampleID_Normalized"].unique())
-
-            for i, norm_id in enumerate(df_processed["SampleID_Normalized"]):
-                if norm_id not in original_id_map:
-                    original_id_map[norm_id] = original_ids[i]
-
-            processed_dfs[df_type] = df_processed
+            sample_ids = [_normalize_sample_id(sample) for sample in df.index]
+            if not df.index.is_unique:
+                duplicates = sorted(set(df.index[df.index.duplicated()]))
+                raise ValueError(f"Duplicate PDF sample IDs in {df_type}: {duplicates!r}")
+            processed_dfs[df_type] = df.copy()
+            all_sample_ids.update(sample_ids)
+            original_id_map.update({sample: sample for sample in sample_ids})
         else:
             processed_dfs[df_type] = None
 
-    return processed_dfs, all_normalized_ids, original_id_map
+    return processed_dfs, all_sample_ids, original_id_map
 
 
 # --- PDF Styling and Content Generation ---
@@ -347,26 +366,22 @@ def _create_report_header(
     story.append(Spacer(1, 0.1 * inch))
     story.append(Paragraph("Not for clinical use", styles["warning"]))
     story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph(f"Sample ID: {original_id_display}", styles["heading"]))
+    story.append(Paragraph(f"Sample ID: {html.escape(original_id_display)}", styles["heading"]))
     story.append(Spacer(1, 0.1 * inch))
 
 
 def _get_data_for_sample(
     norm_id: str, processed_dfs: Dict[str, Optional[pd.DataFrame]]
 ) -> Tuple[Dict[str, Optional[pd.Series]], Set[str]]:
-    """Retrieves data rows for a specific normalized sample ID from processed dfs."""
+    """Retrieve rows for an exact sample ID from the validated report frames."""
     sample_data: Dict[str, Optional[pd.Series]] = {}
     all_keys_for_sample: Set[str] = set()
 
     for df_type, df in processed_dfs.items():
         row_data: Optional[pd.Series] = None
-        if df is not None:
-            matching_rows = df[df["SampleID_Normalized"] == norm_id]
-            if not matching_rows.empty:
-                row_data = matching_rows.iloc[0].drop(
-                    "SampleID_Normalized", errors="ignore"
-                )
-                all_keys_for_sample.update(row_data.index)
+        if df is not None and norm_id in df.index:
+            row_data = df.loc[norm_id]
+            all_keys_for_sample.update(row_data.index)
 
         sample_data[df_type] = row_data
 
@@ -517,10 +532,7 @@ def _generate_pdf_report_for_sample(
     UUID: str,
 ) -> None:
     """Generate one PDF report, propagating rendering and write failures."""
-    safe_original_id = "".join(
-        c if c.isalnum() or c in ("_", "-") else "_" for c in original_id_display
-    )
-    pdf_filename = os.path.join(output_dir, f"{safe_original_id}_BloodGroupReport.pdf")
+    pdf_filename = os.path.join(output_dir, _pdf_filename(original_id_display))
 
     doc = BaseDocTemplate(
         pdf_filename,
@@ -633,19 +645,29 @@ def generate_all_reports(
     logged with its sample identity before a combined error is raised.
 
     Raises:
+        ValueError: Sample identities are invalid, duplicated, or map to one filename.
         RuntimeError: One or more sample reports could not be generated.
     """
-    processed_dfs, all_normalized_ids, original_id_map = _prepare_dataframes(
+    processed_dfs, all_sample_ids, original_id_map = _prepare_dataframes(
         df_genotypes, df_pheno_alpha, df_pheno_num
     )
 
-    if not all_normalized_ids:
+    if not all_sample_ids:
         logger.warning("No samples found in the input DataFrames. Exiting.")
         return
 
-    num_samples = len(all_normalized_ids)
-    logger.info(f"Found {num_samples} unique normalized sample IDs.")
+    num_samples = len(all_sample_ids)
+    logger.info(f"Found {num_samples} unique sample IDs.")
     output_dir = f"{output_name}_PDFs"
+
+    filenames: Dict[str, str] = {}
+    for sample_id in sorted(all_sample_ids):
+        name = _pdf_filename(sample_id).casefold()
+        if name in filenames:
+            raise ValueError(
+                f"PDF filename collision for {filenames[name]!r} and {sample_id!r}"
+            )
+        filenames[name] = sample_id
 
     os.makedirs(output_dir, exist_ok=True)
     logger.info(f"Reports will be saved to '{os.path.abspath(output_dir)}'.")
@@ -653,7 +675,7 @@ def generate_all_reports(
     styles = _setup_styles()
 
     failed_samples: List[str] = []
-    for norm_id in sorted(list(all_normalized_ids)):
+    for norm_id in sorted(list(all_sample_ids)):
         original_id_display = original_id_map.get(norm_id, norm_id)
 
         try:
