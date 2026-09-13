@@ -1,7 +1,10 @@
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
+from rbceq2.IO import PDF_reports as pdf
 from rbceq2.IO.PDF_reports import (
     _format_cell_content,
     _get_data_for_sample,
@@ -99,3 +102,50 @@ class TestReportGenerator(unittest.TestCase):
         self.assertEqual(sample_data_hg3["numeric"]["ABO"], "")
         self.assertEqual(keys_hg3, {"ABO", "RH"})  # Keys from geno and num
 
+
+
+class TestPdfFailures(unittest.TestCase):
+    """Surface report failures while still attempting the remaining samples."""
+
+    def setUp(self):
+        self.frame = pd.DataFrame(
+            {"YT": ["YT*01/YT*01"] * 3}, index=["A", "B", "C"]
+        )
+
+    def test_render_failure_reaches_the_batch_caller(self):
+        """Do not swallow a write error from the real single-report builder."""
+        processed, _, _ = pdf._prepare_dataframes(self.frame, None, None)
+        with patch.object(pdf.BaseDocTemplate, "build", side_effect=OSError("write denied")):
+            with self.assertRaisesRegex(OSError, "write denied"):
+                pdf._generate_pdf_report_for_sample(
+                    "A", "A", processed, pdf._setup_styles(), Path("unused"), "test"
+                )
+
+    def test_batch_attempts_every_sample_then_reports_failures(self):
+        """Keep successful samples and name every failed sample in the exception."""
+        visited = []
+
+        def render(sample, *args):
+            visited.append(sample)
+            if sample in {"A", "C"}:
+                raise OSError(f"write denied for {sample}")
+
+        with patch.object(pdf.os, "makedirs"), patch.object(
+            pdf, "_generate_pdf_report_for_sample", side_effect=render
+        ):
+            with self.assertRaisesRegex(RuntimeError, "2 PDF report") as error:
+                pdf.generate_all_reports(self.frame, None, None, Path("unused"), "test")
+        self.assertEqual(visited, ["A", "B", "C"])
+        self.assertIn("'A'", str(error.exception))
+        self.assertIn("'C'", str(error.exception))
+        self.assertNotIn("'B'", str(error.exception))
+
+    def test_successful_batch_returns_normally(self):
+        """All successful reports remain an ordinary successful call."""
+        with patch.object(pdf.os, "makedirs"), patch.object(
+            pdf, "_generate_pdf_report_for_sample"
+        ) as render:
+            self.assertIsNone(
+                pdf.generate_all_reports(self.frame, None, None, Path("unused"), "test")
+            )
+        self.assertEqual([call.args[0] for call in render.call_args_list], ["A", "B", "C"])

@@ -516,7 +516,7 @@ def _generate_pdf_report_for_sample(
     output_dir: Path,
     UUID: str,
 ) -> None:
-    """Generates and saves a single PDF report for one sample."""
+    """Generate one PDF report, propagating rendering and write failures."""
     safe_original_id = "".join(
         c if c.isalnum() or c in ("_", "-") else "_" for c in original_id_display
     )
@@ -614,10 +614,7 @@ def _generate_pdf_report_for_sample(
     story.extend(table_flowables)
 
     # 6. Build the PDF
-    try:
-        doc.build(story)
-    except Exception as e:
-        logger.error(f"ERROR generating PDF for {norm_id} ({original_id_display}): {e}")
+    doc.build(story)
 
 
 # --- Main Orchestration Function ---
@@ -630,7 +627,14 @@ def generate_all_reports(
     output_name: Path,
     UUID: str,
 ) -> None:
-    """Generates consolidated PDF blood group reports for all samples."""
+    """Generate every sample report and report any failures to the caller.
+
+    Successful reports are retained when another sample fails. Each failure is
+    logged with its sample identity before a combined error is raised.
+
+    Raises:
+        RuntimeError: One or more sample reports could not be generated.
+    """
     processed_dfs, all_normalized_ids, original_id_map = _prepare_dataframes(
         df_genotypes, df_pheno_alpha, df_pheno_num
     )
@@ -648,6 +652,7 @@ def generate_all_reports(
 
     styles = _setup_styles()
 
+    failed_samples: List[str] = []
     for norm_id in sorted(list(all_normalized_ids)):
         original_id_display = original_id_map.get(norm_id, norm_id)
 
@@ -657,5 +662,13 @@ def generate_all_reports(
             )
         except Exception as e:
             logger.error(
-                f"Unhandled exception during PDF generation for {original_id_display}: {e}"
+                f"PDF generation failed for {original_id_display!r}: {e}"
             )
+            failed_samples.append(original_id_display)
+
+    if failed_samples:
+        names = ", ".join(repr(sample) for sample in failed_samples)
+        raise RuntimeError(
+            f"Failed to generate {len(failed_samples)} PDF report(s): {names}. "
+            "See the log for each failure."
+        )
