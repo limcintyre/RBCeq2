@@ -588,7 +588,6 @@ def find_hits(
         filt.cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
         filt.filter_HET_pairs_by_weight,
-        filt.filter_pairs_by_context,
         filt.impossible_alleles,
         partial(filt_phase.impossible_alleles_phased, phased=args.phased),
         partial(

@@ -1,9 +1,13 @@
 import unittest
 from collections import defaultdict
-from rbceq2.core_logic.utils import Zygosity
+import pandas as pd
+
+from rbceq2.core_logic.utils import Zygosity, sub_alleles_relationships
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.constants import AlleleState, UNDETERMINED_SLOT
 from rbceq2.core_logic.data_procesing import get_genotypes
+from rbceq2.db.db import Db, build_antigen_map_for_checks, prepare_db
+from rbceq2.main import find_hits, parse_args
 from rbceq2.filters.geno import (
     ABO_cant_pair_with_ref_cuz_261delG_HET,
     cant_name_second_slot_cuz_ref_impossible,
@@ -14,7 +18,6 @@ from rbceq2.filters.geno import (
     cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
     cant_pair_with_ref_cuz_trumped,
     filter_HET_pairs_by_weight,
-    filter_pairs_by_context,
     filter_pairs_on_antithetical_zygosity,
     flatten_alleles,
     split_pair_by_ref,
@@ -962,70 +965,119 @@ class TestFilterHETPairsByWeight(unittest.TestCase):
         )
 
 
-class TestFilterPairsByContext(unittest.TestCase):
-    def setUp(self):
-        self.allele1 = Allele(
-            genotype="A4GALT*01",
-            genotype_alt=".",
-            phenotype=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"22:43113793_ref"}),
-            null=False,
-            weight_geno=1000,
-            reference=True,
-            sub_type="A4GALT*01",
+class TestA4galtModifierPipeline(unittest.TestCase):
+    """Keep the curated modifier alternatives and their named exclusions."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Load the curated database and the KN relationships used by the CLI."""
+        cls.db = Db(ref="GRCh38", df=prepare_db())
+        cls.ant_mapping = build_antigen_map_for_checks(cls.db.df)
+        kn_alleles = {
+            "KN": [
+                allele for allele in cls.db.make_alleles()
+                if allele.blood_group == "KN"
+            ]
+        }
+        relationships, bg_type = sub_alleles_relationships(kn_alleles, "KN")
+        cls.allele_relationships = {bg_type: relationships}
+
+    def _assert_modifier_result(
+        self, sample, modifier_gt, antithetical_gt, phase_set, expected,
+        exclusion_reason=None,
+    ) -> None:
+        """Check the internal pairs, rendered calls, phenotypes and exclusion.
+
+        Args:
+            sample: Fixture identifier reported with a failure.
+            modifier_gt: GT for the curated c.109A>G modifier.
+            antithetical_gt: GT for the P1/P2 antithetical variant.
+            phase_set: Shared PS value, or an unmeasured value of '.'.
+            expected: Set of complete expected genotype strings.
+            exclusion_reason: Named reason excluding the unmodified pair.
+        """
+        frame = pd.DataFrame(
+            [
+                [
+                    "chr22", "42693843", ".", "T", "C", "50", "PASS", ".",
+                    "GT:PS", f"{modifier_gt}:{phase_set}",
+                ],
+                [
+                    "chr22", "42717787", ".", "C", "A", "50", "PASS", ".",
+                    "GT:PS", f"{antithetical_gt}:{phase_set}",
+                ],
+            ],
+            columns=[
+                "CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO",
+                "FORMAT", "SAMPLE",
+            ],
         )
-        self.allele2 = Allele(
-            genotype="A4GALT*01.02",
-            genotype_alt=".",
-            phenotype=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"22:43089849_T_C"}),
-            null=False,
-            weight_geno=1000,
-            reference=False,
-            sub_type="A4GALT*01",
+        result = find_hits(
+            self.db,
+            (frame, sample),
+            args=parse_args([
+                "--reference_genome", "GRCh38", "--phased", "--HPAs",
+            ]),
+            allele_relationships=self.allele_relationships,
+            excluded=["RHD", "RHCE"],
+            ant_mapping=self.ant_mapping,
         )
-        self.allele3 = Allele(
-            genotype="A4GALT*02",
-            genotype_alt=".",
-            phenotype=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"22:43113793_C_A"}),
-            null=False,
-            weight_geno=1000,
-            reference=False,
-            sub_type="A4GALT*02",
-        )
-        self.allele4 = Allele(
-            genotype="A4GALT*02.02",
-            genotype_alt=".",
-            phenotype=".",
-            phenotype_alt=".",
-            defining_variants=frozenset({"22:43113793_C_A", "22:43089849_T_C"}),
-            null=False,
-            weight_geno=1000,
-            reference=False,
-            sub_type="A4GALT*02",
+        _, genotypes, numeric, alphanumeric, blood_groups, _ = result
+        bg = blood_groups["A4GALT"]
+        with self.subTest(sample=sample, output="internal pairs"):
+            self.assertCountEqual(
+                ["/".join(pair.genotypes)
+                 for pair in bg.alleles[AlleleState.NORMAL] or []],
+                expected,
+            )
+        with self.subTest(sample=sample, output="genotype"):
+            self.assertEqual(set(genotypes["A4GALT"].split(",")), expected)
+        with self.subTest(sample=sample, output="numeric phenotype"):
+            self.assertEqual(numeric["A4GALT"], "")
+        with self.subTest(sample=sample, output="alphanumeric phenotype"):
+            self.assertEqual(alphanumeric["A4GALT"], "P1+,Pk+")
+        if exclusion_reason is not None:
+            with self.subTest(sample=sample, output="named exclusion"):
+                self.assertIn(
+                    "A4GALT*01/A4GALT*02",
+                    ["/".join(pair.genotypes)
+                     for pair in bg.filtered_out.get(exclusion_reason, [])],
+                )
+
+    def test_unphased_modifier_retains_both_placements(self) -> None:
+        """Unphased HET calls leave either modified subtype possible."""
+        self._assert_modifier_result(
+            "UNPHASED", "0/1", "0/1", ".",
+            {"A4GALT*01.02/A4GALT*02", "A4GALT*01/A4GALT*02.02"},
+            "cant_pair_with_ref_cuz_SNPs_must_be_on_other_side",
         )
 
-        self.pair1 = Pair(allele1=self.allele1, allele2=self.allele3)  # not ok
-        self.pair2 = Pair(allele1=self.allele1, allele2=self.allele4)  # ok
-        self.pair3 = Pair(allele1=self.allele2, allele2=self.allele3)
-        # not ok (for different reason [antithetical is het])
-
-        self.bg = BloodGroup(
-            type="A4GALT",
-            alleles={AlleleState.NORMAL: [self.pair1, self.pair2, self.pair3]},
-            sample="Kenya",
-            variant_pool={
-                "22:43089849_T_C": "Heterozygous",
-                "22:43113793_C_A": "Heterozygous",
-                "22:43113793_ref": "Heterozygous",
-            },
-            filtered_out=defaultdict(list),
+    def test_cis_modifier_selects_a4galt_02_02(self) -> None:
+        """A shared phase set places the modifier with the alternate token."""
+        self._assert_modifier_result(
+            "CIS", "0|1", "0|1", "10", {"A4GALT*01/A4GALT*02.02"},
+            "filter_impossible_alleles_phased",
         )
-        filter_pairs_by_context({1: self.bg})
+
+    def test_trans_modifier_selects_a4galt_01_02(self) -> None:
+        """Opposite haplotypes place the modifier with the reference token."""
+        self._assert_modifier_result(
+            "TRANS", "0|1", "1|0", "10", {"A4GALT*01.02/A4GALT*02"},
+            "filter_impossible_alleles_phased",
+        )
+
+    def test_homozygous_modifier_selects_both_modified_alleles(self) -> None:
+        """Two modifier copies require the modified allele on both sides."""
+        self._assert_modifier_result(
+            "HOM_MODIFIER", "1/1", "0/1", ".",
+            {"A4GALT*01.02/A4GALT*02.02"},
+        )
+
+    def test_absent_modifier_retains_unmodified_pair(self) -> None:
+        """A measured reference modifier call retains the unmodified pair."""
+        self._assert_modifier_result(
+            "CONTROL", "0/0", "0/1", ".", {"A4GALT*01/A4GALT*02"},
+        )
 
 
 class TestCantHave2NonRefAllelesCuzOnly1GeneCopy(unittest.TestCase):
