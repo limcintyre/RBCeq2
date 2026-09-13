@@ -1444,6 +1444,13 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     which deletion they overlap with. If a reference variant overlaps with a deletion
     that is phased as '0|1', the reference is phased as '1|0' (opposite haplotype).
 
+    That inference is the only reason a reference variant is touched here. One overlapping
+    no deletion is left exactly as it was, and one is only oriented against a deletion in
+    the phase set being written, since the side recorded for it is recorded in that set.
+    Both used to be written into that set regardless, which said the token belongs to a
+    block the file never put it in - and where its genotype carries a bar, that is the
+    difference between no evidence and a heterozygous side the phase filters then spend.
+
     The function only modifies deletion phase if:
     1. The deletion overlaps with at least one phased variant
     2. All variants (including those ending in '_ref') share the same phase set
@@ -1472,6 +1479,8 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
         - Only deletions with '/' in their phase string are considered for updating
         - Multiple non-overlapping deletions can have different phases (different chromosomes)
         - Any variant overlapping a deletion must be on the other chromosome
+        - A reference variant overlapping no deletion keeps the phase set it arrived with
+        - A deletion the caller phased while naming no set orients nothing here
 
     Example:
         >>> bg = BloodGroup(
@@ -1584,6 +1593,14 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     all_deletions = {}
     for variant, phase in bg.variant_pool_phase.items():
         if ("del" in variant.lower() or "DEL" in variant) and "|" in phase:
+            # The orientation written below is the opposite of this deletion's and is
+            # recorded against common_phase_set, so the deletion has to be in that
+            # block. One repaired above is, by construction. One the caller phased
+            # itself is only if it says so: a bar on a deletion whose own phase set is
+            # "." or "unknown" is relative to something the file never declared, which
+            # is why the seed test above refuses such a token as well.
+            if bg.variant_pool_phase_set.get(variant) != common_phase_set:
+                continue
             start, end = get_deletion_boundaries(variant)
             all_deletions[variant] = {"phase": phase, "start": start, "end": end}
 
@@ -1613,9 +1630,18 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
                 ref_phase = flip_phase(del_phase)
                 bg.variant_pool_phase[variant] = ref_phase
                 bg.variant_pool_phase_set[variant] = common_phase_set
-            else:
-                # If no overlap with deletions, just update phase set
-                bg.variant_pool_phase_set[variant] = common_phase_set
+            # A reference token overlapping no deletion keeps the phase set
+            # assign_ref_phase_set gave it. Writing the common set on it regardless
+            # stated that the token belongs to that block, which is a claim about
+            # linkage and not one this routine has made: it has just placed a deletion
+            # somewhere else in the gene. Where such a token's genotype carries a bar -
+            # a lane reference row copied from a row the caller phased without naming a
+            # set - the difference is between no evidence and a heterozygous side the
+            # filters then spend. Measured on a three row input where that is the only
+            # difference between two samples: the stamped token decided whether the
+            # sample was reported as one allele or another, a null against an elevated
+            # weak one, by which side of the bar a set the file never named happened to
+            # put it.
 
     return bg
 
