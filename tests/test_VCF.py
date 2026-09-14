@@ -9,7 +9,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import polars as pl
@@ -778,12 +778,12 @@ class TestReadVCF(unittest.TestCase):
         Returns:
             str: Path to the temporary file.
         """
-        tmp = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             delete=False, suffix=suffix, mode="w", encoding="utf-8"
-        )
-        tmp.write(content)
-        tmp.close()
-        return tmp.name
+        ) as tmp:
+            self.addCleanup(os.remove, tmp.name)
+            tmp.write(content)
+            return tmp.name
 
     def _create_temp_gz_file(self, content: str, suffix: str = ".vcf.gz") -> str:
         """Create a temporary gzipped file with the provided content.
@@ -795,23 +795,12 @@ class TestReadVCF(unittest.TestCase):
         Returns:
             str: Path to the temporary gzipped file.
         """
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        with gzip.open(tmp.name, "wt", encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            self.addCleanup(os.remove, tmp.name)
+            file_path = tmp.name
+        with gzip.open(file_path, "wt", encoding="utf-8") as f:
             f.write(content)
-        tmp.close()
-        return tmp.name
-
-    def tearDown(self) -> None:
-        """Clean up temporary files."""
-        for fname in os.listdir(tempfile.gettempdir()):
-            fpath = os.path.join(tempfile.gettempdir(), fname)
-            try:
-                # Remove only our temporary files based on known suffixes.
-                if fpath.endswith(".vcf") or fpath.endswith(".vcf.gz"):
-                    os.remove(fpath)
-            except Exception:
-                pass
-
+        return file_path
 
     @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
     def test_read_vcf_header_transformation(self, mock_intervals) -> None:
@@ -838,7 +827,6 @@ class TestReadVCF(unittest.TestCase):
         ]
         self.assertEqual(df.columns, expected_cols)
         self.assertEqual(df["SAMPLE"][0], "data1")
-        os.remove(file_path)
     
     @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
     def test_read_vcf_non_gz(self, mock_intervals) -> None:
@@ -859,7 +847,6 @@ class TestReadVCF(unittest.TestCase):
         # UPDATED: Expect 'chr1' and 'chr2' (raw input), not '1' and '2'
         self.assertEqual(df["CHROM"][0], "chr1")
         self.assertEqual(df["CHROM"][1], "chr2")
-        os.remove(file_path)
 
     @patch("rbceq2.IO.vcf.variant_in_intervals", return_value=True)
     def test_read_vcf_gzipped(self, mock_intervals) -> None:
@@ -878,7 +865,6 @@ class TestReadVCF(unittest.TestCase):
         )
         # UPDATED: Expect 'chr3', not '3'
         self.assertEqual(df["CHROM"][0], "chr3")
-        os.remove(file_path)
    
 
     def test_read_vcf_no_header(self) -> None:
@@ -894,7 +880,6 @@ class TestReadVCF(unittest.TestCase):
         name = Path(file_path).name
         message = f"VCF header is missing or invalid in file: '{name}'"
         self.assertEqual(str(context.exception), message)
-        os.remove(file_path)
 
 
 
@@ -1178,6 +1163,96 @@ class TestGtValidityBoundary(unittest.TestCase):
             self.assertEqual(scan.for_sample(sample), frozenset())
         warning.assert_called_once()
         self.assertIn("sample=bad", str(warning.call_args))
+
+
+class TestReadVcfCleanupOwnership(unittest.TestCase):
+    """Keep temporary-file cleanup scoped to the test that created each file."""
+
+    def check_lifecycle(self, failure: str | None = None) -> None:
+        """Check ownership and closed handles through normal and failing runs."""
+        events = []
+        plain = MagicMock()
+        plain.name = "/sentinel-temp/owned.vcf"
+        compressed = MagicMock()
+        compressed.name = "/sentinel-temp/owned.vcf.gz"
+        for item in (plain, compressed):
+            item.__enter__.return_value = item
+            item.close.side_effect = lambda item=item: events.append(
+                ("closed", item.name)
+            )
+            item.__exit__.side_effect = lambda *args, item=item: item.close()
+
+        gzip_file = MagicMock()
+        gzip_file.__enter__.return_value = gzip_file
+        if failure == "plain_write":
+            plain.write.side_effect = OSError("plain writer failed")
+        if failure == "gzip_write":
+            gzip_file.write.side_effect = OSError("gzip writer failed")
+
+        def gzip_open(*args, **kwargs):
+            self.assertIn(("closed", compressed.name), events)
+            if failure == "gzip_open":
+                raise OSError("gzip open failed")
+            return gzip_file
+
+        class Probe(TestReadVCF):
+            def runTest(self) -> None:
+                self._create_temp_file("content")
+                self._create_temp_gz_file("content")
+                if failure == "assertion":
+                    self.fail("injected failure")
+
+        result = unittest.TestResult()
+        with (
+            patch.object(
+                tempfile, "NamedTemporaryFile", side_effect=[plain, compressed]
+            ),
+            patch.object(tempfile, "gettempdir", return_value="/sentinel-temp"),
+            patch.object(
+                os, "listdir",
+                return_value=[
+                    "unrelated.vcf", "unrelated.vcf.gz", "owned.vcf", "owned.vcf.gz"
+                ],
+            ),
+            patch.object(gzip, "open", side_effect=gzip_open),
+            patch.object(
+                os, "remove", side_effect=lambda name: events.append(("remove", name))
+            ),
+        ):
+            Probe("runTest").run(result)
+
+        owned = [plain.name] if failure == "plain_write" else [plain.name, compressed.name]
+        self.assertCountEqual(
+            [name for kind, name in events if kind == "remove"], owned
+        )
+        for name in owned:
+            self.assertLess(
+                events.index(("closed", name)), events.index(("remove", name))
+            )
+        if failure not in ("plain_write", "gzip_open"):
+            gzip_file.__exit__.assert_called_once()
+        expected = 0 if failure is None else 1
+        self.assertEqual(len(result.errors) + len(result.failures), expected)
+
+    def test_success(self) -> None:
+        """Clean up only the generated files after success."""
+        self.check_lifecycle()
+
+    def test_assertion_failure(self) -> None:
+        """Run owned cleanup even when the test assertion fails."""
+        self.check_lifecycle("assertion")
+
+    def test_plain_write_failure(self) -> None:
+        """Close and clean up a plain file whose write failed."""
+        self.check_lifecycle("plain_write")
+
+    def test_gzip_write_failure(self) -> None:
+        """Close and clean up a compressed file whose write failed."""
+        self.check_lifecycle("gzip_write")
+
+    def test_gzip_open_failure(self) -> None:
+        """Clean up the reserved file when the gzip writer cannot open it."""
+        self.check_lifecycle("gzip_open")
 
 
 if __name__ == "__main__":
