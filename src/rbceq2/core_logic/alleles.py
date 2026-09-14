@@ -154,6 +154,13 @@ class Allele:
             and self.defining_variants == other.defining_variants
         )
 
+    def __hash__(self) -> int:
+        """Hash exactly the immutable fields used by allele equality."""
+        return hash((
+            self.genotype, self.genotype_alt, self.phenotype,
+            self.phenotype_alt, self.defining_variants,
+        ))
+
     def __gt__(self, other: Allele) -> bool:
         """Greater than comparison, inverted.
 
@@ -559,6 +566,10 @@ class Pair:
             bool: True if both pairs contain the same alleles, False otherwise.
         """
         return self.alleles == other.alleles
+
+    def __hash__(self) -> int:
+        """Hash the same unordered allele set used by pair equality."""
+        return hash(self.alleles)
 
     def __contains__(self, other: Allele) -> bool:
         """Check if an allele is in the pair.
