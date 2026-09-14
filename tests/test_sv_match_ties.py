@@ -44,3 +44,30 @@ class TestExactSvMatchTies(unittest.TestCase):
 
     def test_exact_event_last(self):
         self.assert_exact_selected(False)
+
+
+    def test_nonexact_tie_preserves_position_and_length_weighting(self):
+        """Prefer lower existing geometric error without adding POS-first priority."""
+        definition = self.definition
+
+        def event(offset, extra_length, gt):
+            pos = definition.pos + offset
+            length = definition.length + extra_length
+            return SvEvent(
+                chrom=definition.chrom, pos=pos, end=pos + length,
+                svtype='DEL', svlen=-length, alt='<DEL>', id='.', qual='50',
+                variant=f'{definition.chrom}:{pos}_DEL_{length}', info={},
+                sample_fmt='GT', sample_value=gt,
+            )
+
+        less_error = event(100, 0, '0/1')
+        more_error = event(0, 1000, '1/1')
+        matcher = SvMatcher()
+        self.assertEqual(matcher.score(definition, less_error)[0], 0.0)
+        self.assertEqual(matcher.score(definition, more_error)[0], 0.0)
+        for events in ([less_error, more_error], [more_error, less_error]):
+            with self.subTest(first=events[0].variant):
+                matches = matcher.match([definition], events)
+                self.assertEqual(len(matches), 1)
+                self.assertIs(matches[0].vcf, less_error)
+                self.assertEqual(matches[0].score, 0.0)

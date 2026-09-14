@@ -261,12 +261,16 @@ class SvMatcher:
                         )
                     )
 
-        # Keep best per (allele id, raw token, chrom)
+        # Keep best per (allele id, raw token, chrom). Public scores are clamped
+        # at zero; retain the existing geometric score to distinguish those ties.
         best: dict[tuple[str, str, str], MatchResult] = {}
+        best_rank: dict[tuple[str, str, str], tuple[float, float]] = {}
         for r in results:
             key = (r.db.id, r.db.raw, r.db.chrom)
-            if key not in best or r.score < best[key].score:
+            rank = (r.score, self._score_unclamped(r.db, r.vcf)[0])
+            if key not in best or rank < best_rank[key]:
                 best[key] = r
+                best_rank[key] = rank
 
         return sorted(best.values(), key=lambda r: (r.db.chrom, r.db.pos, r.score))
 
@@ -331,7 +335,20 @@ class SvMatcher:
         return min(tol, LEN_CAP)
 
     def score(self, db: SvDef, ev: SvEvent) -> tuple[float, int, int]:
-        """Score a DB/VCF pair using adaptive POS and LEN tolerances.
+        """Return the nonnegative public score and position/length differences.
+
+        Args:
+            db: Database structural definition.
+            ev: Observed structural event.
+
+        Returns:
+            Score, position difference and length difference; infinity if rejected.
+        """
+        raw_score, pos_delta, len_delta = self._score_unclamped(db, ev)
+        return max(raw_score, 0.0), pos_delta, len_delta
+
+    def _score_unclamped(self, db: SvDef, ev: SvEvent) -> tuple[float, int, int]:
+        """Keep the full geometric score before clamping it for public reporting.
 
         Position:
             - Adaptive tolerance; if exceeded and there is no overlap → reject.
@@ -364,7 +381,7 @@ class SvMatcher:
         if ov:
             s -= self.pos_bonus_overlap
 
-        return (max(s, 0.0), pos_delta, len_delta)
+        return (s, pos_delta, len_delta)
 
 
 def _ci_lookup(names: list[str]) -> dict[str, str]:
