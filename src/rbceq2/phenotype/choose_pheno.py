@@ -91,65 +91,51 @@ def FUT1(res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
 
 
 def FUT3(res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
-    """
-    H = FUT1
-    Se = FUT2
-    Le = FUT3
+    """Interpret Lewis phenotype from FUT3 activity and FUT2 secretor status.
 
-    In individuals with an active FUT2 (Secretor or SE) gene, which encodes a fully
-    active α(1,2)-fucosyltransferase (see H Blood Group System), predominantly
-    Leb (and related Lewis antigens depending on ABO group, e.g. ALeb in group
-    A) is made alongside trace amounts of Lea. The trace amounts of Lea produced
-    are typically undetectable using serological methods, and usually, a Le(a–b+)
-    phenotype is reported.
-
-    functional == active???!!!
-
-    LE	When FUT2 is H+ Se+ and FUT3 is functional = Le(a-b+)
-        When FUT2 is H+w Se+ and FUT3 is functional =Le(a+b+)
-        When FUT2 is homozygous null (Se-) and FUT3 is functional = Le(a+b-)
-        When FUT3 is homozygous null, regardless of FUT2 functionality = Le(a-b-)
-    H	FUT1: RBC expresssion
-        FUT2: Secretor status - Report phenotype as Se+/-
+    With active FUT3, Se+ gives Le(a-b+), Se- gives Le(a+b-), and weak
+    secretor status Se+w gives Le(a+b+). FUT1 describes red-cell H expression
+    and does not determine this secretor-dependent Lewis interpretation.
+    Null FUT3 gives Le(a-b-) regardless of secretor status.
 
     Args:
-        res (dict): Dictionary of blood group results, where keys are 'FUT1', 'FUT2',
-        and 'FUT3', each with their respective `BloodGroup` data.
+        res: Blood-group results containing FUT2 and FUT3 phenotype mappings.
 
     Returns:
-        dict: Updated dictionary with modified FUT3 phenotypes based on FUT1 and FUT2
-        interactions.
-    """
+        The results with interpreted FUT3 alphanumeric phenotypes.
 
-    fut1_and_2 = fut_helper(res)
+    Raises:
+        BeyondLogicError: A secretor or FUT3 phenotype is not recognized.
+    """
+    secretor_states = set(res["FUT2"].phenotypes[PhenoType.alphanumeric].values())
+    lewis_by_secretor = {
+        "Se-": "Le(a+b-)",
+        "Se+w": "Le(a+b+)",
+        "Se+": "Le(a-b+)",
+    }
 
     new_phenos = {}
     for pair, pheno in res["FUT3"].phenotypes[PhenoType.alphanumeric].items():
         new_pheno = []
         if "active" in pheno.lower():
-            for combo in fut1_and_2:
-                if "Se-" in combo:
-                    new_pheno.append("Le(a+b-)")
-                elif "H+w" in combo and "Se+" in combo:
-                    new_pheno.append("Le(a+b+)")
-                elif "H+" in combo and any(se in combo for se in ["Se+", "Se+w"]):
-                    new_pheno.append("Le(a-b+)")
-                else:
+            for secretor in sorted(secretor_states):
+                if secretor not in lewis_by_secretor:
                     raise BeyondLogicError(
                         message="Unexpected FUT3 value.",
-                        context=f"Received value: {combo}",
+                        context=f"Received FUT2 phenotype: {secretor}",
+                        raised_by="FUT3/unknown_secretor_phenotype",
                     )
+                new_pheno.append(lewis_by_secretor[secretor])
         elif "Le(a-b-)" in pheno:
             new_pheno.append("Le(a-b-)")
         else:
             raise BeyondLogicError(
-                message="Unexpected FUT3 pheno.", context=f"Received value: {pheno}"
+                message="Unexpected FUT3 pheno.", context=f"Received value: {pheno}",
+                raised_by="FUT3/unknown_lewis_activity",
             )
-
         new_phenos[pair] = "/".join(sorted(set(new_pheno)))
 
     res["FUT3"].phenotypes[PhenoType.alphanumeric] = new_phenos
-
     return res
 
 

@@ -1075,6 +1075,62 @@ class TestFutHelper(unittest.TestCase):
 
 
 class TestFUT3(unittest.TestCase):
+    def test_secretor_status_controls_active_lewis_for_all_h_states(self):
+        for h_status, (se_status, expected) in product(
+            ("H+", "H+w", "H-", None),
+            (("Se+", "Le(a-b+)"), ("Se-", "Le(a+b-)"),
+             ("Se+w", "Le(a+b+)")),
+        ):
+            with self.subTest(h_status=h_status, se_status=se_status):
+                h_phenotypes = {} if h_status is None else {"pair1": h_status}
+                res = {
+                    "FUT1": MockBloodGroup2({
+                        PhenoType.alphanumeric: h_phenotypes,
+                    }),
+                    "FUT2": MockBloodGroup2({
+                        PhenoType.alphanumeric: {"pair1": se_status},
+                    }),
+                    "FUT3": MockBloodGroup2({
+                        PhenoType.alphanumeric: {"pair1": "Active"},
+                    }),
+                }
+                result = FUT3(res)
+                self.assertEqual(
+                    result["FUT3"].phenotypes[PhenoType.alphanumeric],
+                    {"pair1": expected},
+                )
+                self.assertEqual(
+                    result["FUT1"].phenotypes[PhenoType.alphanumeric],
+                    h_phenotypes,
+                )
+                self.assertEqual(
+                    result["FUT2"].phenotypes[PhenoType.alphanumeric],
+                    {"pair1": se_status},
+                )
+
+    def test_null_lewis_is_independent_of_h_and_secretor_status(self):
+        for h_status, se_status in product(
+            ("H+", "H+w", "H-", None), ("Se+", "Se-", "Se+w"),
+        ):
+            with self.subTest(h_status=h_status, se_status=se_status):
+                res = {
+                    "FUT1": MockBloodGroup2({
+                        PhenoType.alphanumeric:
+                            {} if h_status is None else {"pair1": h_status},
+                    }),
+                    "FUT2": MockBloodGroup2({
+                        PhenoType.alphanumeric: {"pair1": se_status},
+                    }),
+                    "FUT3": MockBloodGroup2({
+                        PhenoType.alphanumeric: {"pair1": "Le(a-b-)"},
+                    }),
+                }
+                result = FUT3(res)
+                self.assertEqual(
+                    result["FUT3"].phenotypes[PhenoType.alphanumeric],
+                    {"pair1": "Le(a-b-)"},
+                )
+
     def test_active_pheno_with_Se_minus(self):
         fut1_phenotypes = {PhenoType.alphanumeric: {"pair1": "H+"}}
         fut2_phenotypes = {PhenoType.alphanumeric: {"pair1": "Se-"}}
@@ -1101,7 +1157,7 @@ class TestFUT3(unittest.TestCase):
             "FUT3": MockBloodGroup2(fut3_phenotypes),
         }
 
-        expected_new_pheno = {"pair1": "Le(a+b+)"}
+        expected_new_pheno = {"pair1": "Le(a-b+)"}
         result = FUT3(res)
         self.assertEqual(
             result["FUT3"].phenotypes[PhenoType.alphanumeric], expected_new_pheno
