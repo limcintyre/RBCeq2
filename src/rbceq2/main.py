@@ -472,26 +472,41 @@ def find_hits(
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     var_map = {}
+    selected_sv_filters: dict[str, str] = {}
 
     if best:
         for match in best:
-            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+            db_token = f"{match.vcf.chrom}:{match.db.raw}"
+            metrics = dict(
                 zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
-            var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+            # Missing PS belongs to the selected row too. Do not borrow linkage
+            # from a different event at the same position.
+            metrics.setdefault("PS", ".")
+            vcf.variants[db_token] = metrics
+            selected_sv_filters[db_token] = match.vcf.filter_value
+            var_map[db_token] = match.variant
+            logger.debug(
+                f"Selected SV evidence: sample={vcf.sample} database={db_token} "
+                f"source={match.variant} POS={match.vcf.pos} END={match.vcf.end} "
+                f"SVLEN={match.vcf.svlen} GT={metrics.get('GT', '.')} "
+                f"PS={metrics['PS']} FILTER={match.vcf.filter_value}"
+            )
 
     res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
         partial(
-            dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
+            dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter,
+            selected_sv_filters=selected_sv_filters,
         ),
         partial(
             dp.make_variant_pool,
             vcf=vcf,
             single_copy_types=db.single_copy_types,
             loci_by_type=db.loci_by_type,
+            selected_sv_filters=selected_sv_filters,
         ),
         dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
@@ -503,6 +518,7 @@ def find_hits(
                     vcf=vcf,
                     loci_by_type=db.loci_by_type,
                     df=vcf.df,
+                    selected_sv_filters=selected_sv_filters,
                 )
             ]
             if args.debug
@@ -523,6 +539,7 @@ def find_hits(
             vcf=vcf,
             df=vcf.df,
             reference_alleles=db.reference_alleles,
+            selected_sv_filters=selected_sv_filters,
         ),
         partial(
             dp.find_what_was_excluded_due_to_rank,

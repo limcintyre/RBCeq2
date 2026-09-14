@@ -554,7 +554,10 @@ def locus_copies_for_bg(
     return 1
 
 
-def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
+def variant_was_discarded(
+    vcf_var: str, df: pd.DataFrame,
+    selected_sv_filters: dict[str, str] | None = None,
+) -> bool:
     """Did this token's own VCF row fail the FILTER classification?
 
     Not the same question as 'is this token absent from the variant pool', and conflating
@@ -573,10 +576,13 @@ def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
         vcf_var (str): The variant token, ie the name used in the pool.
         df (pd.DataFrame): The sample's VCF rows.
 
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
+
     Returns:
         bool: True where the row exists and its FILTER value means the call is doubtful.
     """
-    filter_value = filter_value_for(vcf_var, df)
+    filter_value = filter_value_for(vcf_var, df, selected_sv_filters)
     if filter_value is None:
         return False
     excludes, _ = filter_excludes_allele(filter_value)
@@ -584,7 +590,10 @@ def variant_was_discarded(vcf_var: str, df: pd.DataFrame) -> bool:
     return excludes
 
 
-def filter_values_for(vcf_var: str, df: pd.DataFrame) -> list[str]:
+def filter_values_for(
+    vcf_var: str, df: pd.DataFrame,
+    selected_sv_filters: dict[str, str] | None = None,
+) -> list[str]:
     """Every FILTER value carried by the rows this token matched, in file order.
 
     The one place the lookup itself lives. It was written out twice, and the two copies
@@ -608,25 +617,36 @@ def filter_values_for(vcf_var: str, df: pd.DataFrame) -> list[str]:
         vcf_var (str): The variant token.
         df (pd.DataFrame): The sample's VCF rows.
 
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
+
     Returns:
         list[str]: The FILTER fields verbatim, empty where the token has no row.
     """
+    if selected_sv_filters is not None and vcf_var in selected_sv_filters:
+        return [selected_sv_filters[vcf_var]]
     matched = df.query("variant.str.contains(@vcf_var)")["FILTER"]
 
     return [str(value) for value in matched]
 
 
-def filter_value_for(vcf_var: str, df: pd.DataFrame) -> str | None:
+def filter_value_for(
+    vcf_var: str, df: pd.DataFrame,
+    selected_sv_filters: dict[str, str] | None = None,
+) -> str | None:
     """The FILTER field of the row this token came from, or None if it has no row.
 
     Args:
         vcf_var (str): The variant token.
         df (pd.DataFrame): The sample's VCF rows.
 
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
+
     Returns:
         str | None: The FILTER field verbatim, or None where the token has no row.
     """
-    values = filter_values_for(vcf_var, df)
+    values = filter_values_for(vcf_var, df, selected_sv_filters)
 
     return values[0] if values else None
 
@@ -799,6 +819,7 @@ def make_variant_pool(
     vcf: VCF,
     single_copy_types: dict[str, str] | None = None,
     loci_by_type: dict[str, dict[str, frozenset[int]]] | None = None,
+    selected_sv_filters: dict[str, str] | None = None,
 ) -> BloodGroup:
     """Construct or update a variant pool for a BloodGroup from VCF data.
 
@@ -811,6 +832,9 @@ def make_variant_pool(
             The BloodGroup object to be updated with the new variant pool.
         vcf (VCF):
             The VCF object providing variant data.
+
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
 
     Returns:
         BloodGroup:
@@ -902,7 +926,7 @@ def make_variant_pool(
                 for allele in bg.filtered_out["FILTER_not_PASS"]:
                     for dropped in allele.defining_variants:
                         if dropped not in variant_pool and variant_was_discarded(
-                            dropped, vcf.df
+                            dropped, vcf.df, selected_sv_filters
                         ):
                             failed.append(dropped)
                 matching2 = find_matching_keys(failed, variant)
@@ -961,6 +985,7 @@ def record_unused_variants(
     vcf: VCF,
     loci_by_type: dict[str, dict[str, frozenset[int]]],
     df: pd.DataFrame,
+    selected_sv_filters: dict[str, str] | None = None,
 ) -> BloodGroup:
     """Collect the variants at this blood group's loci that the pool does not hold.
 
@@ -990,6 +1015,9 @@ def record_unused_variants(
         loci_by_type (dict): Database positions per blood group, per chromosome.
         df (pd.DataFrame): The sample's rows, for each variant's FILTER.
 
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
+
     Returns:
         BloodGroup: With unused_pool and its three companions filled in.
     """
@@ -1005,6 +1033,8 @@ def record_unused_variants(
         for raw, filter_value in zip(df["variant"], df["FILTER"]):
             for token in str(raw).split(","):
                 filters.setdefault(token.strip(), filter_value)
+
+    filters.update(selected_sv_filters or {})
 
     for variant, metrics in vcf.variants.items():
         if variant in bg.variant_pool:
@@ -2090,6 +2120,7 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
     vcf: VCF,
     df: pd.DataFrame,
     reference_alleles: dict[str, Allele],
+    selected_sv_filters: dict[str, str] | None = None,
 ) -> BloodGroup:
     """Decline to name a blood group whose reference a trusted call rules out.
 
@@ -2131,6 +2162,9 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
         vcf (VCF): The sample's VCF, for which tokens exist at each locus.
         df (pd.DataFrame): The sample's rows, for each variant's FILTER.
         reference_alleles (dict[str, Allele]): The reference allele per blood group.
+
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
 
     Returns:
         BloodGroup: With the reference pair removed and recorded, or unchanged.
@@ -2179,7 +2213,7 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
             denied = any(
                 called != token
                 and called.split("_")[0] == locus
-                and not variant_was_discarded(called, df)
+                and not variant_was_discarded(called, df, selected_sv_filters)
                 for called in vcf.variants
             )
         else:
@@ -2203,7 +2237,8 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
 
 @apply_to_dict_values
 def only_keep_alleles_if_FILTER_PASS(
-    bg: BloodGroup, df: pd.DataFrame, no_filter: bool
+    bg: BloodGroup, df: pd.DataFrame, no_filter: bool,
+    selected_sv_filters: dict[str, str] | None = None,
 ) -> BloodGroup:
     """Keep only alleles whose every defining variant the caller vouched for.
 
@@ -2225,6 +2260,9 @@ def only_keep_alleles_if_FILTER_PASS(
         no_filter (bool): Skip the check entirely and promote every raw allele, ie the
         --no_filter flag.
 
+        selected_sv_filters: Selected source FILTER by database token, overriding
+            row lookup for matched SVs while retaining existing lookup otherwise.
+
     Returns:
         BloodGroup: The BloodGroup with alleles[FILT] set, and anything dropped recorded
         under filtered_out['FILTER_not_PASS'].
@@ -2240,9 +2278,13 @@ def only_keep_alleles_if_FILTER_PASS(
         for variant in allele.defining_variants:
             if "_ref" in variant:
                 continue
-            vcf_var = allele.big_variants.get(variant, variant)
-            # loci = vcf_var.split("_")[0]
-            filter_values = filter_values_for(vcf_var, df)
+            # Selected SV evidence is keyed by the database token. Its source
+            # token can collide with a different, lower-ranked VCF event.
+            vcf_var = (
+                variant if variant in (selected_sv_filters or {})
+                else allele.big_variants.get(variant, variant)
+            )
+            filter_values = filter_values_for(vcf_var, df, selected_sv_filters)
             if not filter_values:
                 message = f"FILTER parsing failed. Sample: {bg.sample}, BG: {bg.type}, variant/s: {variant}"
                 logger.error(message)
