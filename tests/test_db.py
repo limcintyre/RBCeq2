@@ -697,5 +697,47 @@ ANTIGEN_MAP: dict[str, dict[str, str]] = {
     "YT": {"1": "Yt(a", "2": "Yt(b", "3": "YTEG", "4": "YTLI", "5": "YTOT"},
 }
 
+
+
+class TestPreparedWeightDefaults(unittest.TestCase):
+    """Keep explicit ranks and documented defaults independent of subtype peers."""
+
+    def prepared_weights(self, rows: str) -> dict[str, float]:
+        """Prepare a minimal weight table through the normal database loader."""
+        content = "Genotype\tSub_type\tWeight_of_genotype\n" + rows
+        with patch("rbceq2.db.db.load_db", return_value=content):
+            prepared = prepare_db()
+        return prepared.set_index("Genotype")["Weight_of_genotype"].to_dict()
+
+    def test_explicit_weights_are_preserved(self):
+        weights = self.prepared_weights(
+            "TEST*01.01\tTEST*01\t8\n"
+            "TEST*01N.01\tTEST*01\t3\n"
+            "TEST*01.02\tTEST*01\t0\n"
+        )
+        self.assertEqual(weights, {
+            "TEST*01.01": 8, "TEST*01N.01": 3, "TEST*01.02": 0,
+        })
+
+    def test_missing_weights_use_defaults_not_subtype_peer_weights(self):
+        weights = self.prepared_weights(
+            "TEST*01.01\tTEST*01\t8\n"
+            "TEST*01.02\tTEST*01\t\n"
+            "TEST*01N.01\tTEST*01\t\n"
+            "TEST*02.01\tTEST*02\t40\n"
+            "TEST*02.02\tTEST*02\t\n"
+            "TEST*02N.01\tTEST*02\t\n"
+        )
+        self.assertEqual(weights, {
+            "TEST*01.01": 8, "TEST*01.02": 1000, "TEST*01N.01": 500,
+            "TEST*02.01": 40, "TEST*02.02": 1000, "TEST*02N.01": 500,
+        })
+
+    def test_all_missing_weights_use_defaults(self):
+        self.assertEqual(self.prepared_weights(
+            "TEST*01.01\tTEST*01\t\n"
+            "TEST*01N.01\tTEST*01\t\n"
+        ), {"TEST*01.01": 1000, "TEST*01N.01": 500})
+
 if __name__ == "__main__":
     unittest.main()

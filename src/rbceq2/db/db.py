@@ -519,8 +519,8 @@ def strip_stray_whitespace(df: pd.DataFrame) -> pd.DataFrame:
     trimming is always safe - which is why this fixes rather than rejects.
 
     It is not cosmetic. Every one of these values is compared or grouped as a string
-    somewhere: `Sub_type` is a dictionary key in prepare_db's weight backfill and in
-    filters/geno.py, `Genotype` is split on '*' to derive the blood group, `Antithetical` is
+    somewhere: `Sub_type` groups alleles in filters/geno.py, `Genotype` is split on
+    '*' to derive the blood group, and `Antithetical` is
     matched against 'Yes'. A trailing space silently forks one group into two, and the
     failure is a wrong answer rather than an error.
 
@@ -579,6 +579,9 @@ def strip_stray_whitespace(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_db() -> pd.DataFrame:
     """Read and prepare the database from a TSV file, applying necessary transformations.
 
+    Preserve explicit genotype weights. Missing weights receive LOW_WEIGHT / 2
+    for null alleles and LOW_WEIGHT otherwise.
+
     Returns:
         DataFrame: The prepared DataFrame with necessary data transformations applied.
     """
@@ -603,13 +606,6 @@ def prepare_db() -> pd.DataFrame:
     df = strip_stray_whitespace(df)
 
     df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
-    update_dict = df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
-    mapped_values = df["Sub_type"].map(update_dict)
-
-    df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
-        df["Weight_of_genotype"].notna(), mapped_values
-    )
-
     pd.set_option("future.no_silent_downcasting", True)
 
     # defaults weights; null = LOW_WEIGHT/2 and normal = LOW_WEIGHT
