@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Iterator, Protocol, runtime_checkable
 
 import pandas as pd
+from rbceq2.core_logic.utils import BeyondLogicError
 import re
 from typing import Iterable
 
@@ -238,6 +239,10 @@ class SvMatcher:
         Returns:
             list[MatchResult]: Best match per DB token, ordered by
             (chrom, pos, score).
+
+        Raises:
+            BeyondLogicError: Equally ranked candidates have different event,
+                genotype, phase or FILTER evidence and cannot be selected safely.
         """
         results: list[MatchResult] = []
         ev_by_chrom: dict[str, list[SvEvent]] = {}
@@ -261,18 +266,59 @@ class SvMatcher:
                         )
                     )
 
-        # Keep best per (allele id, raw token, chrom). Public scores are clamped
-        # at zero; retain the existing geometric score to distinguish those ties.
-        best: dict[tuple[str, str, str], MatchResult] = {}
+        # Collect the final best rank before checking ambiguity: an eventual
+        # better event can supersede conflicting candidates encountered earlier.
+        best: dict[tuple[str, str, str], list[MatchResult]] = {}
         best_rank: dict[tuple[str, str, str], tuple[float, float]] = {}
         for r in results:
             key = (r.db.id, r.db.raw, r.db.chrom)
             rank = (r.score, self._score_unclamped(r.db, r.vcf)[0])
             if key not in best or rank < best_rank[key]:
-                best[key] = r
+                best[key] = [r]
                 best_rank[key] = rank
+            elif rank == best_rank[key]:
+                best[key].append(r)
 
-        return sorted(best.values(), key=lambda r: (r.db.chrom, r.db.pos, r.score))
+        selected = []
+        for key, tied in sorted(best.items()):
+            evidence = {self._evidence_key(match.vcf) for match in tied}
+            if len(evidence) > 1:
+                details = []
+                for chrom, pos, end, kind, length, token, alt, gt, ps, filters in sorted(evidence):
+                    details.append(
+                        f"{chrom}:{pos}-{end} {kind} length={length} "
+                        f"token={token} ALT={alt} GT={gt} PS={ps} "
+                        f"FILTER={';'.join(filters)}"
+                    )
+                raise BeyondLogicError(
+                    f"Equally ranked SV matches have different event or sample "
+                    f"evidence for {key[0]} ({key[2]}:{key[1]}): "
+                    + "; ".join(details),
+                    raised_by="SvMatcher.match/ambiguous_equal_best_sv_evidence",
+                )
+            selected.append(tied[0])
+
+        return sorted(selected, key=lambda r: (r.db.chrom, r.db.pos, r.score))
+
+    def _evidence_key(self, event: SvEvent) -> tuple:
+        """Compare evidence used downstream without treating quality as a vote.
+
+        Unphased genotype ordering is immaterial; chromosome-copy counts and
+        phased order remain distinct. Different phase sets can provide alternative
+        linkage evidence even where the called alleles agree. FILTER labels are
+        compared as a set. Depth, quality, record IDs and FORMAT ordering do not
+        determine which event supplies a call.
+        """
+        values = dict(zip(event.sample_fmt.split(":"), event.sample_value.split(":")))
+        gt = values.get("GT", ".").strip()
+        ps = (values.get("PS", ".").strip() or ".") if "|" in gt else "."
+        if "|" not in gt:
+            gt = "/".join(sorted(gt.split("/")))
+        filters = tuple(sorted(set(event.filter_value.split(";"))))
+        return (
+            event.chrom, event.pos, event.end, event.svtype, self._length(event),
+            event.variant, event.alt, gt, ps, filters,
+        )
 
     def _adaptive_pos_tol(self, db: SvDef, ev: SvEvent, overlap: bool) -> int:
         """Compute a size-aware positional tolerance.
@@ -581,6 +627,7 @@ class SvEvent:
         ciend (ConfidenceInterval): CI around END.
         sample_fmt (str): Raw FORMAT column for single-sample VCFs.
         sample_value (str): Raw sample value column for single-sample VCFs.
+        filter_value (str): Source row FILTER labels, or '.' if unavailable.
     """
 
     chrom: str
@@ -597,6 +644,7 @@ class SvEvent:
     ciend: ConfidenceInterval = field(default_factory=ConfidenceInterval)
     sample_fmt: str = "."
     sample_value: str = "."
+    filter_value: str = "."
 
     @property
     def size(self) -> int:
@@ -787,6 +835,7 @@ class SvReader:
                 ciend=ciend,
                 sample_fmt=str(sample_fmt),
                 sample_value=str(sample_value),
+                filter_value=str(getattr(row, "FILTER", ".")),
             )
 
             # Handle BND pairs
