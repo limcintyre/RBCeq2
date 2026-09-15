@@ -3,7 +3,6 @@ from __future__ import annotations
 from rbceq2.core_logic.alleles import BloodGroup, Pair
 from rbceq2.core_logic.constants import (
     ABO_DELG_VARIANTS,
-    SYNTHESISED_HOM_REF_GT,
     UNDETERMINED_SLOT,
     AlleleState,
 )
@@ -21,7 +20,6 @@ from rbceq2.filters.shared_filter_functionality import (
     _het_phase_summary,
 )
 from rbceq2.core_logic.alleles import Allele
-from icecream import ic
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:

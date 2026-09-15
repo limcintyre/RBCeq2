@@ -5,9 +5,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 import pandas as pd
-from icecream import ic
-os.environ["POLARS_MAX_THREADS"] = "1"  # Must be set before polars import
-import polars as pl
 from loguru import logger
 from collections import Counter, defaultdict
 from rbceq2.core_logic.constants import (
@@ -20,6 +17,11 @@ from rbceq2.core_logic.constants import (
 from rbceq2.core_logic.filter_semantics import FILTER_VALUE_SEPARATOR
 from rbceq2.core_logic.utils import BeyondLogicError
 from rbceq2.IO.encoders import VariantEncoderFactory
+
+# Set the Polars thread limit before importing Polars.
+os.environ["POLARS_MAX_THREADS"] = "1"
+import polars as pl  # noqa: E402
+
 
 # How many contradicted tokens get named in the warning before it says "and N more".
 # One line per sample either way - a jointly called cohort can contradict a dozen at
@@ -1592,10 +1594,7 @@ def read_vcf(
 
             # parse variant
             fields = line.split("\t")
-            try:
-                chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
-            except:
-                raise
+            chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
             # Before either filter, because both of them throw this evidence away - see
             # PloidyScan. Costs one string comparison on every non-X/Y row.
             if ploidy_scan is not None:

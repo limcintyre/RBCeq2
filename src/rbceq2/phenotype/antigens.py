@@ -5,7 +5,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
-from icecream import ic
 @dataclass(slots=True, frozen=False)
 class Antigen(ABC):
     """Abstract base class representing an antigen.

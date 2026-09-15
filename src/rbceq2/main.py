@@ -9,12 +9,10 @@ from multiprocessing import Pool
 from pathlib import Path
 from traceback import format_exc
 from typing import Callable
-import os
 import pandas as pd
 from icecream import ic
 from loguru import logger
 from typing import Mapping
-import sys
 
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp

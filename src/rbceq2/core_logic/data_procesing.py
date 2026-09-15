@@ -31,7 +31,6 @@ from rbceq2.core_logic.utils import (
 from rbceq2.db.db import Db
 from rbceq2.IO.vcf import VCF
 import pandas as pd
-from icecream import ic
 from rbceq2.core_logic.large_variants import select_best_per_vcf, MatchResult
 
 

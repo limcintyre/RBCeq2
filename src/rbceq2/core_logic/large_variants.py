@@ -670,14 +670,14 @@ def _parse_info(info: str) -> dict[str, str]:
     if info == "." or not info:
         return {}
     out: dict[str, str] = {}
-    for field in info.split(";"):
-        if not field:
+    for info_field in info.split(";"):
+        if not info_field:
             continue
-        if "=" in field:
-            k, v = field.split("=", 1)
+        if "=" in info_field:
+            k, v = info_field.split("=", 1)
             out[k] = v
         else:
-            out[field] = "True"
+            out[info_field] = "True"
     return out
 
 

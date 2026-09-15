@@ -11,7 +11,6 @@ from rbceq2.core_logic.constants import LOW_WEIGHT, PAR, NOVEL_DELETION_SLOT
 from rbceq2.core_logic.large_variants import _looks_like_sv_token
 from loguru import logger
 from collections import defaultdict
-from icecream import ic
 
 import re
 from abc import abstractmethod
