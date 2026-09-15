@@ -79,15 +79,9 @@ sample inference.
 These are different statements and lead to different output shapes:
 
 - A valid called haploid GT outside PAR on X/Y supplies per-sample evidence for one
-  chromosome in that region. No-calls supply no such evidence. PAR retains its
-  two-chromosome interpretation.
+  chromosome in that region.
 - Gene copy number can be read from GT ploidy only when the upstream caller
-  explicitly uses that convention. All called database small-variant positions
-  reported for the gene must agree on haploidy; there may be only one reported
-  position. Two chromosome slots remain, with a missing-gene-copy marker in one.
-- GT shape alone cannot establish the caller's convention. Haploid assembly output,
-  masked-PAR encodings, and other conventions must not be assumed equivalent to a
-  gene-copy-number call. An uncalled GT is not evidence of zero gene copies.
+  explicitly uses that convention.
 
 Called structural deletions are evaluated against the curated database and can
 constrain which chromosome carries an overlapping allele. The deletion's presence
@@ -102,7 +96,12 @@ inference because of the similarity between RHD and RHCE.
 
 Compatibility depends on the caller's stated encoding convention. Synthetic
 examples establish the software's behavior; they do not establish compatibility
-with every caller or clinical validity.
+with every caller.
+
+### Structural-variant selection
+
+Structural variants are fuzzy matched against allele definitions for the selected
+`--reference_genome`.
 
 ### FILTER and missing data
 
@@ -154,6 +153,11 @@ Malformed retained GTs fail the affected sample and are reported with a named er
 the other samples in a cohort or directory can continue. Shared header/FORMAT
 problems can prevent loading an input file. A nonzero process exit and the log must
 be reviewed even when some result files were written.
+
+### PDF reports
+
+`--PDFs` writes reports to `<output prefix>_PDFs/`. Each report preserves the exact
+sample identity used in the TSVs, including suffixes and letter case. 
 
 ## Database v2.5.1
 
