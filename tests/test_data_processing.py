@@ -2916,7 +2916,7 @@ def mock_chunk_multiple_ranks(alleles):
 ###############################################################################
 # Main Additional Coverage Tests
 ###############################################################################
-class TestProcessGeneticData3Additional(unittest.TestCase):
+class TestProcessGeneticDataSingleChunk(unittest.TestCase):
     """Additional tests specifically to cover the branches after `if len(trumpiest_homs) == 1`."""
 
     def setUp(self):

@@ -1197,10 +1197,6 @@ class TestPhaseSetBoundaries(unittest.TestCase):
         self.assertCountEqual(bg.filtered_out["filter_pairs_by_phase"], candidates)
 
 
-if __name__ == "__main__":
-    unittest.main(argv=["first-arg-is-ignored"], exit=False)
-
-
 class TestNarrowSecondSlotCandidatesByPhase(unittest.TestCase):
     """HG01527 RHCE: six candidates, one chromosome, one of them holds every variant.
 
@@ -1834,3 +1830,7 @@ class TestConditionalSubsetPhaseEvidence(unittest.TestCase):
 
                 self.assertEqual(bg.single_slot_genotypes, before)
                 self.assertEqual(dict(bg.filtered_out), {})
+
+
+if __name__ == "__main__":
+    unittest.main()
