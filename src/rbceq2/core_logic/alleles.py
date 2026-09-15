@@ -64,8 +64,6 @@ class Allele:
         Whether this allele is the reference allele.
     sub_type: str
         Additional subtype string if needed.
-    # phases: tuple[str] | None
-    #     Phase IDs associated with this allele (if phased).
     number_of_defining_variants: int
         Automatically set based on the size of defining_variants.
     """
@@ -319,7 +317,6 @@ class BloodGroup:
         default_factory=lambda: {
             Zygosity.HOM: 2,
             Zygosity.HET: 1,
-            #Zygosity.REF: 2,
             Zygosity.HEM: 1,
             Zygosity.NO_COPIES: 0,  # inside a hom deletion - genuinely zero chromosomes
             # Zygosity.NO_DATA has no entry on purpose. 'Not measured' has no copy number,
@@ -336,15 +333,15 @@ class BloodGroup:
     ----------
 
    Attributes:
-        type (str): 
+        type (str):
             Blood group type.
-        alleles (Dict[str, List[Allele]]): 
+        alleles (Dict[str, List[Allele]]):
             Dictionary mapping allele types to lists of Allele objects.
-        sample (str): 
+        sample (str):
             Sample identifier.
-        variant_pool (Dict[str, str]): 
+        variant_pool (Dict[str, str]):
             Mapping of variants to zygosity states.
-        variant_pool_phase (Dict[str, str]): 
+        variant_pool_phase (Dict[str, str]):
             Mapping of variants to phase states, ie 1|0.
         unused_pool (Dict[str, Zygosity]):
             Variants the sample carries at this blood group's database loci that are
@@ -431,11 +428,11 @@ class BloodGroup:
             blood group. A phenotype needs both chromosomes.
         phenotypes (List[str]):
             List of phenotypes associated with the blood group.
-        filtered_out (Dict[str, List[Allele | Pair]]): 
+        filtered_out (Dict[str, List[Allele | Pair]]):
             Alleles filtered out during processing, categorized by reason.
-        len_dict (Dict[str, int]): 
+        len_dict (Dict[str, int]):
             Dictionary mapping zygosity states to their associated numerical values.
-        misc (Dict[Any, Any]): 
+        misc (Dict[Any, Any]):
             Dictionary for miscellaneous stuff. A little promiscuous, probably too much so
     """
 
@@ -665,7 +662,6 @@ class Pair:
         Returns:
             A set of frozensets, each representing unique substrings
         """
-        # Split the info by '/' and then by '+' or '&' to get individual substrings
 
         return [
             frozenset(allele.genotype.split("+"))

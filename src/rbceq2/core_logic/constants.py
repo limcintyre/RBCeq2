@@ -1,6 +1,5 @@
 from enum import Enum, auto
 
-# Define version
 VERSION = "2.4.4"
 DB_VERSION = "2.5.1"
 
@@ -96,6 +95,7 @@ TWO = 2
   RHCE is under RH
   RHD is under RH"""
 
+
 class BgName(Enum):
     CROM = auto()
     FY = auto()
@@ -118,7 +118,7 @@ class BgName(Enum):
     ABO = auto()
     GYPA = auto()
     GYPB = auto()
-    GYP = auto() #hybrids
+    GYP = auto()  # hybrids
     CD59 = auto()
     IN = auto()
     RAPH = auto()
@@ -274,12 +274,11 @@ ANTITHETICAL = {
             "40": ("41",),
             "41": ("40",),
         },
-        # GPT Added blood groups
         BgName.GYPA: {
             "1": ("2",),
             "2": ("1",),
         },
-        BgName.GYPB: { 
+        BgName.GYPB: {
             "3": ("4",),
             "4": ("3",),
         },

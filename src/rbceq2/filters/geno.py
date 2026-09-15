@@ -26,6 +26,7 @@ from rbceq2.filters.shared_filter_functionality import (
     check_var,
 )
 
+
 def split_pair_by_ref(pair: Pair) -> tuple[Allele, Allele]:
     """Split a pair of alleles into reference and non-reference.
 
@@ -141,7 +142,6 @@ def filter_pairs_on_antithetical_zygosity(
         ):
             return bg  # KN has alleles without either antithetical SNV
 
-        # remove pairs of same subtype
         for pair in bg.alleles[AlleleState.NORMAL]:
             if pair.allele1.sub_type == pair.allele2.sub_type:
                 to_remove.append(pair)

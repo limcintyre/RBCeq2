@@ -166,6 +166,7 @@ def apply_to_dict_values(func: Callable[..., Any]) -> Callable[..., dict]:
 
     return decorator
 
+
 def zygosity_or_HOM(pool: dict[str, str], variant: str) -> str:
     """Look up a variant's zygosity in the pool, assuming HOM if it is absent.
 
@@ -207,12 +208,6 @@ def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
         variant for variant in allele.defining_variants if not variant.endswith(".")
     ]
 
-    # return (
-    #     sum([1 for variant in proper_vars if pool.get(variant, "HOM") == Zygosity.HET])
-    #     == 1
-    #     or allele.number_of_defining_variants == 1
-    #     or all(pool.get(variant, "HOM") == Zygosity.HOM for variant in proper_vars)
-    # )
     return (
         sum(
             [
@@ -227,40 +222,6 @@ def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
             zygosity_or_HOM(pool, variant) == Zygosity.HOM for variant in proper_vars
         )
     )
-
-
-# def one_HET_all_HOM_ref_or_1variant(allele: Allele, pool: dict[str, str]) -> bool:
-#     """Check if an allele meets one of the following conditions:
-#     1. It has exactly one HET variant.
-#     2. It has exactly one defining variant.
-#     3. It is a reference allele.
-#     4. All defining variants are HOM.
-
-#     Args:
-#         allele (Allele): An Allele object with its defining variants.
-#         pool (dict[str, str]): A dictionary mapping variant identifiers to
-#             their zygosity. Defaults to "HOM" if a variant is not found.
-
-#     Returns:
-#         bool: True if any of the above conditions is met, False otherwise.
-#     """
-
-#     return (
-#         sum(
-#             [
-#                 1
-#                 for variant in allele.defining_variants
-#                 if pool.get(variant, "HOM") == Zygosity.HET
-#             ]
-#         )
-#         == 1
-#         or allele.number_of_defining_variants == 1
-#         or allele.reference
-#         or all(
-#             pool.get(variant, "HOM") == Zygosity.HOM
-#             for variant in allele.defining_variants
-#         )
-#     )
 
 
 def check_available_variants(
@@ -322,17 +283,13 @@ def chunk_geno_list_by_rank(input_list: list[Allele]) -> list[list[Allele]]:
     for allele in input_list:
         result[allele.sub_type][allele.weight_geno].append(allele)
 
-    # Initialize an empty list to hold the final chunks
     final_chunks = []
 
-    # Iterate over each Sub_type and accumulate the weighted alleles
     for sub in subs:
         sub_chunks = [result[sub][weight] for weight in weights if result[sub][weight]]
         if not final_chunks:
-            # For the first Sub_type, just assign the chunks directly
             final_chunks = sub_chunks
         else:
-            # For subsequent Sub_types, merge the chunks with the existing ones
             final_chunks = [
                 x + y
                 for x, y in zip_longest(final_chunks, sub_chunks, fillvalue=[])
@@ -400,6 +357,6 @@ def get_allele_relationships(
         sub_all = partial(sub_alleles_relationships, all_alleles)
         for result, key in pool.imap_unordered(
             sub_all, ["KN"]
-        ):  # all_alleles.keys(): (no &)
+        ):
             relationships[key] = result
     return relationships

@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
+
 @dataclass(slots=True, frozen=False)
 class Antigen(ABC):
     """Abstract base class representing an antigen.
@@ -310,7 +311,6 @@ class AlphaNumericAntigen(Antigen):
                 else self.base_name.replace(")", f"{suffix})")
             )
 
-        # Determine the suffix based on the allele's state
         if self.weak:
             name_expressed = generate_name("+w")
             name_not_expressed = generate_name("-")
@@ -318,7 +318,6 @@ class AlphaNumericAntigen(Antigen):
             name_expressed = generate_name("+")
             name_not_expressed = generate_name("-")
 
-        # Return the appropriate name based on whether the allele is expressed
         return name_expressed if self.expressed else name_not_expressed
 
 
@@ -596,10 +595,9 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         if "NEG" in name_upper:  # This catches "WEAK TO NEG", "PARTIAL NEG", etc.
             return 7
         # Second highest priority: "-" for not expressed/null
-        if "-" in self.given_name:  # Check the original string for the '-' character
+        if "-" in self.given_name:
             return 8
 
-        # Check for specific characteristics
         is_robust = "ROBUST" in name_upper
         is_partial = "PARTIAL" in name_upper
         is_weak = "WEAK" in name_upper  # Note: "VERY_WEAK" also contains "WEAK"
@@ -608,25 +606,23 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
         if is_robust:
             return 1
 
-        # Case 1: It's "PARTIAL" and also some form of "WEAK"
         if is_partial:
-            if is_weak:  # And not is_very_weak (because that implies "VERY_WEAK")
+            if is_weak:
                 return 5  # Weak Partial
-            else:  # Just Partial, not weak
+            else:
                 return 3  # Partial
 
-        # Case 2: Not "PARTIAL" or "PARTIAL" was handled
         if (
             is_very_weak
-        ):  # This will catch "VERY_WEAK" and "PARTIAL VERY_WEAK" if not handled above
+        ):
             return 6  # Very Weak
 
-        if is_weak:  # And not is_very_weak (because that would have been caught)
+        if is_weak:
             return 4  # Weak
 
         if (
             is_partial
-        ):  # This means it's "PARTIAL" alone (no weak, no very_weak, no robust)
+        ):
             return 3  # Partial
 
         return 2  # Normal / Strong
@@ -649,7 +645,7 @@ class AlphaNumericAntigenRHCE(AlphaNumericAntigen):
             4: "+weak",
             5: "+weak_partial",
             6: "+very_weak",
-            7: "?unknown", # '?' because it cant be both!
+            7: "?unknown",  # '?' because it cant be both!
             8: "-",
         }
         return f"{self.base_name}{d[self.weight]}"
@@ -679,16 +675,15 @@ class NumericAntigenRHCE(NumericAntigen):
         7: Negative ('n', including if combined with w, v, p)
         8: Not Expressed/Null ('-')
         """
-        name_lower = self.given_name.lower()  # Use lower for char checks
+        name_lower = self.given_name.lower()
 
         # Highest priority: 'n' for negative
         if "n" in name_lower:
             return 7
         # Second highest priority: '-' for not expressed/null
-        if "-" in self.given_name:  # check original string for '-'
+        if "-" in self.given_name:
             return 8
 
-        # Check for specific characteristic flags
         is_robust = "r" in name_lower
         is_partial = "p" in name_lower
         is_weak = "w" in name_lower
@@ -698,18 +693,18 @@ class NumericAntigenRHCE(NumericAntigen):
             return 1
 
         if is_partial:
-            if is_weak:  # 'p' and 'w' are present
+            if is_weak:
                 return 5  # Weak Partial
-            else:  # Just 'p'
+            else:
                 return 3  # Partial
 
-        if is_very_weak:  # 'v' is present (could be 'v' alone or 'vp')
+        if is_very_weak:
             return 6  # Very Weak
 
-        if is_weak:  # 'w' is present (could be 'w' alone, 'pw' was handled)
+        if is_weak:
             return 4  # Weak
 
-        if is_partial:  # 'p' is present alone (other 'p' combos handled)
+        if is_partial:
             return 3  # Partial
 
         return 2  # Normal / Strong
@@ -784,37 +779,33 @@ class AlphaNumericAntigenRHD(AlphaNumericAntigen):
         name_upper = self.given_name.upper()
 
         # highest priority: "-" for not expressed/null
-        if "-" in self.given_name:  # Check the original string for the '-' character
+        if "-" in self.given_name:
             return 6
 
-        # Check for specific characteristics
         is_partial = "PARTIAL" in name_upper
         is_weak = "WEAK" in name_upper  # Note: "VERY_WEAK" also contains "WEAK"
         is_very_weak = "EL" in name_upper
 
-        # Case 1: It's "PARTIAL" and also some form of "WEAK"
         if is_partial:
-            if is_weak:  # And not is_very_weak (because that implies "VERY_WEAK")
+            if is_weak:
                 return 4  # Weak Partial
-            else:  # Just Partial, not weak
+            else:
                 return 2  # Partial
 
-        # Case 2: Not "PARTIAL" or "PARTIAL" was handled
         if (
             is_very_weak
-        ):  # This will catch "VERY_WEAK" and "PARTIAL VERY_WEAK" if not handled above
+        ):
             return 5  # Very Weak
 
-        if is_weak:  # And not is_very_weak (because that would have been caught)
+        if is_weak:
             return 3  # Weak
 
         if (
             is_partial
-        ):  # This means it's "PARTIAL" alone (no weak, no very_weak, no robust)
+        ):
             return 2  # Partial
 
         return 1  # Normal
-
 
 
 class NumericAntigenRHD(NumericAntigen):
@@ -839,30 +830,29 @@ class NumericAntigenRHD(NumericAntigen):
         5: Very Weak ('v') (el)
         6: Not Expressed/Null ('-')
         """
-        name_lower = self.given_name.lower()  # Use lower for char checks
+        name_lower = self.given_name.lower()
 
         # highest priority: '-' for not expressed/null
-        if "-" in self.given_name:  # check original string for '-'
+        if "-" in self.given_name:
             return 6
 
-        # Check for specific characteristic flags
         is_partial = "p" in name_lower
         is_weak = "w" in name_lower
         is_very_weak = "v" in name_lower
 
         if is_partial:
-            if is_weak:  # 'p' and 'w' are present
+            if is_weak:
                 return 4  # Weak Partial
-            else:  # Just 'p'
+            else:
                 return 2  # Partial
 
-        if is_very_weak:  # 'v' is present (could be 'v' alone or 'vp')
+        if is_very_weak:
             return 5  # Very Weak
 
-        if is_weak:  # 'w' is present (could be 'w' alone, 'pw' was handled)
+        if is_weak:
             return 3  # Weak
 
-        if is_partial:  # 'p' is present alone (other 'p' combos handled)
+        if is_partial:
             return 2  # Partial
 
         return 1  # Normal
@@ -878,7 +868,7 @@ class NumericAntigenRHD(NumericAntigen):
         """
         translation_table = str.maketrans("", "", "-+wpmv")
         return self.given_name.translate(translation_table)
-    
+
     @property
     def name(self) -> str:
         """Return the name with mod, if needed.

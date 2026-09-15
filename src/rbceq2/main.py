@@ -179,22 +179,17 @@ def main():
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
-    # Configure logging
     UUID = configure_logging(args)
 
     logger.debug("Logger configured for debug mode.")
     logger.info("Application started.")
 
-    # 1. Prepare the DataFrame
     logger.info("Preparing database DataFrame...")
     db_df = prepare_db()
     logger.info("Database DataFrame prepared.")
 
-    # 2. Run consistency checks on the prepared DataFrame
     DbDataConsistencyChecker.run_all_checks(df=db_df)
-    # If any check fails, an exception will be raised here, and the program will halt.
 
-    # 3. If all checks pass, proceed to create the Db object
     logger.info("Consistency checks passed. Initializing Db object...")
     db = Db(ref=args.reference_genome, df=db_df)
     logger.info("Db object initialized.")
@@ -268,10 +263,7 @@ def main():
                 logger.error(
                     f"Sample {results.sample} failed and was skipped: {results.error}"
                 )
-                # At ERROR, not DEBUG. A failure is exactly when the traceback is wanted,
-                # and the reason can be an assertion with no message at all - 'AssertionError:'
-                # on its own says nothing without the line it came from. Verbose, but only
-                # ever once per failed sample.
+                # Keep each failed sample's traceback at ERROR, including bare assertions.
                 logger.error(f"{results.sample} traceback:\n{results.traceback}")
                 continue
             if results is not None:
@@ -288,9 +280,7 @@ def main():
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
     if not dfs_geno:
-        # Every sample failed, so there is nothing to write and an empty TSV would look
-        # like a clean run that found nothing. Stop instead, having already logged each
-        # failure individually above.
+        # An empty TSV must not disguise a run in which every sample failed.
         for failure in failures:
             logger.error(f"{failure.sample}: {failure.error}")
         message = f"All {len(failures)} sample/s failed. No results written."
@@ -298,12 +288,8 @@ def main():
         print(f"\n{message} See the log for the reason against each sample.")
         sys.exit(1)
 
-    # sort_index, not decoration: imap_unordered yields samples in whatever order the
-    # workers finish, and from_dict(orient='index') keeps insertion order, so without this
-    # the same VCFs and the same database produce the same cells in a different order every
-    # run - hard rule 2. Sorting here rather than switching to an ordered imap keeps the
-    # throughput (no head of line blocking on one slow sample) and additionally makes the
-    # output independent of the order the input files were listed in.
+    # Sort after unordered workers finish to preserve throughput while making output
+    # independent of worker completion and input-file order.
     df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index").sort_index()
     df_geno = df_geno.replace("", f"{UNDETERMINED_SLOT}/{UNDETERMINED_SLOT}")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
@@ -318,9 +304,7 @@ def main():
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
 
-    # Deliberately at the end rather than as each sample is read - with --debug a warning
-    # emitted mid-run is buried under the per-sample trace, and the rate only means
-    # anything once every sample has been seen.
+    # Report the complete no-call rate after the per-sample debug output.
     report_no_call_summary(no_calls, len(dfs_geno))
 
     report_failures(failures)
@@ -329,14 +313,11 @@ def main():
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
     if sys.stdout.encoding and sys.stdout.encoding.lower().startswith('utf'):
         print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
-    else: #windows can't handle emojis
+    else:  # windows can't handle emojis
         print(f"\nComplete! {len(dfs_geno)} VCFs processed in {time_str}. \nResults saved successfully.")
 
     if failures:
-        # Results for the samples that worked are already written. The non zero exit is so
-        # a partial run is not mistaken for a complete one by anything reading the exit
-        # code - which is the signal a crash used to give, back when one bad file took the
-        # whole batch down.
+        # Signal partial failure after writing the successful samples.
         sys.exit(1)
 
 
@@ -626,7 +607,7 @@ def find_hits(
         filt_co.ensure_co_existing_HET_SNP_used,
         filt_co.filter_co_existing_pairs,
         filt_co.filter_co_existing_in_other_allele,
-        filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
+        filt_co.filter_co_existing_with_normal,  # Must follow the normal filters.
         filt_co.filter_co_existing_subsets,
         filt.cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
         filt.cant_split_HEM_SNPs_across_alleles,
@@ -636,14 +617,12 @@ def find_hits(
             reference_alleles=db.reference_alleles,
             gene_absent_subtypes=db.gene_absent_subtypes,
         ),
-        #dp.add_CD_to_XG,
     ]
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
     res = dp.add_refs(db, res, excluded, vcf)
 
-    # merge FUT 1 and 2
     fut2s = res["FUT2"].genotypes.copy()
     fut1s = res["FUT1"].genotypes.copy()
     for allele_pair in fut2s:
@@ -685,7 +664,7 @@ def find_hits(
         partial(ph.modify_FY2, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_RHD, ant_type=PhenoType.numeric),
         partial(ph.modify_RHD, ant_type=PhenoType.alphanumeric),
-        
+
     ]
 
     preprocessor2 = compose(*pipe2)

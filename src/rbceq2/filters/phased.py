@@ -21,6 +21,7 @@ from rbceq2.filters.shared_filter_functionality import (
 )
 from rbceq2.core_logic.alleles import Allele
 
+
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
     """Remove unphased alleles from the BloodGroup's FILT state if phased flag is set.
@@ -930,7 +931,6 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             continue
         if len(bg.alleles[allele_state]) in [1, 0]:
             return bg
-        # process alleles
         alleles = list(flatten_alleles(bg.alleles[allele_state]))
 
         # A variant at a single-copy locus is on the one chromosome that
@@ -1373,7 +1373,6 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     if not phased:
         return bg
-    # store as list of tuples: (weight, pair)
     pairs: list[tuple[float, Pair]] = []
     for pair in bg.alleles[AlleleState.NORMAL]:
         if possible_to_use_phase(bg, pair):
@@ -1385,7 +1384,6 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     weights = set([pair_tup[0] for pair_tup in pairs])
     if len(weights) == 1:
         return bg
-    # select the lowest-weighted pair
     best_weight, best_pair = min(pairs, key=lambda x: x[0])
 
     to_remove = [pair for pair in bg.alleles[AlleleState.NORMAL] if pair != best_pair]

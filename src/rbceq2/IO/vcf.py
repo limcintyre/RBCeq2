@@ -564,7 +564,7 @@ class VCF:
     input_vcf: pl.DataFrame | pd.DataFrame
     lane_variants: dict[str, Any]
     unique_variants: set[str]
-    sample: str  # field(init=False)
+    sample: str
     reference_genome: str | None = None
     observed_haploid_chroms: frozenset[str] | None = None
     df: pd.DataFrame = field(init=False)
@@ -580,7 +580,6 @@ class VCF:
         object.__setattr__(self, "df", self.handle_single_or_multi())
         _validate_gt_format(self.df, context=f"VCF sample={self.sample}")
         _validate_sample_gts(self.df, context=f"VCF sample={self.sample}")
-        # object.__setattr__(self, "sample", self.get_sample())
         self.rename_chrom()
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
         # depends on the answer, and remove_home_ref is where that row gets dropped.
@@ -625,14 +624,11 @@ class VCF:
         This method populates the `self.phase_sets` attribute with a nested
         dictionary: {chromosome: {phase_set_id: (min_position, max_position)}}.
         """
-        # Temporary dict to aggregate all positions for each phase set
         # Format: {chrom: {ps_id: [pos1, pos2, ...]}}
         temp_phase_data = {}
 
-        # Filter for rows that might contain phasing info to reduce work
         df_phased = self.df[self.df["FORMAT"].str.contains("PS", na=False)].copy()
 
-        # Convert POS to integer once for performance
         df_phased["POS"] = pd.to_numeric(df_phased["POS"])
 
         for _, row in df_phased.iterrows():
@@ -653,12 +649,10 @@ class VCF:
                     pos = row["POS"]
                     ps_id = int(ps_value)
 
-                    # Initialize nested dicts if they don't exist and append pos
                     temp_phase_data.setdefault(chrom, {}).setdefault(ps_id, []).append(
                         pos
                     )
 
-        # Convert the lists of positions to (min, max) tuples
         final_phase_sets = {}
         for chrom, ps_groups in temp_phase_data.items():
             final_phase_sets[chrom] = {
@@ -844,7 +838,6 @@ class VCF:
     def add_loci(self) -> None:
         """Add loci identifiers to the DataFrame."""
         self.df["loci"] = self.df.CHROM + ":" + self.df.POS
-
 
     def set_loci(self) -> set[str]:
         """Create a set of loci identifiers from the DataFrame.
@@ -1041,25 +1034,20 @@ class VCF:
                                 self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
                             )
 
-                            # Create the reference variant row
                             ref_row = original_row.copy()
                             ref_row["variant"] = f"{lane_loci}_ref"
                             ref_row["ALT"] = original_row[
                                 "REF"
                             ]  # ALT becomes the original REF
 
-                            # Flip the genotype in FORMAT column
                             gt_field = ref_row["SAMPLE"].split(":")[0]
                             if "|" in gt_field:
-                                # Phased: flip 0|1 to 1|0 or 1|0 to 0|1
                                 flipped_gt = "|".join(reversed(gt_field.split("|")))
                             elif "/" in gt_field:
-                                # Unphased: flip 0/1 to 1/0 or 1/0 to 0/1
                                 flipped_gt = "/".join(reversed(gt_field.split("/")))
                             else:
                                 raise ValueError("GT formated wrong")
 
-                            # Replace the GT field in SAMPLE
                             sample_fields = ref_row["SAMPLE"].split(":")
                             sample_fields[0] = flipped_gt
                             ref_row["SAMPLE"] = ":".join(sample_fields)
@@ -1225,7 +1213,6 @@ def split_vcf_to_dfs(vcf_df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Dict[str, pd.DataFrame]: Dictionary of sample-specific DataFrames.
     """
-    # Extract column names related to samples
     sample_cols = [col for col in vcf_df.columns if col not in COMMON_COLS]
     if sample_cols:
         _validate_gt_format(vcf_df, context="split_vcf_to_dfs")
@@ -1255,7 +1242,6 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
         "9:136132908": 136132908,
     }
 
-    # 1. Create the sorted list of all PHASED loci on Chromosome 9
     phased_on_chrom9 = (
         df.filter(pl.col("CHROM") == "9")
         .with_columns(pl.col("POS").cast(pl.Int64))
@@ -1263,16 +1249,13 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
         .sort("POS")
     )
 
-    # If there are no phased loci at all, exit
     if phased_on_chrom9.height == 0:
         return set()
 
-    # Extract the positions and loci as separate series for quick lookups
     phased_positions = phased_on_chrom9.get_column("POS")
     phased_loci_series = phased_on_chrom9.get_column("LOCI")
 
     results = []
-    # 2. For each central locus, find its place in the sorted list
     for locus_id, locus_pos in central_loci_to_find.items():
         # search_sorted finds the index where `locus_pos` would be inserted
         # to maintain the sort order. This is the index of the first variant
@@ -1296,12 +1279,11 @@ def find_phased_neighbors(df: pd.DataFrame) -> set[str]:
         )
     neighbor_cols = ["prev_2", "prev_1", "next_1", "next_2"]
     neighbours_df = pl.from_dicts(results)
-    # 4. Convert the list of dictionaries to a final DataFrame
     unique_loci_set = {
         locus
         for row in neighbours_df.select(neighbor_cols).rows()
         for locus in row
-        if locus is not None  # Filter out the nulls
+        if locus is not None
     }
     return unique_loci_set
 
@@ -1343,7 +1325,7 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
     neighbours = find_phased_neighbors(df)
     merged_set = neighbours | unique_variants | large_vars | massive_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
-    if filtered_df.height == 0:  # empty
+    if filtered_df.height == 0:
         pandas_df = df.to_pandas(use_pyarrow_extension_array=False)
     else:
         pandas_df = filtered_df.to_pandas(use_pyarrow_extension_array=False)
@@ -1582,7 +1564,7 @@ def read_vcf(
     samples: list[str] = []
     rows: list[str] = []
     with open_func(vcf_path, "rt") as f:
-        for line in f:  # TODO Pool
+        for line in f:
             if line.startswith("##"):
                 continue
             if line.startswith("#CHROM"):
@@ -1592,7 +1574,6 @@ def read_vcf(
                 samples = header[9:]
                 continue
 
-            # parse variant
             fields = line.split("\t")
             chrom, pos = fields[0].removeprefix("chr"), int(fields[1])
             # Before either filter, because both of them throw this evidence away - see
@@ -1618,16 +1599,12 @@ def read_vcf(
         raise VcfMissingHeaderError(filename=vcf_path)
     header_line = "\t".join(header) + "\n"
     csv_content = header_line + "".join(rows)
+    # Keep VCF fields as text in both parsing paths. Inferring integers from early
+    # haploid GTs would silently turn later diploid strings such as '0/0' into nulls.
     try:
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
-            # Every VCF field is text, and inferring types from the first rows gets it
-            # wrong in a way that is silent rather than loud. A file whose leading rows
-            # are haploid genotypes - which is what a caller encoding gene copy number
-            # produces - infers the sample column as an integer, and then every ordinary
-            # '0/0' further down the file is unparseable and lands as null. Reading
-            # everything as text removes the whole class.
             infer_schema_length=0,
             schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
         )
@@ -1635,12 +1612,6 @@ def read_vcf(
         df = pl.read_csv(
             io.StringIO(csv_content),
             separator="\t",
-            # Every VCF field is text, and inferring types from the first rows gets it
-            # wrong in a way that is silent rather than loud. A file whose leading rows
-            # are haploid genotypes - which is what a caller encoding gene copy number
-            # produces - infers the sample column as an integer, and then every ordinary
-            # '0/0' further down the file is unparseable and lands as null. Reading
-            # everything as text removes the whole class.
             infer_schema_length=0,
             schema_overrides={"CHROM": str, "POS": str, "QUAL": str},
             truncate_ragged_lines=True,
@@ -1672,10 +1643,8 @@ def check_if_multi_sample_vcf(file_path: str) -> bool:
 
     """
     header = None
-    # Use gzip.open if file is gzipped, else standard open.
     open_func = gzip.open if str(file_path).endswith(".gz") else open
     with open_func(file_path, "rt") as f:
-        # Find header line starting with "#CHROM"
         for line in f:
             if line.startswith("##"):
                 continue

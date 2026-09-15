@@ -49,16 +49,6 @@ def raw_results(
         Dict[str, List[Allele]]: A dictionary mapping blood groups to lists of Allele
         objects.
 
-    best = select_best_per_vcf(matches, tie_tol=1e-9)
-    best_var_map={}
-    for match in best:
-        best_var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
-    alleles_with_big_vars = []
-    for allele in bg.alleles[AlleleState.RAW]:
-        if any(var in best_var_map for var in allele.defining_variants):
-            allele = allele.with_big_variants(best_var_map)
-        alleles_with_big_vars.append(allele)
-    bg.alleles[AlleleState.RAW] = alleles_with_big_vars
     """
     res: dict[str, list[Allele]] = defaultdict(list)
     for allele in db.make_alleles():
@@ -258,7 +248,6 @@ def add_phasing(
         # describes the same locus and so states nothing the input did not.
         position = current_variant.split("_")[0]
         for key, measured in variant_metrics.items():
-            # Match keys that start with the same position but are not the ref variant itself
             if not key.startswith(position + "_") or key == current_variant:
                 continue
             partner = measured.get("PS")
@@ -296,16 +285,9 @@ def add_phasing(
     return bg
 
 
-# @apply_to_dict_values
-# def ABO_phasing(
-#     bg: BloodGroup,
-#     phased: bool,
-# ) -> BloodGroup:
-#     # aboO_phases2 = set([]) I'm opting out of this path but if it ever gets revisited
-#     # do it at DB level #TODO look for vars that have only ever been observed in cis with
-#     # ABO*O, or never been observed with it and take phasing info from there. Best
-#     # to actually phase indels though
-#     """9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
+# Historical ABO phasing evidence. Any future inference from cis associations
+# belongs in the database; direct indel phasing is preferable.
+#     9:133257521(GRCh38) and 9:136132908 (GRCh37) _T_TC or _ref are pivotal for ABO
 #     calls but aren't always assigned a phase group by phasing algos
 
 #     some alleles are same/similar except for this locus
@@ -337,59 +319,6 @@ def add_phasing(
 #                 9:133256205_G_C 0|1
 #                 9:133257521_ref unknown
 #                 9:133255801_C_T 0|1
-
-#     this function will infer the phase of this locus from the phase of ABO*O.01
-#     specific variants
-#     """
-#     if not phased:
-#         return bg
-
-#     if bg.type != "ABO":
-#         return bg
-#     # 261delG
-#     c261delGs = [
-#         "9:133257521_ref",
-#         "9:133257521_T_TC",
-#         "9:136132908_ref",
-#         "9:136132908_T_TC",
-#     ]
-#     if any(bg.variant_pool.get(c261delG) == Zygosity.HOM for c261delG in c261delGs):
-#         return bg
-
-#     aboO = set([])
-#     other = set([])
-#     for allele in bg.alleles[AlleleState.FILT]:
-#         if allele.genotype.startswith("ABO*O.01"):
-#             for variant in allele.defining_variants:
-#                 aboO.add(variant)
-#         else:
-#             for variant in allele.defining_variants:
-#                 other.add(variant)
-#     aboO_phases = set([])
-#     for variant in aboO.difference(other):
-#         if not variant.startswith(("9:133257521", "9:136132908")):
-#             phase = bg.variant_pool_phase[variant]
-#             aboO_phases.add(phase)
-
-#     if len(aboO_phases) == 0:
-#         return bg  # can't rescue ABO
-#     if len(aboO_phases) > 1:
-#         return bg  # can't rescue ABO
-#     abo_phase = aboO_phases.pop()
-#     not_abo_phase = "1|0" if abo_phase == "0|1" else "0|1"
-#     new_phases = {}
-
-#     for variant, phase in bg.variant_pool_phase.items():
-#         if variant in c261delGs:
-#             if variant.endswith("_ref"):
-#                 new_phases[variant] = abo_phase
-#             else:
-#                 new_phases[variant] = not_abo_phase
-#         else:
-#             new_phases[variant] = phase
-#     bg.variant_pool_phase = new_phases
-
-#     return bg
 
 
 def chrom_copies_for_bg(
@@ -889,11 +818,9 @@ def make_variant_pool(
         weight_geno: 1000
         phenotype: FY:-1,2 or Fy(a-),Fy(b+)
         reference: False"""
-        # Parse the reference key
         chrom, pos_ref = ref_key.split(":")
         pos = pos_ref.split("_")[0]
 
-        # Find matching keys
         matches = [
             key
             for key in dict_keys
@@ -1151,7 +1078,6 @@ def _modify_variant_pool_with_large_indel(
     def get_start_pos(current_variant):
         return int(current_variant.strip().split(":")[1].split("_")[0])
 
-    # Identify large deletions
     big_dels = []
     for variant in variant_pool:
         no_seq_variant = collapse_variant(variant)
@@ -1161,11 +1087,9 @@ def _modify_variant_pool_with_large_indel(
             )  # these are teh db version of var,
             # should try get the VCF version TODO
 
-    # Early exit if no large deletions or only deletions present
     if not big_dels or len(variant_pool) <= len(big_dels):
         return {}
 
-    # Determine zygosity values based on pool type
     if is_phase_pool:
         hom_value = "1/1"
         # A tuple in both branches, so the membership test below means membership. It was
@@ -1226,10 +1150,8 @@ def _modify_variant_pool_with_large_indel(
 
         for variant, zygosity in variant_pool.items():
             if variant == big_del:
-                # Keep deletion as-is
                 new_variant_pool[variant] = zygosity
             elif start < get_start_pos(variant) < end:
-                # Variant falls within deletion range
                 if big_del_is_hom:
                     if not variant.endswith("_ref"):
                         # An ALT call inside a deletion that removed both copies is a
@@ -1250,10 +1172,8 @@ def _modify_variant_pool_with_large_indel(
                     )
                 else:
                     if zygosity == hom_value:
-                        # Convert homozygous to hemizygous
                         new_variant_pool[variant] = hem_value
                     else:
-                        # Warn about unexpected heterozygous variant
                         new_variant_pool[variant] = zygosity
                         logger.warning(
                             f"Heterozygous variant detected where hemizygousity expected "
@@ -1283,7 +1203,6 @@ def _modify_variant_pool_with_large_indel(
                             ),
                         )
             else:
-                # Variant outside deletion range
                 new_variant_pool[variant] = zygosity
 
     return new_variant_pool
@@ -1556,7 +1475,6 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     if not phased:
         return bg
 
-    # Find large deletions that are unphased
     unphased_big_dels = []
     for variant, phase in bg.variant_pool_phase.items():
         if ("del" in variant.lower() or "DEL" in variant) and "/" in phase:
@@ -1565,7 +1483,6 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
     if not unphased_big_dels:
         return bg
 
-    # Collect all phase sets (excluding 'unknown' and '.')
     all_phase_sets = set()
     for variant, phase_set in bg.variant_pool_phase_set.items():
         if phase_set not in ["unknown", "."]:
@@ -1577,11 +1494,9 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     common_phase_set = list(all_phase_sets)[0]
 
-    # Process each unphased deletion
     for big_del in unphased_big_dels:
         start, end = get_deletion_boundaries(big_del)
 
-        # Find overlapping phased variants
         overlapping_variants = []
 
         for variant, phase in bg.variant_pool_phase.items():
@@ -1607,18 +1522,13 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
                 if start < variant_pos < end:
                     overlapping_variants.append(variant)
 
-        # Update deletion phase if we have overlapping variants
         if overlapping_variants:
-            # Use the first overlapping variant's phase to infer deletion phase
             overlapping_phase = bg.variant_pool_phase[overlapping_variants[0]]
             inferred_del_phase = flip_phase(overlapping_phase)
 
-            # Update the deletion's phase and phase set
             bg.variant_pool_phase[big_del] = inferred_del_phase
             bg.variant_pool_phase_set[big_del] = common_phase_set
 
-    # Now infer phase for reference variants based on overlapping deletions
-    # First, collect all deletions (both originally phased and newly phased)
     all_deletions = {}
     for variant, phase in bg.variant_pool_phase.items():
         if ("del" in variant.lower() or "DEL" in variant) and "|" in phase:
@@ -1633,18 +1543,15 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
             start, end = get_deletion_boundaries(variant)
             all_deletions[variant] = {"phase": phase, "start": start, "end": end}
 
-    # Update reference variants
     for variant in list(bg.variant_pool_phase.keys()):
         if variant.endswith("_ref"):
             variant_pos = get_start_pos(variant)
 
-            # Find which deletion(s) this reference overlaps with
             overlapping_deletions = []
             for del_variant, del_info in all_deletions.items():
                 if del_info["start"] < variant_pos < del_info["end"]:
                     overlapping_deletions.append(del_variant)
 
-            # Check for invalid case: multiple deletions overlapping same locus
             if len(overlapping_deletions) > 1:
                 raise ValueError(
                     f"Reference variant {variant} at position {variant_pos} overlaps with "
@@ -1652,7 +1559,6 @@ def modify_phase_of_large_indel(bg: BloodGroup, phased: bool) -> BloodGroup:
                     f"impossible as there are only 2 alleles per locus."
                 )
 
-            # If the reference overlaps with a deletion, infer its phase
             if overlapping_deletions:
                 # Reference is on the opposite haplotype from the deletion
                 del_phase = all_deletions[overlapping_deletions[0]]["phase"]
@@ -2426,15 +2332,11 @@ def unique_in_order(lst: list) -> list:
     """
     unique_items = []
     for item in lst:
-        # Append item only if it's not already in the unique list
         if item not in unique_items:
             unique_items.append(item)
     return unique_items
 
 
-# -----------------------------------------------------------
-# Protocol for structural subtyping
-# -----------------------------------------------------------
 class GeneticProcessingProtocol(Protocol):
     """Protocol defining a process method for genetic data."""
 
@@ -2445,9 +2347,6 @@ class GeneticProcessingProtocol(Protocol):
         ...
 
 
-# -----------------------------------------------------------
-# Concrete strategies
-# -----------------------------------------------------------
 @dataclass
 class NoVariantStrategy:
     """Handles the case where there are no variants."""
@@ -2497,7 +2396,6 @@ class MultipleVariantDispatcher:
             trumpiest_homs[0].weight_geno if trumpiest_homs else 1000
         )
 
-        # Sub-strategy selection
         if len(trumpiest_homs) == 1:
             return SingleHomMultiVariantStrategy(
                 hom_allele=trumpiest_homs[0], first_chunk=first_chunk
@@ -2591,9 +2489,6 @@ class NoHomMultiVariantStrategy:
         return combine_all(ref_options, bg.variant_pool_numeric)
 
 
-# -----------------------------------------------------------
-# Picking the right protocol-based strategy
-# -----------------------------------------------------------
 def _pick_strategy(bg: BloodGroup) -> GeneticProcessingProtocol:
     """Decide which strategy (protocol implementer) to use."""
     options = unique_in_order(bg.alleles[AlleleState.FILT])
@@ -2775,22 +2670,6 @@ def combine_all(alleles: list[Allele], variant_pool: dict[str, int]) -> list[Pai
         if pair_can_exist(pair, variant_pool.copy()):
             ranked.append(Pair(*pair))
     return ranked
-
-
-# @apply_to_dict_values
-# def add_CD_to_XG(bg: BloodGroup) -> BloodGroup:
-#     """TODO why not just use the CD99 vars??
-#     adds CD to XG blood group.
-
-#     Args:
-#         bg (BloodGroup): The BloodGroup object to be processed.
-
-#     Returns:
-#         BloodGroup: The processed BloodGroup object.
-#     """
-#     if bg.genotypes == ["XG*01/XG*01"]:
-#         bg.genotypes = ["XG*01/XG*01", "CD99*01/CD99*01"]
-#     return bg
 
 
 def add_refs(

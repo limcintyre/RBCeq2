@@ -211,7 +211,6 @@ def make_values_dict(
         or None if the input format is invalid.
     """
     antigens = defaultdict(list)
-    # all dicts are ordered
     if "." in values_strs:
         return None  # some BGs just don't have numeric for all or alpha for all alleles
     ant_class = choose_class_type(bg_type, ant_type)
@@ -369,7 +368,6 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             else current_pair.alleles
         )
 
-        #return [getattr(allele, phenotype_attr) for allele in alleles_to_use]
         return [
             getattr(allele, phenotype_attr)
             for allele in sorted(alleles_to_use, key=lambda allele: allele.genotype)
@@ -635,14 +633,12 @@ def internal_anithetical_consistency_HET(
                 continue
             if ant.antithetical_antigen:
                 no_expressed = count_expressed_ants(ant, base_names)
-                # no change
                 if no_expressed == 2:
                     for ant2 in antigens:
                         if ant2.base_name == ant.base_name:
                             new_antigens.append(ant2)
                             already_checked.add(ant2.base_name)
                     continue
-                # add expressed ants
                 for ant2 in antigens:
                     if ant2.base_name == ant.base_name and ant2.expressed:
                         new_antigens.append(ant2)
@@ -708,7 +704,7 @@ def internal_anithetical_consistency_HET(
                         assert final_no_expressed == 2
                     except AssertionError:
                         logger.warning(
-                            f"Expressed antigens != 2! plz report to devs with these details; sample= {bg.sample} BG = {bg.type} no_expressed {final_no_expressed}", 
+                            f"Expressed antigens != 2! plz report to devs with these details; sample= {bg.sample} BG = {bg.type} no_expressed {final_no_expressed}",
                             new_antigens,
                             pair.allele1,
                             pair.allele2,
@@ -717,7 +713,6 @@ def internal_anithetical_consistency_HET(
                             final_no_expressed,
                             null,
                         )
-                                                
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
@@ -906,7 +901,7 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-  
+
     return bg
 
 
@@ -941,7 +936,7 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
         bg.phenotypes[ant_type][pair] = pheno
-    
+
     return bg
 
 
@@ -1272,13 +1267,11 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         return bg
 
     for pair, pheno in bg.phenotypes[ant_type].items():
-        # Start with all antigens from the original phenotype
         pheno_parts = pheno.split(",")
         new_pheno = []
 
         for ant in pheno_parts:
             modified = False
-            # Check each allele to see if it should annotate this antigen
             for allele in pair:
                 if (
                     ant in allele.phenotype_alt.split(",")
@@ -1296,7 +1289,6 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                         modified = True
                         break
 
-            # If not modified, keep original
             if not modified:
                 new_pheno.append(ant)
         if new_pheno:
@@ -1368,7 +1360,7 @@ def compare_numeric_ants_to_alphanumeric(
         or bg.phenotypes.get(PhenoType.numeric) == {}
     ):
         return bg
- 
+
     bg_name_map = {
         "GBGT1": "FORS",
         "ABCC4": "PEL",

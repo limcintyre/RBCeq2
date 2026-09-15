@@ -416,13 +416,11 @@ class SvMatcher:
         pos_tol = self._adaptive_pos_tol(db, ev, overlap=ov)
         len_tol = self._adaptive_len_tol(db, ev, overlap=ov)
 
-        # Gates
         if pos_delta > pos_tol and not ov:
             return (float("inf"), pos_delta, len_delta)
         if len_delta > len_tol:
             return (float("inf"), pos_delta, len_delta)
 
-        # Score normalized by adaptive tolerances
         s = (pos_delta / (pos_tol + 1)) + (len_delta / (len_tol + 1))
         if ov:
             s -= self.pos_bonus_overlap
@@ -454,11 +452,9 @@ def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
         return False
     s = tok.strip()
 
-    # word form
     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
         return True
 
-    # sequence form
     parts = s.split("_")
     if len(parts) >= 3:
         p0, p1, p2 = parts[0], parts[1], parts[2]
@@ -469,34 +465,6 @@ def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
                 if delta >= min_delta or max(len(p1), len(p2)) >= min_delta:
                     return True
     return False
-
-
-# def _looks_like_sv_token(tok: str) -> bool:
-#     """Heuristically check if a string looks like our SV token.
-
-#     Args:
-#         tok (str): Candidate string.
-
-#     Returns:
-#         bool: True if `tok` looks like an SV token.
-#     """
-#     if not tok or "_" not in tok:
-#         return False
-#     s = tok.strip()
-#     # word form: 25272547_del_59kb (or dup/ins/inv/cnv)
-#     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
-#         return True
-#     # sequence form: 126690214_<REF>_<ALT> (long REF preferred)
-#     parts = s.split("_")
-#     if len(parts) >= 3:
-#         p0, p1, p2 = parts[0], parts[1], parts[2]
-#         if (
-#             p0.isdigit()
-#             and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20)
-#             and (set(p2) <= set("ACGTNacgtn"))
-#         ):
-#             return True
-#     return False
 
 
 def load_db_defs(
@@ -518,7 +486,6 @@ def load_db_defs(
     token_hits = 0
     ci = _ci_lookup(df.columns.tolist())
 
-    # Resolve chrom col
     if chrom_col:
         chrom_key = ci.get(chrom_col.lower())
     else:
@@ -535,12 +502,10 @@ def load_db_defs(
     else:
         token_key = None  # trigger scan-all
 
-    # Determine allele id column (nice to have)
     allele_key = (
         ci.get("allele") or ci.get("id") or ci.get("genotype") or ci.get("name")
     )
 
-    # Iterate rows
     for _, row in df.iterrows():
         chrom = (str(row.get(chrom_key) or "")).strip()
         chrom = chrom.removeprefix("chr").removeprefix("CHR")
@@ -549,10 +514,8 @@ def load_db_defs(
 
         candidates: list[str] = []
         if token_key:
-            # Single specified token column
             candidates = [str(row.get(token_key, ""))]
         else:
-            # Scan all columns for likely tokens
             for k, v in row.items():
                 if not v or not isinstance(v, str):
                     continue
@@ -721,6 +684,7 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
             return True
     return False
 
+
 def _get_svlen_from_info(info: dict[str, str]) -> int:
     """Extract SVLEN from INFO dict, handling multi-allelic and missing cases.
 
@@ -739,6 +703,7 @@ def _get_svlen_from_info(info: dict[str, str]) -> int:
     if first_val.lstrip("-").isdigit():
         return int(first_val)
     return 0
+
 
 @dataclass(slots=True, frozen=True)
 class SvReader:
@@ -777,7 +742,6 @@ class SvReader:
         bnd_cache: dict[str, SvEvent] = {}
 
         for row in self.df.itertuples(index=True, name="Row"):
-            # Validate chromosome format
             chrom = str(row.CHROM)
             if chrom.startswith("chr"):
                 chrom = chrom[3:]
@@ -788,11 +752,9 @@ class SvReader:
             alt = str(row.ALT)
             alt_is_symbolic = alt.startswith("<") and alt.endswith(">")
 
-            # Determine SV type
             svtype = info.get("SVTYPE")
             svlen = _get_svlen_from_info(info)
 
-            # Infer type from large indels if SVTYPE not present
             if svtype is None and _is_large_indel(row.REF, alt, self.min_size):
                 first_alt = alt.split(",")[0]
                 delta = len(first_alt) - len(row.REF)
@@ -800,23 +762,18 @@ class SvReader:
                 svlen = delta
                 end = pos + max(len(row.REF), 1)
 
-            # Extract type from symbolic ALT if still not determined
             if svtype is None and alt_is_symbolic:
                 token = alt.strip("<>")
                 svtype = token.split(":")[0].upper()
 
-            # Skip non-SV records
             if svtype is None:
                 continue
 
-            # Parse confidence intervals
             cipos = _parse_ci(info.get("CIPOS"))
             ciend = _parse_ci(info.get("CIEND"))
 
-            # Get variant encoding (from encoders.py)
             variant_str = getattr(row, "variant", f"{chrom}:{pos}_{svtype}")
 
-            # Get sample format fields if available
             sample_fmt = getattr(row, "FORMAT", ".")
             sample_value = getattr(row, "SAMPLE", ".")
 
@@ -838,7 +795,6 @@ class SvReader:
                 filter_value=str(getattr(row, "FILTER", ".")),
             )
 
-            # Handle BND pairs
             if svtype == "BND":
                 mate_id = info.get("MATEID") or info.get("MATE") or ""
                 if mate_id:
@@ -852,91 +808,6 @@ class SvReader:
             else:
                 if event.size >= self.min_size:
                     yield event
-
-
-# @dataclass(slots=True, frozen=True)
-# class SnifflesVcfSvReader:
-#     """Portable, minimal structural variant reader for VCF.
-
-#     Attributes:
-#         df (df): df of to VCF file.
-#         min_size (int): Minimum size threshold for emitting events.
-#     """
-
-#     df: pd.DataFrame
-#     min_size: int = 10
-
-#     def events(self) -> Iterator[SvEvent]:
-#         """Iterate over structural variant events in a VCF.
-#         6
-#                 Returns:
-#                     Iterator[SvEvent]: Yielded SV events.
-#         """
-#         bnd_cache: dict[str, SvEvent] = {}
-#         for row in self.df.itertuples(index=True, name="Row"):
-#             assert not row.CHROM.startswith("chr")
-#             info = _parse_info(row.INFO)
-#             pos = int(row.POS)
-#             end = int(info.get("END", row.POS))
-#             alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
-
-#             svtype = info.get("SVTYPE")
-#             svlen = (
-#                 int(info["SVLEN"])
-#                 if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit()
-#                 else 0
-#             )
-
-#             if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
-#                 first_alt = row.ALT.split(",")[0]
-#                 delta = len(first_alt) - len(row.REF)
-#                 inferred_type = (
-#                     "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
-#                 )
-#                 svtype = inferred_type
-#                 svlen = delta
-#                 end = pos + max(len(row.REF), 1)
-
-#             if svtype is None and alt_is_symbolic:
-#                 token = row.ALT.strip("<>")
-#                 svtype = token.split(":")[0].upper()
-
-#             if svtype is None:
-#                 continue
-
-#             cipos = _parse_ci(info.get("CIPOS"))
-#             ciend = _parse_ci(info.get("CIEND"))
-
-#             event = SvEvent(
-#                 chrom=row.CHROM,
-#                 pos=pos,
-#                 end=end,
-#                 svtype=svtype,
-#                 svlen=svlen,
-#                 alt=row.ALT,
-#                 id=row.ID,
-#                 qual=row.QUAL,
-#                 info=info,
-#                 variant=row.variant,
-#                 cipos=cipos,
-#                 ciend=ciend,
-#                 sample_fmt=row.FORMAT,
-#                 sample_value=row.SAMPLE,
-#             )
-
-#             if svtype == "BND":
-#                 mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
-#                 if mate_id:
-#                     if mate_id in bnd_cache:
-#                         yield bnd_cache.pop(mate_id)
-#                         yield event
-#                     else:
-#                         bnd_cache[event.id] = event
-#                 else:
-#                     yield event
-#             else:
-#                 if event.size >= self.min_size:
-#                     yield event
 
 
 def select_best_per_vcf(
@@ -960,10 +831,8 @@ def select_best_per_vcf(
 
     filtered: list[MatchResult] = []
     for group in by_vcf.values():
-        # Sort primarily by score
         group.sort(key=lambda r: r.score)
         best_score = group[0].score
-        # Keep only matches within score tolerance
         tied = [g for g in group if abs(g.score - best_score) <= tie_tol]
 
         if len(tied) > 1:
@@ -971,11 +840,9 @@ def select_best_per_vcf(
             max_pos = max(t.pos_delta for t in tied)
             max_len = max(t.len_delta for t in tied)
 
-            # Avoid division by zero
             max_pos = max(max_pos, 1)
             max_len = max(max_len, 1)
 
-            # Compute combined delta score
             def combined_delta(r: MatchResult) -> float:
                 norm_pos = r.pos_delta / max_pos
                 norm_len = r.len_delta / max_len
@@ -983,7 +850,6 @@ def select_best_per_vcf(
 
             tied.sort(key=combined_delta)
             best_combined = combined_delta(tied[0])
-            # Keep matches within a small tolerance of best combined score
             tied = [t for t in tied if abs(combined_delta(t) - best_combined) < 1e-9]
 
         # If still tied, break by DB id for deterministic results
@@ -993,6 +859,5 @@ def select_best_per_vcf(
 
         filtered.extend(tied)
 
-    # Stable ordering: by VCF, then score, then DB id
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered

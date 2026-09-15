@@ -169,8 +169,6 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
         """
         Compare a pair against a list of other pairs to check if it is a proper subset.
         """
-        # Flatten the allele genotypes from the pair we are checking into a single set.
-        # e.g., Pair('A', 'B+C') -> {'A', 'B', 'C'}
         flat_alleles_to_check = {g for side in pair_to_check.comparable for g in side}
 
         for other_pair in all_co_pairs:
@@ -179,12 +177,10 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
 
             flat_other_alleles = {g for side in other_pair.comparable for g in side}
 
-            # --- THE CORE FIX IS HERE ---
-            # Use the proper subset operator '<' on the flattened sets of allele names.
-            # This ensures the pair is strictly smaller than the one it's compared to,
-            # which resolves the symmetrical removal bug.
+            # Compare allele-name sets strictly: equal sets must not remove each other.
+            # HET permutations such as KN*01.10/KN*01.-05+KN*01.07 and
+            # KN*01.-05/KN*01.07+KN*01.10 must survive this comparison.
             if flat_alleles_to_check < flat_other_alleles:
-                # This secondary logic for HET variants is preserved from the original.
                 different_alleles = [
                     allele
                     for allele in bg.alleles[AlleleState.RAW]
@@ -203,7 +199,6 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
                 if alleles_with_1_HET_var and not pair_to_check.same_subtype:
                     continue
 
-                # If the checks pass, we've found a superset, so this pair should be removed.
                 return True
 
         return False
@@ -228,135 +223,6 @@ def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
         bg.remove_pairs(to_remove, "filter_co_existing_subsets", AlleleState.CO)
 
     return bg
-
-
-# this was replaced by the above (AI generated) version after unit tests detected a logic flaw:
-# You are absolutely correct. Thank you for providing the class definitions. This context is critical, and you've pinpointed the exact area of complexity that explains the behavior. My previous analysis was incomplete because it was missing this context.
-# The issue is a fascinating and subtle conflict between two different ways of defining a "subset" relationship:
-# The Scientific Definition (Allele.__contains__): The Allele class defines the in operator based on defining_variants. allele_A in allele_B is True only if allele_A's variants are a proper subset of allele_B's variants. This is the scientifically correct and intuitive way to determine if one allele is a simpler version of another.
-# The String-Based Logic (in the filter): The filter_co_existing_subsets function, as written, completely ignores the Allele.__contains__ method. Instead, it uses its own internal helper function, is_subset, which operates on the Pair.comparable property. This property is derived from the allele's genotype string, splitting it by +.
-# This is the root of the problem. The test fails because the function's internal logic for determining a "subset" is flawed and does not behave like a true mathematical subset operation.
-# The Flaw in the Code's Logic
-# Let's re-examine the test case with this new understanding:
-# pair_subset: Contains alleles A and B. Its comparable property effectively represents the sets {'A'} and {'B'}.
-# pair_superset: Contains alleles A+B and B. Its comparable property represents the sets {'A', 'B'} and {'B'}.
-# When the function's internal is_subset logic runs:
-# It compares pair_subset to pair_superset: It checks if the elements {'A'} and {'B'} from the subset exist within the flattened elements of the superset ({'A', 'B'}). They do. So, pair_subset is correctly marked for removal.
-# It compares pair_superset to pair_subset: It checks if the elements {'A', 'B'} and {'B'} from the superset exist within the flattened elements of the subset ({'A', 'B'}). They do. The flawed logic concludes that the superset is a "subset" of the subset and incorrectly marks pair_superset for removal as well.
-# The function should only remove a pair if it is a proper subset of another. The current implementation removes any pair that has overlapping allele components, leading to the incorrect symmetrical removal that your test caught.
-# The Suggested Code Change
-# The best way to fix the function is to make its internal logic behave like a proper subset check, respecting its design of working with the flattened genotype strings. We can achieve this by comparing the size of the flattened allele sets. A pair is only a subset if its total set of allele components is a proper subset of the other's.
-# Here is the corrected version of the filter_co_existing_subsets function. This version fixes the flawed logic, and with this change, your original unit test will pass as expected.
-# E2e tests seem fine with it but I'll keep this here for a few iterations just in case
-
-# @apply_to_dict_values
-# def filter_co_existing_subsets(bg: BloodGroup) -> BloodGroup:
-#     """Filter co-existing allele pairs that are subsets of larger allele combinations.
-
-#     This filtering ensures that no combination smaller than either 2/2 or 1/3 (in this
-#     case) exists. For example, KN*01.-13+KN*01.06/KN*01.07 is a subset of
-#     KN*01.-13+KN*01.06+KN*01.12/KN*01.07 and therefore cannot exist.
-
-#     Args:
-#         bg (BloodGroup): A BloodGroup object containing allele pairs in various states.
-
-#     Returns:
-#         BloodGroup: The updated BloodGroup after filtering co-existing allele pairs.
-#      Example:
-#     ----------
-#     KN*01.06/KN*01.07+KN*01.10
-#     KN*01.07+KN*01.10/KN*01.07+KN*01.10 - not possible,
-#     KN*01.07+KN*01.10 + 207782856_A_G = KN*01.06
-
-#     KN*01.06 = 207782856_A_G, HET
-#               207782916_A_T,
-#               207782889_A_G,
-#               207782931_A_G
-#     KN*01.07 = 207782889_A_G,
-#               207782916_A_T
-#     KN*01.10 = 207782931_A_G,
-#               207782916_A_T
-
-#     variant_pool = {
-#         '1:207782856_A_G': 'Heterozygous',
-#         '1:207782889_A_G': 'Homozygous',
-#         '1:207782916_A_T': 'Homozygous',
-#         '1:207782931_A_G': 'Homozygous'
-#     }
-#     """
-
-#     def compare_to_all(pair_compare, comparables):
-#         """Compare a pair against a list of pairs to check if it is a subset.
-
-#         Args:
-#             pair_compare (tuple): A pair representing the allele combination to compare.
-#             comparables (list[tuple]): A list of allele pairs to compare against.
-
-#         Returns:
-#             bool: True if the pair is a subset of any other pair, False otherwise.
-#         """
-
-#         def number_of_alleles(pair_to_compare):
-#             return sum(len(bit) for bit in pair_to_compare)
-
-#         def is_subset(allele_to_compare):
-#             return all(
-#                 co_allele in other_pair[0] or co_allele in other_pair[1]
-#                 for co_allele in allele_to_compare
-#             )
-
-#         for other_pair in comparables:
-#             if pair_compare == other_pair:
-#                 continue
-#             no_alleles_in_mushed_pair = number_of_alleles(pair_compare)
-#             no_alleles_in_other_mushed_pair = number_of_alleles(other_pair)
-#             flat_alleles = flatten_alleles(pair_compare)
-#             flat_other_alleles = flatten_alleles(other_pair)
-
-#             if (
-#                 no_alleles_in_mushed_pair == no_alleles_in_other_mushed_pair
-#                 and flat_alleles == flat_other_alleles
-#             ):
-#                 continue
-#                 # don't remove due to het permutations ie
-#                 # KN*01.10', 'KN*01.-05+KN*01.07
-#                 # KN*01.-05', 'KN*01.07+KN*01.10
-#             if is_subset(pair_compare[0]) and is_subset(pair_compare[1]):
-#                 different_alleles = [
-#                     allele
-#                     for allele in bg.alleles[AlleleState.RAW]
-#                     if allele.genotype in flat_other_alleles.difference(flat_alleles)
-#                 ]
-#                 alleles_with_1_HET_var = [
-#                     allele
-#                     for allele in different_alleles
-#                     if [
-#                         bg.variant_pool[variant] for variant in allele.defining_variants
-#                     ].count(Zygosity.HET)
-#                     == 1
-#                 ]
-#                 if alleles_with_1_HET_var and not pair.same_subtype:
-#                     continue
-#                 return True
-#         return False
-
-#     if bg.alleles[AlleleState.CO] is None:
-#         return bg
-#     to_remove = []
-#     all_comparable = parse_bio_info2(bg.alleles[AlleleState.CO])
-#     all_comparable_without_ref = parse_bio_info2(
-#         [pair for pair in bg.alleles[AlleleState.CO] if not pair.contains_reference]
-#     )
-#     for pair in bg.alleles[AlleleState.CO]:
-#         if pair.contains_reference:
-#             if compare_to_all(pair.comparable, all_comparable):
-#                 to_remove.append(pair)
-#         elif compare_to_all(pair.comparable, all_comparable_without_ref):
-#             to_remove.append(pair)
-#     if to_remove:
-#         bg.remove_pairs(to_remove, "filter_co_existing_subsets", AlleleState.CO)
-
-#     return bg
 
 
 @apply_to_dict_values

@@ -43,8 +43,6 @@ class VariantCountMismatchError(ValueError):
 
 def load_db() -> str:
     """Load the db.tsv file from package resources."""
-    # Use importlib.resources.files() which is preferred for Python >= 3.9
-    # It needs the package name ('rbceq2') as the anchor.
     try:
         resource_path = importlib.resources.files("rbceq2").joinpath(
             "resources", "db.tsv"
@@ -545,7 +543,7 @@ def strip_stray_whitespace(df: pd.DataFrame) -> pd.DataFrame:
     if renamed:
         logger.warning(
             f"Database column name/s have stray whitespace and were trimmed on load: "
-            f"{ {old: new for old, new in renamed.items()} }. Please fix db.tsv"
+            f"{({old: new for old, new in renamed.items()})}. Please fix db.tsv"
         )
         df = df.rename(columns=renamed)
 
@@ -591,8 +589,7 @@ def prepare_db() -> pd.DataFrame:
         logger.info("Database content loaded successfully.")
     except FileNotFoundError:
         logger.error("CRITICAL: db.tsv not found within the package resources!")
-        # You might want to provide a more informative error or exit here
-        raise  # Re-raise the specific error
+        raise
     except Exception as e:
         logger.error(f"An unexpected error occurred during db loading: {e}")
         raise
@@ -639,10 +636,6 @@ class DbDataConsistencyChecker:
         Helper to check antigen consistency for a given pair of phenotype columns.
         Uses the mapping built from primary Phenotype/Phenotype_alt columns.
         """
-        # The mapping should ideally be built once from the canonical Phenotype columns
-        # and then used for all checks.
-        # Assuming _build_antigen_map_for_checks uses df.Phenotype and df.Phenotype_alt
-        # as the source of truth for the mapping.
         mapping = build_antigen_map_for_checks(df)
 
         phenotype_series = df[phenotype_col_name]
@@ -661,15 +654,13 @@ class DbDataConsistencyChecker:
             if "?" in num or "?" in alpha:
                 continue
 
-            # Ensure consistent system context for compare_antigen_profiles
-            # Usually, the system is derived from the numeric part.
             system_context = current_system_from_num
 
             if not compare_antigen_profiles(
-                numeric=num,  # Use the full string e.g. "RH:1"
-                alpha=alpha,  # Use the full string e.g. "D+"
-                mapping=mapping,  # The global mapping
-                system=system_context,  # System derived from the numeric string
+                numeric=num,
+                alpha=alpha,
+                mapping=mapping,
+                system=system_context,
             ):
                 allele_info = (
                     df.loc[i, "Genotype"]
@@ -681,7 +672,6 @@ class DbDataConsistencyChecker:
                     f"between '{phenotype_col_name}' ('{num}') and "
                     f"'{phenotype_alt_col_name}' ('{alpha}')"
                 )
-                # Consider raising a more specific error if desired
                 raise AssertionError(error_msg)
 
     @staticmethod
@@ -727,11 +717,10 @@ class DbDataConsistencyChecker:
         tell - which is the case for six GYPB rows and two RHCE rows.
         """
         logger.debug("Checking GRCh37/38 defining variant counts...")
-        for index, row in df.iterrows():  # Iterate for potentially better error context
+        for index, row in df.iterrows():
             grch37_vars_str = str(row.GRCh37)
             grch38_vars_str = str(row.GRCh38)
 
-            # Handle potential empty strings or "." consistently before splitting
             grch37_variants = {
                 v for v in grch37_vars_str.strip().split(",") if v and v != "."
             }
@@ -761,22 +750,15 @@ class DbDataConsistencyChecker:
         DbDataConsistencyChecker.check_phenotype_change_antigens(df)
         DbDataConsistencyChecker.check_phenotype_antigens(df)
 
-        # Example of how you might use ref_genome_name if a check needed it:
-        # if ref_genome_name:
-        #     DbDataConsistencyChecker.some_check_dependent_on_ref(df, ref_genome_name)
-
         logger.info("All database data consistency checks passed successfully.")
 
 
-# ────────────────────── helper regexes ──────────────────────
 _NUM_ID_RE = re.compile(r"-?(\d+)")  # leading '-' allowed
 _ALPHA_CANON_RE = re.compile(r"^(.*?)\s|[+-]", re.S)  # up‑to first space/+/‑
 
 
-# ────────────────────── internal helpers ───────────────────
 def _canonical_alpha(token: str) -> str:
     """Return antigen name stripped of sign/modifiers."""
-    # stop at first space or sign; then strip trailing sign if still present
     cut = _ALPHA_CANON_RE.split(token.strip(), maxsplit=1)[0]
     return cut.rstrip("+-")
 
@@ -803,9 +785,6 @@ class Antigen:
     modifiers: frozenset[str]
 
 
-# ──────────────────────────────── parsing ────────────────────────────────
-
-
 class AntigenParser(Protocol):
     """A parser returns a sequence of canonical :class:`Antigen` objects."""
 
@@ -813,7 +792,6 @@ class AntigenParser(Protocol):
     def parse(self, text: str) -> list[Antigen]: ...
 
 
-#_NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
 _NUMERIC_RE = re.compile(r"(?P<sign>[-?])?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
 
 
@@ -900,7 +878,7 @@ class AlphaParser:
             name_part_before_rstrip = tok[:idx]
             name = name_part_before_rstrip.rstrip(" (")
             expr = tok[idx] == "+"
-            tail = tok[idx + 1 :].lower()
+            tail = tok[idx + 1:].lower()
 
             if tail.endswith(")") and name_part_before_rstrip.count(
                 "("
@@ -911,17 +889,16 @@ class AlphaParser:
                 set()
             )  # Mods for the current antigen token (e.g. e+partial_weak_to_neg)
 
-            # Split tail into space-separated components (e.g., "very_weak", "partial", "wp")
             components = [comp for comp in re.split(r"\s+", tail.strip()) if comp]
 
             for (
                 comp
-            ) in components:  # Process each component (e.g., "partial_weak_to_neg")
+            ) in components:
                 # 1. Check for overriding intensity phrases first
                 overriding_code = OVERRIDING_INTENSITY_PHRASES.get(comp)
                 if overriding_code:
                     current_antigen_mods.add(overriding_code)
-                    continue  # This component is fully handled by the overriding phrase
+                    continue
 
                 # 2. If not an overriding phrase, accumulate modifiers from:
                 #    a) The direct match of the component in _ALPHA_MOD
@@ -930,20 +907,18 @@ class AlphaParser:
 
                 component_processed_by_phrase_or_parts = False
 
-                # 2a. Direct match of the whole component
                 direct_comp_code = _ALPHA_MOD.get(comp)
                 if direct_comp_code:
                     current_antigen_mods.add(direct_comp_code)
                     component_processed_by_phrase_or_parts = True
 
-                # 2b. Underscore-separated parts
                 if "_" in comp:
                     for part in comp.split("_"):
                         part_code = _ALPHA_MOD.get(part)
                         if part_code:
                             current_antigen_mods.add(part_code)
                             component_processed_by_phrase_or_parts = (
-                                True  # Mark as processed if any part matches
+                                True
                             )
 
                 # 3. If the component was NOT processed by direct phrase match (2a)
@@ -963,9 +938,6 @@ class AlphaParser:
                 )
             )
         return antigens
-
-
-# ──────────────────────────────── comparison ────────────────────────────────
 
 
 def build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
@@ -997,7 +969,7 @@ def build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
 
         for n, a in zip(num_tokens, α_tokens, strict=True):
             mapping[system][n] = a
-    
+
     return mapping
 
 
@@ -1023,7 +995,6 @@ def compare_antigen_profiles(
     """
     num_ants = NumericParser(system).parse(numeric)
     α_ants = AlphaParser(system).parse(alpha)
-    # translate numeric → canonical α‑name
     num_by_name: dict[str, Antigen] = {}
     if system == 'RHD':
         new_sys = 'RH'
@@ -1041,7 +1012,7 @@ def compare_antigen_profiles(
         new_sys = system
 
     sys_map = mapping.get(new_sys.upper(), {})
-    
+
     for n in num_ants:
         try:
             α = sys_map[n.name]
