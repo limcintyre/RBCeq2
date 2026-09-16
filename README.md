@@ -69,10 +69,6 @@ unresolved. Inspect `Undetermined` results and normalize such sites upstream whe
 appropriate. Mixed symbolic structural/small-variant records need caller-specific
 assessment and are not a general supported input route.
 
-Fully called genotypes naming more than two copies are interpreted only where the
-per-ALT dosage is zero or all copies. Intermediate dosage receives the named
-`get_ref/dosage_between_the_bounds` refusal. This is not general polyploid or pooled
-sample inference.
 
 ### Chromosome copies and gene copies
 
