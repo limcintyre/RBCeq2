@@ -1,3 +1,4 @@
 recursive-include src/rbceq2/resources *.tsv
 include LICENSE
 include README.md
+include CITATION.cff

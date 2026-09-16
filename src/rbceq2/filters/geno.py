@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import operator
+import re
 from collections import defaultdict
-from functools import partial
-from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-from rbceq2.core_logic.constants import LOW_WEIGHT, AlleleState
+from rbceq2.core_logic.alleles import (
+    Allele, BloodGroup, Pair, is_deletion_only_allele,
+)
+from rbceq2.core_logic.constants import (
+    ABO_DELG_VARIANTS,
+    LOW_WEIGHT,
+    UNDETERMINED_SLOT,
+    AlleleState,
+)
 from rbceq2.core_logic.utils import (
+    BeyondLogicError,
     Zygosity,
     apply_to_dict_values,
     check_available_variants,
@@ -134,7 +142,6 @@ def filter_pairs_on_antithetical_zygosity(
         ):
             return bg  # KN has alleles without either antithetical SNV
 
-        # remove pairs of same subtype
         for pair in bg.alleles[AlleleState.NORMAL]:
             if pair.allele1.sub_type == pair.allele2.sub_type:
                 to_remove.append(pair)
@@ -208,7 +215,6 @@ def antithetical_modifying_SNP_is_HOM(
                             d[allele.sub_type].add(variant)
 
             if len(d) > 1:
-                assert len(d) == 2
                 putative_mod_SNPs = set.union(*d.values())
                 if len(putative_mod_SNPs) == 1:
                     modifying_SNP = putative_mod_SNPs.pop()
@@ -216,6 +222,29 @@ def antithetical_modifying_SNP_is_HOM(
                 modifying_SNP is not None
                 and bg.variant_pool[modifying_SNP] == Zygosity.HOM
             ):
+                if len(d) != 2:
+                    # Deliberately placed after the homozygosity test rather than before
+                    # it. An antithetical system having more than two subtypes is not by
+                    # itself a problem - GYPB has three and it is fine, because the single
+                    # modifying SNP test below normally rules the case out and nothing
+                    # happens. It is only unclear when a group with more than two subtypes
+                    # *also* reaches the point of removing pairs, and that has never been
+                    # seen. This carries the context because when it does happen the error
+                    # is the entire evidence: there is no known case to reproduce from, so
+                    # whoever hits it first has to be able to hand it over as it stands.
+                    raise BeyondLogicError(
+                        message=(
+                            "An antithetical blood group with more than two subtypes has "
+                            "reached the point of excluding pairs, and which subtype the "
+                            "modifying SNP belongs to is ambiguous. This has no known "
+                            "real example - please report the context below."
+                        ),
+                        context=(
+                            f"sample: {bg.sample}, BG: {bg.type}, "
+                            f"subtypes: {sorted(d)}, modifying SNP: {modifying_SNP}, "
+                            f"zygosity: {bg.variant_pool.get(modifying_SNP)}"
+                        ),
+                    )
                 for pair in bg.alleles[allele_state]:
                     for allele in pair:
                         if allele.number_of_defining_variants == 1:
@@ -384,23 +413,339 @@ def ABO_cant_pair_with_ref_cuz_261delG_HET(bg: BloodGroup) -> BloodGroup:
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.contains_reference and not pair.all_reference:
             ref, allele = split_pair_by_ref(pair)
-            tmp_pool2 = bg.variant_pool_numeric
-            for variant_on_other_strand in ref.defining_variants:
-                if variant_on_other_strand in tmp_pool2:
-                    tmp_pool2[variant_on_other_strand] -= 1
-            check_vars_other_strand = partial(
-                check_available_variants, 0, tmp_pool2, operator.gt
-            )
-            if all(check_vars_other_strand(allele)):
-                # ie, can they exist given other chrom
-                continue
-            to_remove.append(pair)
+            # ie, can they exist given other chrom
+            if pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+                to_remove.append(pair)
 
     if to_remove:
         bg.remove_pairs(
             to_remove,
             "ABO_cant_pair_with_ref_cuz_261delG_HET",
         )
+
+    return bg
+
+
+def pool_cant_supply_both(ref: Allele, allele: Allele, pool: dict[str, int]) -> bool:
+    """Whether one chromosome each is more than the pool has to give.
+
+    Put the reference on one chromosome by spending a copy of each of its defining
+    variants, then ask whether the other allele still has a copy of each of its own.
+    Where the two alleles share a variant the sample has one copy of, they are asking
+    for the same chromosome and the answer is no.
+
+    Only variants the pool holds are spent. A reference allele reaches here straight
+    from the database whether or not the sample supports it - NoHomMultiVariantStrategy
+    adds it either way - so its variants are routinely absent from a pool built from
+    the alleles that were built. Absence is a different claim, and
+    cant_name_second_slot_cuz_ref_impossible is the filter that makes it.
+
+    Args:
+        ref (Allele): The reference allele of the pair, placed first.
+        allele (Allele): The other allele, which must fit on what is left.
+        pool (dict[str, int]): Copies per variant. Copied before spending, so the
+        caller's dict is left alone.
+
+    Returns:
+        bool: True if the two alleles cannot both be present.
+
+    Example:
+        HG00436 GYPA. GYPA*02 and GYPA*08 both need 4:144120554_ref, and the sample has
+        one copy of it, with 4:144120554_C_A on the other chromosome:
+
+        4:144120554_ref : Heterozygous
+        4:144120555_ref : Homozygous
+        4:144120567_A_G : Heterozygous
+        4:144120567_ref : Heterozygous
+
+        GYPA*02 -> {144120554_ref, 144120555_ref, 144120567_ref}
+        GYPA*08 -> {144120554_ref, 144120555_ref, 144120567_A_G}
+
+        Spending GYPA*02 leaves 144120554_ref at 0, so GYPA*08 has nowhere to sit and
+        this returns True.
+    """
+    remaining = dict(pool)
+    for variant in ref.defining_variants:
+        if variant in remaining:
+            remaining[variant] -= 1
+
+    return not all(check_available_variants(0, remaining, operator.gt, allele))
+
+
+@apply_to_dict_values
+def cant_pair_with_ref_cuz_shared_variant_has_too_few_copies(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Remove a pair whose two alleles want the same chromosome.
+
+    The unphased counterpart of filter_if_all_HET_vars_on_same_side_and_phased, reaching
+    the same verdict from copy number instead of phase, so the two arms agree without
+    the flag deciding it.
+
+    pair_can_exist is where this arithmetic normally happens, at pair generation, and it
+    returns True unchecked for any pair containing the reference. That is not laziness:
+    the reference allele arrives from the database rather than from the pool, so its
+    variants are often not keys of the pool at all and the subtraction would raise.
+    ABO_cant_pair_with_ref_cuz_261delG_HET has done the check properly for one blood
+    group for a long time; this is the same check for the rest of them, sharing its
+    implementation so the two cannot drift.
+
+    Runs after the ABO filter so ABO pairs keep their own reason string, which is
+    documented and user visible. It finds nothing left to do there.
+
+    A '_ref' token counts the same as an alternate and is the larger half of what this
+    removes. Heterozygous at a '_ref' token says the reference base is on one chromosome
+    and an alternate is on the other, so two alleles both needing it is the same
+    contradiction as two alleles both needing one copy of an alternate.
+
+    Args:
+        bg (BloodGroup): A BloodGroup object containing allele pairs and a variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with the impossible pairs removed and recorded.
+
+    Example:
+        HG03097 RHCE. RHCE*01 is a reference defined partly by an alternate, because at
+        a lane locus the transcript reference differs from the genome reference, and
+        RHCE*01.20.01 is RHCE*01 plus one more variant. Both need 1:25420739_G_C:
+
+        1:25390817_G_C : Heterozygous
+        1:25390874_ref : Homozygous
+        1:25408711_ref : Homozygous
+        1:25420739_G_C : Heterozygous
+        1:25420739_ref : Heterozygous
+
+        RHCE*01/RHCE*01.20.01 is removed. RHCE*01/RHCE*01.01 and
+        RHCE*01.01/RHCE*01.20.01 are untouched, because 1:25420739_ref supplies the
+        second chromosome in both.
+
+        HG00619 RHCE is the same thing on a '_ref' token. RHCE*03 and RHCE*01 both need
+        1:25408711_ref, which is heterozygous, so the reference base is on one
+        chromosome and 1:25408711_G_A is on the other.
+    """
+    to_remove = []
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        if pair.contains_reference and not pair.all_reference:
+            ref, allele = split_pair_by_ref(pair)
+            if pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+                to_remove.append(pair)
+
+    if to_remove:
+        bg.remove_pairs(
+            to_remove,
+            "cant_pair_with_ref_cuz_shared_variant_has_too_few_copies",
+        )
+
+    return bg
+
+
+def ref_slot_is_impossible(ref: Allele, variant_pool: dict[str, Zygosity]) -> bool:
+    """Whether a reference allele needs a variant the sample does not have.
+
+    A reference allele is defined by '_ref' tokens, and one of those is absent from
+    the pool when the alternate at that locus is homozygous - there is no reference
+    copy left for it to sit on. The two exemptions are the ones no_defining_variant
+    already makes, for the same reasons:
+
+    An allele defined only by absence markers ('.') is not making a claim about any
+    locus, so there is nothing for the pool to contradict.
+
+    The ABO c.261delG tokens are exempt because the database treats the deletion as
+    the reference sequence, which makes ABO*A1.01 a reference allele defined by an
+    alternate. Its absence is the ordinary state of a group O sample rather than a
+    contradiction.
+
+    Args:
+        ref (Allele): The reference allele occupying one slot of a pair.
+        variant_pool (dict[str, Zygosity]): The sample's variant pool for this blood
+        group. Assumed non-empty - an empty pool is absence of evidence rather than
+        evidence of impossibility, and the caller checks that before asking.
+
+    Returns:
+        bool: True if the sample cannot carry this reference allele.
+    """
+    if all(variant.endswith(".") for variant in ref.defining_variants):
+        return False
+
+    return any(
+        variant not in variant_pool
+        for variant in ref.defining_variants
+        if variant not in ABO_DELG_VARIANTS
+    )
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
+    """Name the one slot that is certain when every pair left needs a bad reference.
+
+    The shape: one chromosome matches an allele outright, the other matches nothing
+    in the database, and the only pairs the machinery can offer put the reference
+    allele in the second slot - which the variant pool says the sample cannot carry.
+    Reporting the pair asserts wildtype on a chromosome there is evidence against;
+    removing it throws away the slot that *is* known. Neither is what a lab scientist
+    writes down. They name the allele they identified and leave the other blank,
+    which is UNDETERMINED_SLOT.
+
+    Runs in both arms deliberately. no_defining_variant handles the same
+    impossibility but is phased-only (phased.py) and removes the whole pair, so today
+    the same sample gets a wrong call unphased and no call phased - a difference
+    decided by a flag that is about something else. This runs before it and takes the
+    case away from it, so the two arms agree; where other pairs survive this does
+    nothing and no_defining_variant behaves as it always has.
+
+    The gate is that *every* remaining pair is this shape. If any pair is callable
+    the blood group has an answer and this must not touch it, so a pair with two
+    non-reference alleles, a pair of two references, or a reference the pool does not
+    contradict all stop it dead. That keeps the change to blood groups whose only
+    alternative was a wrong call or no call at all.
+
+    The pair is removed and recorded in filtered_out under this filter's name like
+    any other exclusion, so the phenotype engine finds no alleles and reports nothing
+    for the blood group. That is deliberate: a phenotype needs both chromosomes, and
+    one of them is exactly what the tool has just declined to name.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
+        from removed, or unchanged if any pair was callable.
+
+    Example:
+        GYPA is Lane, so the genome reference is GYPA*02 and 144120567_ref is one of its
+        defining variants. A sample called 0|1 at 144120554, 0|1 at 144120555 with the
+        caller doubting it, and 1/1 at 144120567:
+
+        FILTER drops 144120555_T_C, and with it GYPA*01, which needs it.
+
+        bg.variant_pool: {'4:144120554_ref': 'Heterozygous',
+                          '4:144120555_ref': 'Homozygous',
+                          '4:144120567_A_G': 'Homozygous'}
+
+        alleles[NORMAL] -> [Pair(GYPA*02, GYPA*08)]
+
+        4:144120567_ref is not in the pool because the alternate there is homozygous,
+        so GYPA*02 has nowhere to sit, while GYPA*08 has all of its defining variants.
+
+        single_slot_genotypes -> ['GYPA*08/Undetermined']
+    """
+    # .get, not [], because this runs before the co-existing stages create the key. The
+    # check is kept anyway so moving the filter later cannot silently start overriding a
+    # Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+
+    pairs = bg.alleles[AlleleState.NORMAL]
+    if not pairs or not bg.variant_pool:
+        return bg
+
+    named: list[str] = []
+    for pair in pairs:
+        if not pair.contains_reference or pair.all_reference:
+            return bg
+        ref, allele = split_pair_by_ref(pair)
+        if not ref_slot_is_impossible(ref, bg.variant_pool):
+            return bg
+        named.append(allele.genotype)
+
+    bg.remove_pairs(
+        list(pairs),
+        "cant_name_second_slot_cuz_ref_impossible",
+        reverts_to_reference=False,
+    )
+    bg.single_slot_genotypes = [
+        f"{genotype}/{UNDETERMINED_SLOT}" for genotype in sorted(set(named))
+    ]
+
+    return bg
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_shared_variant_has_too_few_copies(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Name the slots that are possible when every pair left wants one chromosome twice.
+
+    The sibling of cant_name_second_slot_cuz_ref_impossible, for the other way a pair
+    containing the reference can be impossible. There the reference needs a variant the
+    sample does not have at all, and only its partner can be named. Here both alleles
+    are individually fine and it is the pair that cannot exist, because they share a
+    variant the sample has one copy of - so one of them is on that chromosome and the
+    other chromosome carries something the database cannot name.
+
+    Which one is on it needs phase to say. Without phase both are candidates, and both
+    are reported: naming neither throws away everything that is known, and naming one
+    would be a guess. Two candidates contain whatever the phased arm resolves it to, so
+    the arms narrow rather than contradict each other.
+
+    Runs immediately before cant_pair_with_ref_cuz_shared_variant_has_too_few_copies and
+    on the same predicate, so the two see the same pairs and this takes the case away
+    from the other. Where any pair is callable this does nothing and the other filter
+    removes the impossible ones as usual.
+
+    The reference is offered as a candidate only where the pool does not contradict it
+    on its own. A reference needing a variant that is absent entirely is a different
+    claim, and ref_slot_is_impossible is where it is made.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
+        from removed, or unchanged if any pair was callable.
+
+    Example:
+        HG00436 GYPA, long read. The caller emitted no row at 144120555, so GYPA*01 -
+        which needs 144120555_T_C - was never built and the only pair left is the one
+        that cannot exist:
+
+        4:144120554_ref : c.72G : Heterozygous
+        4:144120555_ref : c.71A : Homozygous
+        4:144120567_A_G : c.59T>C : Heterozygous
+        4:144120567_ref : c.59T : Heterozygous
+
+        Vars_unused:
+        4:144120554_C_A : c.72G>T : Heterozygous
+
+        alleles[NORMAL] -> [Pair(GYPA*02, GYPA*08)]
+
+        Both need 4:144120554_ref and the sample has one copy, with 4:144120554_C_A on
+        the other chromosome, which completes nothing.
+
+        single_slot_genotypes -> ['GYPA*02/Undetermined', 'GYPA*08/Undetermined']
+
+        The phased arm of the same input reports GYPA*02/Undetermined, which these two
+        contain.
+    """
+    # .get, not [], because this runs before the co-existing stages create the key. The
+    # check is kept anyway so moving the filter later cannot silently start overriding a
+    # Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+
+    pairs = bg.alleles[AlleleState.NORMAL]
+    if not pairs or not bg.variant_pool:
+        return bg
+
+    named: list[str] = []
+    for pair in pairs:
+        if not pair.contains_reference or pair.all_reference:
+            return bg
+        ref, allele = split_pair_by_ref(pair)
+        if not pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
+            return bg
+        named.append(allele.genotype)
+        if not ref_slot_is_impossible(ref, bg.variant_pool):
+            named.append(ref.genotype)
+
+    bg.remove_pairs(
+        list(pairs),
+        "cant_name_second_slot_cuz_shared_variant_has_too_few_copies",
+        reverts_to_reference=False,
+    )
+    bg.single_slot_genotypes = [
+        f"{genotype}/{UNDETERMINED_SLOT}" for genotype in sorted(set(named))
+    ]
 
     return bg
 
@@ -556,6 +901,261 @@ def cant_not_include_null(bg: BloodGroup) -> BloodGroup:
 
 
 @apply_to_dict_values
+def cant_have_2_non_ref_alleles_cuz_only_1_gene_copy(bg: BloodGroup) -> BloodGroup:
+    """Two different non-reference alleles need two gene copies to sit on.
+
+    Where a caller reported one copy of the gene on two chromosomes, one chromosome
+    carries the gene and the other carries no gene at all. So there is exactly one place
+    for a real allele, and a pair naming two different ones is claiming both are on it.
+
+    Before this filter it was noticed at the reporting layer and warned about, then the
+    pair was written out as called anyway - the one impossible result the pipeline
+    knowingly reported. A warning is not an audit trail: it does not say which pair, it
+    is not in filtered_out, and it does not reach the debug trace or the PDF. Now the
+    pair is excluded by name like every other impossible pair.
+
+    Two things it deliberately leaves alone:
+
+    - **Co-existing alleles.** Two alleles on one chromosome is exactly what co-existing
+      *means*, so on the Knops path the shape is legitimate rather than impossible, and
+      it is what gets reported when it is present. Skipped entirely rather than filtered
+      and then ignored, so it cannot empty NORMAL and trigger the reverted-to-reference
+      warning for a blood group whose answer was never coming from NORMAL.
+    - **The same allele twice.** The pairing machinery writes a duplicate where one copy
+      carries an allele and there is nothing to pair it with, and get_genotypes collapses
+      that to 'allele/absent_slot'. One allele, one copy, no contradiction - which is why
+      this counts *distinct* genotypes rather than alleles.
+
+    Nothing here fires unless a caller reported gene copy number, so on an input without
+    that channel locus_copies is None and this is a no-op.
+
+    An allele defined only by deletion events names the other chromosome rather than
+    competing for the surviving gene copy. It is not counted as a present allele;
+    the database definition supplies the named event, independently of any subtype
+    that copy number alone could support.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object containing allele pairs.
+
+    Returns:
+        BloodGroup: The updated BloodGroup, with impossible pairs moved to filtered_out
+        under 'cant_have_2_non_ref_alleles_cuz_only_1_gene_copy'.
+    """
+    if bg.locus_copies != 1 or bg.chrom_copies != 2:
+        return bg
+    # .get, not [], on both: bg.alleles is a plain dict and the states it holds depend on
+    # how far down the pipeline the blood group is.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    if not bg.alleles.get(AlleleState.NORMAL):
+        return bg
+
+    to_remove = []
+    for pair in bg.alleles[AlleleState.NORMAL]:
+        non_ref = {
+            allele.genotype for allele in pair.alleles
+            if not allele.reference and not is_deletion_only_allele(allele)
+        }
+        if len(non_ref) > 1:
+            to_remove.append(pair)
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_have_2_non_ref_alleles_cuz_only_1_gene_copy"
+        )
+
+    return bg
+
+
+def _HEM_SNP_positions(allele: Allele, bg: BloodGroup) -> set[tuple[str, int]]:
+    """Return explicit hemizygous substitutions required by this allele.
+
+    Synthesised reference tokens and structural tokens do not supply this evidence.
+    """
+    positions = set()
+    for variant in allele.defining_variants:
+        if bg.variant_pool.get(variant) != Zygosity.HEM:
+            continue
+        match = re.fullmatch(r"([^:]+):(\d+)_[ACGT]_[ACGT]", variant)
+        if match:
+            positions.add((match[1], int(match[2])))
+    return positions
+
+
+def _deletions_placing_HEM_partners(
+    bg: BloodGroup, pairs: list[Pair]
+) -> dict[Allele, set[tuple[str, int, int]]]:
+    """Find surviving deletion partners that place an allele on the other copy.
+
+    Only a called heterozygous deletion in a normal pair supplies a replacement.
+    Bounds use the same database token and strict interior as HEM normalization.
+    This proves placement at covered SNPs, not loss of a whole gene.
+    """
+    evidence = defaultdict(set)
+    for pair in pairs:
+        for deleted, present in ((pair.allele1, pair.allele2), (pair.allele2, pair.allele1)):
+            if deleted.reference or not is_deletion_only_allele(deleted):
+                continue
+            if present.reference or is_deletion_only_allele(present):
+                continue
+            positions = _HEM_SNP_positions(present, bg)
+            if not positions:
+                continue
+            for variant in deleted.defining_variants:
+                if bg.variant_pool.get(variant) not in (Zygosity.HET, Zygosity.HEM):
+                    continue
+                chrom, token = variant.split(":", 1)
+                start, _, size = token.split("_")
+                start = int(start)
+                length = int(size[:-2]) * 1000 if size.endswith("kb") else int(size)
+                end = start + length
+                if any(c == chrom and start < pos < end for c, pos in positions):
+                    evidence[present].add((chrom, start, end))
+    return evidence
+
+
+@apply_to_dict_values
+def cant_split_HEM_SNPs_across_alleles(bg: BloodGroup) -> BloodGroup:
+    """Exclude pairs placing two deletion-confined SNP alleles on two chromosomes.
+
+    A called heterozygous deletion leaves one chromosome carrying the bases inside
+    it. Two explicit HEM SNPs inside that same deletion must therefore sit on the
+    surviving chromosome. Separate alleles in a normal pair cannot split them
+    between chromosomes. Existing rank filters decide which allele describes that
+    copy; this filter requires a surviving named-deletion counterpart before dropping
+    an alternative. Co-existing alleles keep their separate interpretation.
+
+    Args:
+        bg (BloodGroup): Normal pairs after existing rank and copy filters.
+
+    Returns:
+        BloodGroup: With incompatible pairs recorded under this filter's name.
+    """
+    if bg.chrom_copies != 2 or bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    evidence = _deletions_placing_HEM_partners(bg, pairs)
+    to_remove = []
+    for pair in pairs:
+        if pair.contains_reference or any(is_deletion_only_allele(a) for a in pair):
+            continue
+        for present, other in ((pair.allele1, pair.allele2), (pair.allele2, pair.allele1)):
+            if any(
+                chrom == c and start < pos < end
+                for chrom, start, end in evidence.get(present, ())
+                for c, pos in _HEM_SNP_positions(other, bg)
+            ):
+                to_remove.append(pair)
+                break
+    if to_remove:
+        bg.remove_pairs(to_remove, "cant_split_HEM_SNPs_across_alleles")
+    return bg
+
+
+@apply_to_dict_values
+def cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Use a surviving named deletion partner for an allele at one gene copy.
+
+    With one gene copy on two chromosomes, a reference/non-deletion pair uses the
+    reference as a placeholder for the missing copy. Where the same non-deletion
+    allele already has a surviving pair with a database-defined deletion, that pair
+    names the missing chromosome. Keeping the reference alternative would let its
+    phenotype assert expression from the chromosome reported as absent.
+
+    The same placement can be established without a gene-copy GT: a HEM SNP
+    inside the counterpart's called heterozygous deletion sits on the surviving
+    chromosome. The named deletion describes the other chromosome. This does not
+    change locus_copies or claim that the deletion spans the whole gene.
+
+    The counterpart must still be a normal pair. A filtered-out deletion does not
+    supply an answer, and without a counterpart the copy-number-only fallback is
+    left alone. A reference/deletion pair can name reference on the surviving copy;
+    it is outside this filter. Co-existing alleles have their own path.
+
+    Args:
+        bg (BloodGroup): The blood group after ordinary pair filtering.
+
+    Returns:
+        BloodGroup: With redundant reference placeholders excluded by this name.
+    """
+    if bg.chrom_copies != 2:
+        return bg
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    placement = _deletions_placing_HEM_partners(bg, pairs)
+    present_with_deletion = {
+        allele
+        for pair in pairs
+        if any(is_deletion_only_allele(member) for member in pair)
+        for allele in pair
+        if not allele.reference and not is_deletion_only_allele(allele)
+        and (bg.locus_copies == 1 or allele in placement)
+    }
+    to_remove = [
+        pair for pair in pairs
+        if pair.contains_reference
+        and any(allele in present_with_deletion for allele in pair)
+    ]
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy"
+        )
+    return bg
+
+
+@apply_to_dict_values
+def cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele(
+    bg: BloodGroup,
+) -> BloodGroup:
+    """Exclude a reference/deletion alternative denied by a complete HEM allele.
+
+    A single defining token on the remaining copy already names an allele. A
+    reference/deletion pair that omits it names neither the allele nor its token.
+    Only single-token alleles still represented in the normal pairs supply evidence;
+    an incomplete database definition does not rule out the reference.
+
+    Named/named pairs remain subject to the existing rank and relationship filters.
+    Several HEM variants can be on the same surviving chromosome, where a higher
+    ranked allele can displace another without including its token in its definition.
+    Requiring every such token in every pair would discard that valid alternative.
+    Co-existing alleles have their own filtering path.
+
+    Args:
+        bg (BloodGroup): The blood group with normal pairs and adjusted zygosity.
+
+    Returns:
+        BloodGroup: With pairs omitting the required token excluded by this name.
+    """
+    if bg.chrom_copies != 2 or bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    pairs = bg.alleles.get(AlleleState.NORMAL) or []
+    required = {
+        variant
+        for pair in pairs
+        for allele in pair
+        if allele.number_of_defining_variants == 1
+        and not is_deletion_only_allele(allele)
+        for variant in allele.defining_variants
+        if bg.variant_pool.get(variant) == Zygosity.HEM
+    }
+    to_remove = [
+        pair for pair in pairs
+        if pair.contains_reference
+        and any(is_deletion_only_allele(allele) for allele in pair)
+        and not required.issubset(
+            pair.allele1.defining_variants | pair.allele2.defining_variants
+        )
+    ]
+    if to_remove:
+        bg.remove_pairs(
+            to_remove, "cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele"
+        )
+    return bg
+
+
+@apply_to_dict_values
 def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     """
     Ensures that heterozygous variants are utilized in allele pairs if they can form
@@ -567,6 +1167,11 @@ def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
     variants of alleles in each pair results in alleles that already exist outside the
     pair. If multiple such matches are found, the pair is considered invalid and is
     removed from the allele pairs.
+
+    For ordinary diploid pairs, all measured HOM definitions are also available
+    on the copy carrying a HET token. A surviving strict superset requiring only
+    that one HET token and HOM background must occur on one copy. A pair of its
+    HOM-only subsets is excluded when a named replacement pair is available.
 
     Args:
         bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool
@@ -648,8 +1253,39 @@ def ensure_HET_SNP_used(bg: BloodGroup) -> BloodGroup:
                         bg.variant_pool, pair.allele2
                     ):
                         hits = check_var(bg, pair, allele_state, variant)
+                        if (
+                            not hits
+                            and allele_state == AlleleState.NORMAL
+                            and bg.chrom_copies == 2
+                            and bg.alleles.get(AlleleState.CO) is None
+                        ):
+                            parents = (pair.allele1, pair.allele2)
+                            for replacement in bg.alleles[allele_state]:
+                                for required, other in (
+                                    (replacement.allele1, replacement.allele2),
+                                    (replacement.allele2, replacement.allele1),
+                                ):
+                                    if other not in parents:
+                                        continue
+                                    if variant not in required.defining_variants:
+                                        continue
+                                    if not all(
+                                        parent.defining_variants < required.defining_variants
+                                        for parent in parents
+                                    ):
+                                        continue
+                                    if all(
+                                        bg.variant_pool.get(token) == Zygosity.HOM
+                                        for token in required.defining_variants
+                                        if token != variant
+                                    ):
+                                        hits = 1
+                                        break
+                                if hits:
+                                    break
                         if hits:
-                            to_remove.append(pair)
+                            if pair not in to_remove:
+                                to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(to_remove, "ensure_HET_SNP_used", allele_state)
 
@@ -825,76 +1461,6 @@ def filter_HET_pairs_by_weight(bg: BloodGroup) -> BloodGroup:
 
     if to_remove:
         bg.remove_pairs(to_remove, "filter_HET_pairs_by_weight")
-
-    return bg
-
-
-@apply_to_dict_values
-def filter_pairs_by_context(bg: BloodGroup) -> BloodGroup:
-    """Filter allele pairs by context.
-
-    This function removes allele pairs from the NORMAL state of the BloodGroup if
-    the context indicates that the pair cannot exist. It checks whether the
-    combination of remaining variant counts and an allele's defining variants
-    match those in other alleles. This ensures that pairs like
-    'A4GALT*01/A4GALT*02' are filtered out when a more comprehensive allele is
-    implied by the available variants. This logic overlaps with
-    cant_pair_with_ref_cuz_SNPs_must_be_on_other_side, but is still needed
-
-    Args:
-        bg (BloodGroup): A BloodGroup object containing allele pairs and a numeric
-            variant pool.
-
-    Returns:
-        BloodGroup: The updated BloodGroup with contextually invalid pairs removed.
-
-    Example:
-        Given allele definitions:
-            - A4GALT*01.02: defining_variants = {'22:43089849_T_C'}
-            - A4GALT*02:   defining_variants = {'22:43113793_C_A'}
-            - A4GALT*02.02: defining_variants = {'22:43113793_C_A',
-                                                 '22:43089849_T_C'}
-            - A4GALT*01:   defining_variants = {'22:43113793_ref'}
-        And a variant pool:
-            {'22:43089849_T_C': 'Heterozygous',
-             '22:43113793_C_A': 'Heterozygous'}
-        The valid pairs are:
-            'A4GALT*01.02/A4GALT*02' and
-            'A4GALT*01/A4GALT*02.02',
-        while 'A4GALT*01/A4GALT*02' is not possible.
-    """
-    # need to catch; if remaing var and allele var combine to define another allele
-    # and if remaining var defines or combines with other allele to define another
-    # allele then pair is not possible, but check that the pair that rules it out
-    # does already exist
-
-    to_remove = []
-    for pair in bg.alleles[AlleleState.NORMAL]:
-        def_vars = {
-            a.defining_variants
-            for pair2 in bg.alleles[AlleleState.NORMAL]
-            for a in pair2
-            if a not in pair
-        }
-        for allele in pair:
-            variant_pool_copy = bg.variant_pool_numeric.copy()
-            if allele.reference:
-                continue
-
-            for variant in allele.defining_variants:
-                variant_pool_copy[variant] -= 1
-            left_over_vars = [k for k, v in variant_pool_copy.items() if v > 0]
-            if any([len(left_over_vars) == 0, len(def_vars) < 2]):
-                continue
-            remaining = [
-                tuple(sorted(set(left_over_vars))),
-                tuple(sorted(set(left_over_vars + list(allele.defining_variants)))),
-            ]
-            if all(variants in def_vars for variants in remaining):
-                to_remove.append(pair)
-                break
-    if to_remove:
-        bg.remove_pairs(to_remove, "filter_pairs_by_context")
 
     return bg
 

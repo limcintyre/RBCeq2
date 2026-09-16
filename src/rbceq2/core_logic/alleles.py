@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import operator
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterator
@@ -16,6 +17,26 @@ from frozendict import frozendict
 if TYPE_CHECKING:
     from core_logic.constants import PhenoType
     from phenotype.antigens import Antigen
+
+
+def is_deletion_only_allele(allele: Allele) -> bool:
+    """Whether the database defines this allele entirely by deletion events.
+
+    This identifies a named chromosome event, not a claim that the whole gene is
+    absent. In particular, a null SNV and a mixed deletion/insertion definition do
+    not meet this test. Classification comes from the defining tokens rather than
+    the allele's name or phenotype.
+
+    Args:
+        allele (Allele): An allele with its database defining variants.
+
+    Returns:
+        bool: True for a nonempty definition containing only structural DEL tokens.
+    """
+    return bool(allele.defining_variants) and all(
+        re.fullmatch(r"[^:]+:\d+_(?:del|DEL)_\d+(?:kb)?", variant)
+        for variant in allele.defining_variants
+    )
 
 
 @dataclass(slots=False, frozen=True)
@@ -43,8 +64,6 @@ class Allele:
         Whether this allele is the reference allele.
     sub_type: str
         Additional subtype string if needed.
-    # phases: tuple[str] | None
-    #     Phase IDs associated with this allele (if phased).
     number_of_defining_variants: int
         Automatically set based on the size of defining_variants.
     """
@@ -133,6 +152,13 @@ class Allele:
             and self.defining_variants == other.defining_variants
         )
 
+    def __hash__(self) -> int:
+        """Hash exactly the immutable fields used by allele equality."""
+        return hash((
+            self.genotype, self.genotype_alt, self.phenotype,
+            self.phenotype_alt, self.defining_variants,
+        ))
+
     def __gt__(self, other: Allele) -> bool:
         """Greater than comparison, inverted.
 
@@ -162,7 +188,7 @@ class Allele:
         return (
             f"Allele \n "
             f"genotype: {self.genotype} \n "
-            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in self.defining_variants])} \n "
+            f"defining_variants: {sep_var}{sep_var.join([collapse_variant(variant) for variant in sorted(self.defining_variants)])} \n "
             f"weight_geno: {self.weight_geno} \n "
             f"phenotype: {self.phenotype} or {self.phenotype_alt} \n "
             f"reference: {self.reference} \n"
@@ -271,7 +297,15 @@ class BloodGroup:
     variant_pool: dict[str, Zygosity] = field(default_factory=dict)
     variant_pool_phase: dict[str, str] = field(default_factory=dict)
     variant_pool_phase_set: dict[str, str] = field(default_factory=dict)
+    unused_pool: dict[str, Zygosity] = field(default_factory=dict)
+    unused_pool_phase: dict[str, str] = field(default_factory=dict)
+    unused_pool_phase_set: dict[str, str] = field(default_factory=dict)
+    unused_pool_filters: dict[str, str] = field(default_factory=dict)
+    chrom_copies: int = 2
+    locus_copies: int | None = None
+    unreadable: str | None = None
     genotypes: list[str] = field(default_factory=list)
+    single_slot_genotypes: list[str] = field(default_factory=list)
     phenotypes: dict[PhenoType, dict[Pair, list[Antigen]]] = field(
         default_factory=lambda: defaultdict(dict)
     )
@@ -283,8 +317,10 @@ class BloodGroup:
         default_factory=lambda: {
             Zygosity.HOM: 2,
             Zygosity.HET: 1,
-            Zygosity.REF: 2,
             Zygosity.HEM: 1,
+            Zygosity.NO_COPIES: 0,  # inside a hom deletion - genuinely zero chromosomes
+            # Zygosity.NO_DATA has no entry on purpose. 'Not measured' has no copy number,
+            # so variant_pool_numeric omits it rather than inventing one.
         }
     )
     misc: dict[Any, Any] = None  # TODO - pheno separately??
@@ -297,27 +333,106 @@ class BloodGroup:
     ----------
 
    Attributes:
-        type (str): 
+        type (str):
             Blood group type.
-        alleles (Dict[str, List[Allele]]): 
+        alleles (Dict[str, List[Allele]]):
             Dictionary mapping allele types to lists of Allele objects.
-        sample (str): 
+        sample (str):
             Sample identifier.
-        variant_pool (Dict[str, str]): 
+        variant_pool (Dict[str, str]):
             Mapping of variants to zygosity states.
-        variant_pool_phase (Dict[str, str]): 
+        variant_pool_phase (Dict[str, str]):
             Mapping of variants to phase states, ie 1|0.
-        variant_pool_phase_set (Dict[str, str]): 
+        unused_pool (Dict[str, Zygosity]):
+            Variants the sample carries at this blood group's database loci that are
+            *not* in variant_pool, with the same three companion dicts plus the FILTER
+            value of each. Written by record_unused_variants and read only by the debug
+            trace - nothing calls against it.
+
+            It exists because an empty variant_pool is unreadable on its own. A blood
+            group whose every allele was discarded shows no variants at all, so the
+            trace cannot say whether the sample was wildtype, or carried calls the tool
+            declined to use, or which of them the caller doubted. That question could
+            only be answered by opening the VCF by hand.
+        unused_pool_phase (Dict[str, str]):
+            Raw GT for each unused variant, unprocessed - no reference-token fixups.
+        unused_pool_phase_set (Dict[str, str]):
+            Phase set id for each unused variant, where the caller gave one.
+        unused_pool_filters (Dict[str, str]):
+            The FILTER field of the row each unused variant came from, which is usually
+            why it is unused.
+        variant_pool_phase_set (Dict[str, str]):
             Mapping of variants to phase sets ie, 126354.
-        genotypes (List[str]): 
+        chrom_copies (int):
+            How many copies of this region the sample was born with, and therefore how
+            many allele slots the reported genotype has. 2 everywhere except non-PAR X/Y
+            in a sample whose caller emitted haploid GTs there.
+
+            This is a third number, distinct from the two the variant pool already
+            carries. variant_pool is a (locus_copies, token_copies) pool in enum form:
+            Zygosity.HEM is one copy of the locus carrying one copy of the token,
+            Zygosity.NO_COPIES is zero of both. Those two describe what is present at a
+            locus *after* any deletion. chrom_copies describes what the sample inherited
+            and is never changed by a deletion - a het RHD deletion takes a locus from two
+            copies to one, but the result still has two allele slots, one of which is the
+            deletion allele.
+
+            That is why it lives here rather than in the pool. It is a property of the
+            region, not of a token; writing it onto every token would be copying one fact
+            once per variant. See issue #40.
+        locus_copies (int | None):
+            How many copies of this *gene* are still present, as opposed to how many
+            chromosomes the sample was born with. None means no caller said, which is the
+            overwhelmingly common case and the behaviour before locus_copies existed; it
+            is not the same
+            as 2, and is kept distinct so 'nobody measured' cannot be read as 'measured,
+            two'.
+
+            Set only where a caller encodes gene copy number as GT ploidy and does so
+            consistently across the called database small-variant loci reported for the gene - see
+            locus_copies_for_bg. A gene at one copy on two chromosomes is the case
+            chrom_copies alone cannot express: two allele slots, one of which holds no
+            gene at all. That second slot is a reporting decision and is written by
+            get_genotypes, not carried in the pair.
+
+            locus_copies < chrom_copies is the interesting state. Equal is ordinary
+            diploidy. Greater is impossible and is rejected rather than normalised.
+        unreadable (str | None):
+            Why this blood group's input could not be read, or None. Set by
+            make_variant_pool where get_ref refuses a row - a haploid genotype among
+            diploid ones in the same gene, a dosage between the bounds, a multi-allelic
+            row that was never split - and holds the whole refusal, name and context, so
+            the debug trace and the warning say the same thing.
+
+            The point is the blast radius. That refusal used to leave make_variant_pool
+            as an exception, and make_variant_pool is decorated with apply_to_dict_values,
+            so it took the whole dict of blood groups with it and the sample produced
+            nothing at all - a callable ABO lost because one XK row was odd. Recording it
+            per blood group keeps the other eighty-odd.
+
+            A blood group carrying this is reported Undetermined, never reference.
+            process_genetic_data declines to pair it for exactly that reason: with no
+            alleles and no gate, NoVariantStrategy would hand back the reference pair and
+            the tool would assert wildtype for a gene whose input it could not read.
+        genotypes (List[str]):
             List of genotypes associated with the blood group.
-        phenotypes (List[str]): 
+        single_slot_genotypes (List[str]):
+            Genotypes where only one of the two slots could be named, written by
+            cant_name_second_slot_cuz_ref_impossible and rendered by get_genotypes.
+
+            Kept apart from genotypes rather than written straight into it because these
+            are not pairs and never were: the pair they came from is removed and
+            recorded in filtered_out like any other exclusion, so the phenotype
+            engine sees no
+            allele for the slot the tool declined to name and reports nothing for the
+            blood group. A phenotype needs both chromosomes.
+        phenotypes (List[str]):
             List of phenotypes associated with the blood group.
-        filtered_out (Dict[str, List[Allele | Pair]]): 
+        filtered_out (Dict[str, List[Allele | Pair]]):
             Alleles filtered out during processing, categorized by reason.
-        len_dict (Dict[str, int]): 
+        len_dict (Dict[str, int]):
             Dictionary mapping zygosity states to their associated numerical values.
-        misc (Dict[Any, Any]): 
+        misc (Dict[Any, Any]):
             Dictionary for miscellaneous stuff. A little promiscuous, probably too much so
     """
 
@@ -325,10 +440,21 @@ class BloodGroup:
     def variant_pool_numeric(self) -> dict[str, int]:
         """Convert variant pool zygosity states to their numerical values.
 
+        Zygosity.NO_COPIES is kept and scored 0, because zero copies is a real count.
+        Zygosity.NO_DATA is omitted rather than scored. 'Not measured' has no copy number,
+        so any value put here would be invented - which is the bug this state exists to
+        fix. Omitting is safe because remove_alleles_with_no_call_variants has already
+        excluded every allele with a NO_DATA defining variant, so the only code that would
+        look one up by key is operating on alleles that no longer exist.
+
         Returns:
             Dict[str, int]: Dictionary of variants mapped to their numerical zygosity values.
         """
-        return {k: self.len_dict[v] for k, v in self.variant_pool.items()}
+        return {
+            k: self.len_dict[v]
+            for k, v in self.variant_pool.items()
+            if v != Zygosity.NO_DATA
+        }
 
     @property
     def number_of_putative_alleles(self) -> int:
@@ -340,7 +466,11 @@ class BloodGroup:
         return len(self.alleles[AlleleState.RAW])
 
     def remove_pairs(
-        self, to_remove: list[Pair], filter_name: str, allele_type: str = "pairs"
+        self,
+        to_remove: list[Pair],
+        filter_name: str,
+        allele_type: str = "pairs",
+        reverts_to_reference: bool = True,
     ) -> None:
         """Remove pairs of alleles based on specific criteria.
 
@@ -348,6 +478,13 @@ class BloodGroup:
             to_remove (list[Pair]]): List of allele pairs to be removed.
             filter_name (str): Category name for the filtering reason.
             allele_type (str): Type of allele group from which pairs are removed.
+            reverts_to_reference (bool): Whether emptying the blood group here means the
+            reference allele becomes the answer, which is true of every caller but
+            one and is what the warning tells the user. Pass False where the filter
+            has already decided what the result is -
+            cant_name_second_slot_cuz_ref_impossible removes the pair precisely
+            because the reference is impossible, so promising a revert to it would be
+            the opposite of what happens.
         """
         already_removed = set()
         if to_remove:
@@ -358,7 +495,8 @@ class BloodGroup:
                 self.alleles[allele_type].remove(pair)
                 self.filtered_out[filter_name].append(pair)
                 already_removed.add(pair_id)
-        if not self.alleles[allele_type]:
+        # Same misattribution as remove_alleles - only warn if this call emptied it
+        if to_remove and not self.alleles[allele_type] and reverts_to_reference:
             logger.warning(
                 f"all pairs removed (reverting to reference allele, if possible): {self.sample} {self.type} {filter_name}"
             )
@@ -368,6 +506,12 @@ class BloodGroup:
     ) -> None:
         """Remove specific alleles from the raw set.
 
+        The warning fires only when this call actually removed something. Previously it
+        fired whenever the list was empty afterwards, so a filter that removed nothing
+        from an already empty blood group was still named as the cause - the warning
+        pointed at whichever filter happened to run next rather than at the one
+        responsible.
+
         Args:
             to_remove (List[Allele]): List of alleles to be removed.
             filter_name (str): Category name for the filtering reason.
@@ -375,7 +519,7 @@ class BloodGroup:
         for allele in to_remove:
             self.alleles[allele_type].remove(allele)
             self.filtered_out[filter_name].append(allele)
-        if not self.alleles[allele_type]:
+        if to_remove and not self.alleles[allele_type]:
             logger.warning(
                 f"all alleles removed (will revert to reference): {self.sample} {self.type} {filter_name}"
             )
@@ -419,6 +563,10 @@ class Pair:
             bool: True if both pairs contain the same alleles, False otherwise.
         """
         return self.alleles == other.alleles
+
+    def __hash__(self) -> int:
+        """Hash the same unordered allele set used by pair equality."""
+        return hash(self.alleles)
 
     def __contains__(self, other: Allele) -> bool:
         """Check if an allele is in the pair.
@@ -514,7 +662,6 @@ class Pair:
         Returns:
             A set of frozensets, each representing unique substrings
         """
-        # Split the info by '/' and then by '+' or '&' to get individual substrings
 
         return [
             frozenset(allele.genotype.split("+"))

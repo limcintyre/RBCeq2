@@ -26,9 +26,6 @@ def sub_alleles(lst: tuple[Allele], allele_relationship: dict[str, bool]) -> boo
             key = f"{allele1.genotype}_isin_{allele2.genotype}"
             if allele1 == allele2:
                 continue
-            # print(allele1, allele2)
-            # if allele1.sub_type != allele2.sub_type:
-            #     continue
             if allele_relationship[key]:
                 return True
     return False
@@ -166,8 +163,6 @@ def decide_if_co_existing(
     if all(
         all(check_vars_other_strand(allele2)) for allele2 in combo1
     ) and can_co_exist(mushed_combo1, tmp_pool2):
-        # ie can they exist given other strand
-        # if can_co_exist(mushed_combo1, tmp_pool2):
         combo_pair = (combo1, combo2)
         if combo_pair not in co_existing:
             co_existing.append(combo_pair)  # TODO - order for testing?
@@ -491,10 +486,8 @@ def mush(bg: BloodGroup) -> BloodGroup:
         mushed_pair = []
         for combo in combos:
             if len(combo) > 1:
-                # Process multiple alleles in a combo
                 geno_numeric = geno_str(combo)
 
-                # Process pheno_numeric
                 phenotypes = [allele.phenotype.split(":")[1] for allele in combo]
                 antigens = []
                 for phenotype in phenotypes:
@@ -522,7 +515,6 @@ def mush(bg: BloodGroup) -> BloodGroup:
                 if "1w," in pheno_numeric and "1," in pheno_numeric:
                     pheno_numeric = pheno_numeric.replace("1w,", "")  # Helgeson
 
-                # Process pheno_alphanumeric
                 phenotypes_alt = [allele.phenotype_alt for allele in combo]
                 antigens_alt = []
                 for phenotype_alt in phenotypes_alt:
@@ -564,16 +556,11 @@ def mush(bg: BloodGroup) -> BloodGroup:
                     )
                 )
             elif len(combo) == 1:
-                # Single allele, append as is
                 mushed_pair.append(combo[0])
 
-        # Ensure mushed_pair has exactly two alleles
         if len(mushed_pair) == 2:
             result.append(Pair(*mushed_pair))
         else:
-            # Handle cases where there's only one allele
-            # You can decide how to handle this based on your requirements
-            # For now, let's raise an error
             raise ValueError("Each mushed_pair must contain exactly two alleles.")
     if result:
         bg.alleles[AlleleState.CO] = result
@@ -628,9 +615,12 @@ def list_excluded_co_existing_pairs(
     bg: BloodGroup,
     reference_alleles: dict[str, Allele],
 ) -> BloodGroup:
-    """Check all combinations of alleles against all other combinations to see if
-    they can co-exist once the variant pool is reduced by the respective defining
-    variants.
+    """Record tested co-existing genotype pairs absent from the current survivors.
+
+    Audit candidates have placeholder phenotypes, so full Allele/Pair equality
+    cannot identify their surviving counterparts. Compare the sorted genotype
+    names in their two chromosome slots, retaining co-existing groups within each
+    slot. Later filters record their own exclusions separately.
 
     Args:
         bg (BloodGroup): A BloodGroup object containing alleles, type, and misc
@@ -658,9 +648,11 @@ def list_excluded_co_existing_pairs(
             Pair(ref, make_mushed_allele(combo1, geno_str(combo1), "numeric", "alpha"))
         )
 
+    surviving_genotypes = {
+        tuple(pair.genotypes) for pair in (bg.alleles[AlleleState.CO] or [])
+    }
     bg.filtered_out[AlleleState.CO] = [
-        pair for pair in tested if pair not in bg.alleles[AlleleState.CO]
+        pair for pair in tested if tuple(pair.genotypes) not in surviving_genotypes
     ]
-    # print(1111112,bg.alleles[AlleleState.CO], '\n', bg.filtered_out[AlleleState.CO])
 
     return bg

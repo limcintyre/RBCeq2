@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from functools import partial
-from collections.abc import Callable
 from rbceq2.core_logic.alleles import BloodGroup, Pair
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import (
+    ABO_DELG_VARIANTS,
+    UNDETERMINED_SLOT,
+    AlleleState,
+)
 from rbceq2.core_logic.utils import (
     Zygosity,
     apply_to_dict_values,
@@ -13,9 +15,12 @@ from rbceq2.filters.shared_filter_functionality import (
     all_hom,
     identify_unphased,
     proceed,
+    carries_phase,
+    _het_phase_evidence,
+    _het_phase_summary,
 )
 from rbceq2.core_logic.alleles import Allele
-from icecream import ic
+
 
 @apply_to_dict_values
 def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
@@ -98,6 +103,26 @@ def remove_unphased(bg: BloodGroup, phased: bool) -> BloodGroup:
 def _get_allele_phase_info(allele, phase_dict):
     """ """
     return [phase_dict[variant] for variant in allele.defining_variants]
+
+
+def _allele_het_phase_evidence(
+    bg: BloodGroup, allele: Allele
+) -> tuple[str, str, str] | None:
+    """Return one shared block and orientation supported by every HET definition.
+
+    Each heterozygous defining token must carry usable evidence. Homozygous and
+    hemizygous definitions are ignored only for orientation; copy counts stay intact.
+    An allele without HET definitions supplies no such placement evidence.
+
+    Args:
+        bg (BloodGroup): Existing variant and phase pools.
+        allele (Allele): Definition whose HET tokens must agree.
+
+    Returns:
+        tuple[str, str, str] | None: Shared evidence, or None when any HET token
+        is unknown, the tokens disagree, or the allele has no HET definitions.
+    """
+    return _het_phase_summary(bg, allele.defining_variants)
 
 
 @apply_to_dict_values
@@ -186,14 +211,11 @@ def filter_if_all_HET_vars_on_same_side_and_phased(
         to_remove = []
         for pair in bg.alleles[allele_state]:
             for variant in pair.allele1.defining_variants:
-                if bg.variant_pool.get(variant) != Zygosity.HET:
+                evidence = _het_phase_evidence(bg, variant)
+                if evidence is None:
                     continue
-                phase = bg.variant_pool_phase[variant]
                 for variant2 in pair.allele2.defining_variants:
-                    if bg.variant_pool.get(variant2) != Zygosity.HET:
-                        continue
-                    phase2 = bg.variant_pool_phase[variant2]
-                    if phase == phase2 and "|" in phase:
+                    if evidence == _het_phase_evidence(bg, variant2):
                         to_remove.append(pair)
         if to_remove:
             bg.remove_pairs(
@@ -211,7 +233,8 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
 ) -> BloodGroup:
     """
     If an allele is HOM and it's 'in' every other properly phased allele
-    AND the there's at least 1 of those on each side, it can't exist
+    AND the there's at least 1 of those on each side, it can't exist.
+    Opposite HET placements must share a known chromosome and phase set.
 
     Sample: HG03774 BG Name: LU
 
@@ -290,19 +313,7 @@ def filter_on_in_relationship_if_HET_vars_on_dif_side_and_phased(
                 bg.variant_pool, pair.allele2
             ):
                 continue
-            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
-                continue  # TODO - next refactor this type of functionality
-            # should move into a new PhasedAllele class
-            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
-                continue
-            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
-
-            if phase1 == {None} or phase2 == {None}:
-                continue
-            if phase1 == {"unknown"} or phase2 == {"unknown"}:
-                continue
-            if len(phase1) == 1 and len(phase2) == 1:
+            if possible_to_use_phase(bg, pair):
                 pairs_with_HET.append(pair)
 
         if pairs_with_HET:
@@ -428,47 +439,60 @@ def filter_on_in_relationship_when_HOM_cant_be_on_one_side(
     for allele_state in [AlleleState.NORMAL, AlleleState.CO]:
         if not proceed(bg, allele_state):
             continue
+        pairs = list(bg.alleles.get(allele_state) or [])
         to_remove = []
-        fully_phased_pairs = []
-        for pair in bg.alleles[allele_state]:
-            if not allele_phased(pair.allele1, bg.variant_pool_phase_set):
-                continue  # TODO - next refactor this type of functionality
-            # should move into a new PhasedAllele class
-            if not allele_phased(pair.allele2, bg.variant_pool_phase_set):
-                continue
-            phase1 = find_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = find_phase(bg.variant_pool_phase, pair.allele2)
-            if phase1 == {None} or phase2 == {None}:
-                continue
-            if phase1 == {"unknown"} or phase2 == {"unknown"}:
-                continue
-            fully_phased_pairs.append(pair)
-        if fully_phased_pairs:
-            flattened_alleles = flatten_alleles(fully_phased_pairs)
-            for pair in fully_phased_pairs:
-                if all_hom(bg.variant_pool, pair.allele1) or all_hom(
-                    bg.variant_pool, pair.allele2
-                ):
-                    if all_hom(bg.variant_pool, pair.allele1):
-                        homs_partner_allele = pair.allele2
-                        hom_allele = pair.allele1
+        for pair in pairs:
+            for hom_allele, partner in (
+                (pair.allele1, pair.allele2), (pair.allele2, pair.allele1)
+            ):
+                if not all_hom(bg.variant_pool, hom_allele):
+                    continue
+                # Conditional on this partner existing, its usable HET tokens
+                # locate its copy even when other requirements are unphased.
+                anchors = {}
+                for variant in partner.defining_variants:
+                    evidence = _het_phase_evidence(bg, variant)
+                    if evidence is None:
+                        continue
+                    block, side = evidence[:2], evidence[2]
+                    if block in anchors and anchors[block] != side:
+                        anchors = {}
+                        break  # inconsistent definitions supply no usable witness
+                    anchors[block] = side
+                if not anchors:
+                    continue
+                for replacement in pairs:
+                    if replacement.allele1 == partner:
+                        required = replacement.allele2
+                    elif replacement.allele2 == partner:
+                        required = replacement.allele1
                     else:
-                        homs_partner_allele = pair.allele1
-                        hom_allele = pair.allele2
-                    phase_of_homs_partner = find_phase(
-                        bg.variant_pool_phase, homs_partner_allele
-                    )
-                    for flat_allele in flattened_alleles:
-                        if flat_allele in pair.alleles:
+                        continue
+                    if required in (pair.allele1, pair.allele2):
+                        continue
+                    if hom_allele not in required:
+                        continue
+                    if not any(
+                        bg.variant_pool.get(token) == Zygosity.HET
+                        for token in required.defining_variants
+                    ):
+                        continue
+                    forced = True
+                    for token in required.defining_variants:
+                        if bg.variant_pool.get(token) == Zygosity.HOM:
                             continue
-                        phase_of_flat_allele = find_phase(
-                            bg.variant_pool_phase, flat_allele
-                        )
+                        evidence = _het_phase_evidence(bg, token)
                         if (
-                            phase_of_flat_allele != phase_of_homs_partner
-                            and hom_allele in flat_allele
+                            evidence is None
+                            or evidence[:2] not in anchors
+                            or anchors[evidence[:2]] == evidence[2]
                         ):
+                            forced = False
+                            break
+                    if forced:
+                        if pair not in to_remove:
                             to_remove.append(pair)
+                        break
         if to_remove:
             bg.remove_pairs(
                 to_remove,
@@ -652,6 +676,8 @@ def filter_pairs_by_phase(
     - If `phased` is False, the function returns the BloodGroup object unchanged.
     - For each allele pair in `bg.alleles[AlleleState.NORMAL]`:
         - If the pair contains a reference allele, it is retained.
+        - HET evidence must locate both alleles in one known phase set on the
+          same chromosome; missing or independent blocks retain the pair.
         - Extract the phase sets (`p1` and `p2`) for each allele in the pair.
         - If both alleles are homozygous (phase sets are {"."}), the pair is retained.
         - If the phase sets are identical, the pair is removed.
@@ -700,6 +726,53 @@ def filter_pairs_by_phase(
 
     dont remove if ref in pair
     if there is only 1 pair and they are phased then change to 2 pairs (or &) with ref
+
+    The equality test needs both sides to be real phase, which is what carries_phase
+    decides. Two values being equal only means the alleles are on one chromosome if the
+    values locate a chromosome in the first place, and three that do not compare equal
+    to each other all the time: 'unknown' for a variant the caller did not phase, an
+    unphased genotype like '0/1' for a heterozygote in a partly phased file, and a
+    homozygous genotype, which is on both chromosomes rather than one. The phase set
+    check above does not catch them, because it counts phase sets rather than reading
+    them, and a pair with nothing phased has one shared phase set of 'unknown'.
+
+    Sample: HG00099 BG Name: FUT3, where both defining variants are heterozygous and
+    neither was phased:
+
+        Vars_phase:
+        19:5844526_ref : unknown
+        19:5844638_ref : unknown
+
+    FUT3*01.04 needs 19:5844526_ref and FUT3*01N.03.01 needs 19:5844638_ref, so both
+    alleles' phase read 'unknown', matched, and the pair was removed as though the two
+    had been seen on the same chromosome. Removing it also took FUT3*01.04 out of the
+    pool that cant_pair_with_ref_cuz_SNPs_must_be_on_other_side reads later, so the
+    reference pair FUT3*01.01/FUT3*01N.03.01 - which leaves the heterozygous
+    19:5844526_ref with nowhere to sit - was reported instead of being excluded. The
+    call changed rather than narrowing: unphased says
+    FUT3*01.04/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02 and phased said
+    FUT3*01.01/FUT3*01N.03.01,FUT3*01.01/FUT3*01N.03.02.
+
+    A pair holding the same allele in both slots is skipped for a different reason. It
+    is not two alleles competing for one chromosome, it is one allele written the way
+    pairs are written everywhere else, so the same-strand question does not apply and
+    the equality test can only ever say yes. The all hom escape below covers the
+    diploid form of this and nothing covered the single copy form.
+
+    Sample: HG01873 BG Name: XK, a single copy region:
+
+        Vars:
+        X:37727623_C_G : c.509-13C>G : Hemizygous
+        Vars_phase:
+        X:37727623_C_G : c.509-13C>G : 1
+
+    XK*N.33 sits on the one chromosome the locus has, which is what the phase '1' says,
+    and the pair is XK*N.33/XK*N.33 because that is how a single copy region is carried
+    through the filters - the second slot only becomes HAPLOID_SECOND_SLOT at reporting.
+    Both sides read '1', matched, and the pair went. It was the last one, so the branch
+    below paired the reference with allele1 and with allele2 - the same allele twice -
+    which put XK*01/XK*N.33 in twice and reinstated the pair excluded_due_to_rank_ref
+    had already excluded by name. Kx- became Kx+.
     """
 
     if not phased:
@@ -708,6 +781,12 @@ def filter_pairs_by_phase(
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.contains_reference:
             continue
+        if pair.allele1 == pair.allele2:
+            continue  # one allele in two slots, not two alleles on one chromosome
+        first = _allele_het_phase_evidence(bg, pair.allele1)
+        second = _allele_het_phase_evidence(bg, pair.allele2)
+        if first is None or second is None or first[:2] != second[:2]:
+            continue  # equal placeholders or GT strings do not establish a block
         p1_phases = set(_get_allele_phase_info(pair.allele1, bg.variant_pool_phase))
         p1_zygo = set(_get_allele_phase_info(pair.allele1, bg.variant_pool))
         p1_phase_sets = set(
@@ -722,6 +801,9 @@ def filter_pairs_by_phase(
         phase_set = p1_phase_sets.union(p2_phase_sets)
         if len(phase_set) != 1:
             continue  # can't use phasing info
+
+        if not all(carries_phase(phase) for phase in p1_phases | p2_phases):
+            continue  # no value here says which chromosome anything is on
 
         if p1_zygo == {Zygosity.HOM} and p2_zygo == {Zygosity.HOM}:  # all hom
             continue
@@ -849,48 +931,38 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
             continue
         if len(bg.alleles[allele_state]) in [1, 0]:
             return bg
-        # process alleles
         alleles = list(flatten_alleles(bg.alleles[allele_state]))
-        alleles_with_variants_in_same_phase_set = [
-            allele
-            for allele in alleles
-            if check_phase(bg.variant_pool_phase_set, allele, ".")
-        ]
 
-        alleles_with_variants_in_same_phase = [
-            allele
-            for allele in alleles_with_variants_in_same_phase_set
-            if check_phase(bg.variant_pool_phase, allele, "1/1")
-        ]
+        # A variant at a single-copy locus is on the one chromosome that
+        # locus has. That is not phase and it needs no phase set - the checks below
+        # ask which of two chromosomes a variant sits on, and there is only one.
+        # Recognised here rather than given a synthesised phase set upstream: a
+        # fabricated set is a second value in the pool, which breaks the 'all variants
+        # share one phase set' precondition modify_variant_phase_pool_if_large_indel
+        # needs, silently stopping that repair.
+        def all_hemizygous(allele) -> bool:
+            zygos = [
+                bg.variant_pool.get(variant) for variant in allele.defining_variants
+            ]
+            return bool(zygos) and all(z == Zygosity.HEM for z in zygos)
 
-        # split by phase
-        l1, l2, l3 = [], [], []  # 1|0, 0|1, or 1 (hemi)
+        # Reference containment can be a subtype shortcut, not a literal token
+        # subset. Keep comparisons inside one block even when tokens do not overlap.
+        by_phase = {}
+        hemizygous = []
         for allele in sorted(
-            alleles_with_variants_in_same_phase,
-            key=lambda allele: len(allele.defining_variants),
-            reverse=True,
+            alleles, key=lambda allele: len(allele.defining_variants), reverse=True
         ):
-            phases = set([])
-            for variant in allele.defining_variants:
-                phase = bg.variant_pool_phase[variant]
-                if phase != "1/1":
-                    phases.add(bg.variant_pool_phase[variant])
+            if all_hemizygous(allele):
+                hemizygous.append(allele)
+                continue
+            evidence = _allele_het_phase_evidence(bg, allele)
+            if evidence is not None:
+                by_phase.setdefault(evidence, []).append(allele)
 
-            assert len(phases) == 1
-            phase = phases.pop()
-            if phase == "1|0":
-                l1.append(allele)
-            elif phase == "0|1":
-                l2.append(allele)
-            elif phase == "1":
-                l3.append(allele)
-            else:
-                assert phase in "unknown" or "/" in phase
-        # figure out what to remove
-
-        alleles_to_remove = iterate_over_list(l1)
-        alleles_to_remove += iterate_over_list(l2)
-        alleles_to_remove += iterate_over_list(l3)
+        alleles_to_remove = iterate_over_list(hemizygous)
+        for same_block_and_side in by_phase.values():
+            alleles_to_remove += iterate_over_list(same_block_and_side)
         to_remove = []
         for pair in bg.alleles[allele_state]:
             if pair.allele1 in alleles_to_remove or pair.allele2 in alleles_to_remove:
@@ -900,6 +972,119 @@ def impossible_alleles_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
         if to_remove:
             bg.remove_pairs(to_remove, "filter_impossible_alleles_phased", allele_state)
         assert bg.alleles[allele_state]
+
+    return bg
+
+
+@apply_to_dict_values
+def narrow_second_slot_candidates_by_phase(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Drop a candidate another candidate already accounts for.
+
+    cant_name_second_slot_cuz_ref_impossible names one chromosome and refuses the other,
+    reporting one genotype per candidate allele. Nothing then narrows that list, because
+    it removed the pairs to build it and what it leaves behind is not a pair - so the
+    phase based 'in' filters, which run later and work on pairs, never see it.
+
+    A strict subset is superseded when every additional defining token of a larger
+    candidate is forced onto its chromosome. An additional HOM token is present on
+    both copies. An additional HET token must share chromosome, phase set and side
+    with a HET token already required by the smaller candidate.
+
+    This comparison is conditional on the smaller candidate existing. Its own HET
+    definitions may span independent blocks: uncertainty about their relative
+    placement does not erase a forced extension within one of those blocks.
+
+    HG01527 RHCE in the long read set: five heterozygous variants, every one '0|1' in
+    phase set 25233074, and six candidates of which RHCE*01.20.04.02 holds all five and
+    the other five are strict subsets of it. Reported as six genotypes whose phenotypes
+    disagree, so the phenotype columns come out empty - the cell has no answer rather
+    than an imprecise one.
+
+    A candidate containing only HOM definitions supplies no side itself. Preserve
+    the existing narrowing of that candidate when all candidate HET evidence locates
+    one known block and side. Missing, unphased or independent additional HET evidence
+    cannot justify a forced extension. HEM and no-data tokens do not stand in for HOM.
+
+    Args:
+        bg (BloodGroup): A BloodGroup whose second slot was refused by name.
+        phased (bool): The --phased flag. Without it there are no sides to read.
+
+    Returns:
+        BloodGroup: With the superseded candidates dropped from single_slot_genotypes and
+        recorded in filtered_out under this filter's name.
+    """
+    if not phased or len(bg.single_slot_genotypes) < 2:
+        return bg
+
+    by_genotype = {
+        allele.genotype: allele for allele in bg.alleles[AlleleState.RAW]
+    }
+    candidates: dict[str, Allele] = {}
+    for rendered in bg.single_slot_genotypes:
+        name = rendered.split("/")[0]
+        allele = by_genotype.get(name)
+        if allele is None:
+            # A candidate whose allele is not to hand cannot be reasoned about, and
+            # dropping the others on a partial view would be worse than not acting.
+            return bg
+        candidates[name] = allele
+
+    variants = {
+        variant
+        for allele in candidates.values()
+        for variant in allele.defining_variants
+    }
+    evidence = {variant: _het_phase_evidence(bg, variant) for variant in variants}
+    shared_phase = _het_phase_summary(bg, variants)
+
+    def forced_extension(smaller: Allele, larger: Allele) -> bool:
+        """Whether the larger definition follows whenever the smaller one exists."""
+        if not smaller.defining_variants < larger.defining_variants:
+            return False
+        anchors = {
+            evidence[variant]
+            for variant in smaller.defining_variants
+            if evidence[variant] is not None
+        }
+        if (
+            not anchors
+            and smaller.defining_variants
+            and all(
+                bg.variant_pool.get(variant) == Zygosity.HOM
+                for variant in smaller.defining_variants
+            )
+            and shared_phase is not None
+        ):
+            # The existing HOM-only subset case uses the globally located slot.
+            anchors.add(shared_phase)
+        for variant in larger.defining_variants - smaller.defining_variants:
+            if bg.variant_pool.get(variant) == Zygosity.HOM:
+                continue
+            if evidence[variant] is None or evidence[variant] not in anchors:
+                return False
+        return True
+
+    superseded = [
+        allele
+        for name, allele in candidates.items()
+        if any(
+            forced_extension(allele, other)
+            for other_name, other in candidates.items()
+            if other_name != name
+        )
+    ]
+    if not superseded or len(superseded) == len(candidates):
+        return bg
+
+    dropped = {allele.genotype for allele in superseded}
+    bg.filtered_out["narrow_second_slot_candidates_by_phase"].extend(superseded)
+    bg.single_slot_genotypes = [
+        rendered
+        for rendered in bg.single_slot_genotypes
+        if rendered.split("/")[0] not in dropped
+    ]
 
     return bg
 
@@ -929,6 +1114,8 @@ def check_phase(variant_pool: dict[str, str], current_allele: Allele, hom: str) 
         for variant, phase in variant_pool.items()
         if variant in current_allele.defining_variants and phase != hom
     ]
+    if not all(carries_phase(phase) for phase in phase_sets):
+        return False
 
     return len(set(phase_sets)) == 1
 
@@ -1025,16 +1212,11 @@ def rm_ref_if_2x_HET_phased(bg: BloodGroup, phased: bool) -> BloodGroup:
         return bg
     to_remove = []
     phased_ref_free_pair_exists = False
-    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
-    same_phase = partial(check_phase, bg.variant_pool_phase)
     for pair in bg.alleles[AlleleState.NORMAL]:
         if pair.allele1.reference or pair.allele2.reference:
             to_remove.append(pair)
             continue
-        if possible_to_use_phase(same_phase_set, same_phase, pair):
-            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
-            assert phase1 != phase2
+        if possible_to_use_phase(bg, pair):
             phased_ref_free_pair_exists = True
     if to_remove and phased_ref_free_pair_exists:
         bg.remove_pairs(to_remove, "rm_ref_if_2x_HET_phased")
@@ -1074,31 +1256,27 @@ def allele_phase(variant_pool, allele):
     )
 
 
-def possible_to_use_phase(same_phase_set: Callable, same_phase: Callable, pair: Pair):
-    """Check if a pair of alleles can be phased using available phasing information.
+def possible_to_use_phase(bg: BloodGroup, pair: Pair) -> bool:
+    """Check whether HET evidence places the two alleles on opposite haplotypes.
 
-    Determines whether both alleles in a pair have consistent phase set assignments
-    and phase information, excluding homozygous variants. Both alleles must have
-    their heterozygous variants in a single phase set and a single phase to be
-    considered phaseable.
+    Both alleles must have consistent HET orientations in the same phase set on
+    the same chromosome. Different sets do not establish relative orientation,
+    even when their GT strings differ. HOM and HEM tokens supply no HET side.
 
     Args:
-        same_phase_set: Callable that checks if an allele's variants belong to one
-            phase set, excluding a specified homozygous indicator.
-        same_phase: Callable that checks if an allele's variants have consistent
-            phase values, excluding a specified homozygous genotype.
-        pair: Pair object containing two alleles to check for phasing consistency.
+        bg (BloodGroup): Existing zygosity, orientation and phase-set evidence.
+        pair (Pair): Alleles whose relative placement is being tested.
 
     Returns:
-        True if both alleles have consistent phase set and phase assignments for
-        their heterozygous variants, False otherwise.
-
-    Note:
-        Uses "." to represent homozygous variants in phase sets and "1/1" to
-        represent homozygous genotypes in phase values.
+        bool: Whether all HET definitions establish opposite sides of one block.
     """
-    return (same_phase_set(pair.allele1, ".") and same_phase(pair.allele2, "1/1")) and (
-        same_phase_set(pair.allele2, ".") and same_phase(pair.allele2, "1/1")
+    first = _allele_het_phase_evidence(bg, pair.allele1)
+    second = _allele_het_phase_evidence(bg, pair.allele2)
+    return (
+        first is not None
+        and second is not None
+        and first[:2] == second[:2]
+        and first[2] != second[2]
     )
 
 
@@ -1195,15 +1373,9 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
 
     if not phased:
         return bg
-    same_phase_set = partial(check_phase, bg.variant_pool_phase_set)
-    same_phase = partial(check_phase, bg.variant_pool_phase)
-    # store as list of tuples: (weight, pair)
     pairs: list[tuple[float, Pair]] = []
     for pair in bg.alleles[AlleleState.NORMAL]:
-        if possible_to_use_phase(same_phase_set, same_phase, pair):
-            phase1 = allele_phase(bg.variant_pool_phase, pair.allele1)
-            phase2 = allele_phase(bg.variant_pool_phase, pair.allele2)
-            assert phase1 != phase2
+        if possible_to_use_phase(bg, pair):
             pairs.append((pair.allele1.weight_geno + pair.allele2.weight_geno, pair))
     if not pairs:
         return bg
@@ -1212,7 +1384,6 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     weights = set([pair_tup[0] for pair_tup in pairs])
     if len(weights) == 1:
         return bg
-    # select the lowest-weighted pair
     best_weight, best_pair = min(pairs, key=lambda x: x[0])
 
     to_remove = [pair for pair in bg.alleles[AlleleState.NORMAL] if pair != best_pair]
@@ -1222,22 +1393,104 @@ def low_weight_hom(bg: BloodGroup, phased: bool) -> BloodGroup:
     return bg
 
 
+def locus_has_a_copy_number(variant: str, variant_pool: dict[str, str]) -> bool:
+    """Whether the sample has a copy number at this variant's position.
+
+    A token is absent from the pool for two opposite reasons, and only one of them is
+    evidence. The alternate at the locus being homozygous leaves no reference copy for a
+    '_ref' token to sit on, which is a contradiction. The caller never looking leaves the
+    same gap and contradicts nothing.
+
+    Telling them apart is what the rest of the locus is for: a sibling token carrying a
+    copy number means the position was measured. Zygosity.NO_DATA is the one state that
+    does not count, which is the same rule variant_pool_numeric applies when it omits it -
+    'not measured' has no copy number. Zygosity.NO_COPIES does count: zero copies is a
+    measurement of absence rather than an absence of measurement, and a locus with no
+    copies has no reference copy either.
+
+    Args:
+        variant (str): A defining variant of the reference allele, 'chrom:pos_REF_ALT'
+        or 'chrom:pos_ref'.
+        variant_pool (dict[str, str]): The blood group's pool, variant to zygosity.
+
+    Returns:
+        bool: True if some token at that position carries a copy number.
+
+    Example:
+        HG00109 HPA3 on an array. The probe did not call 17:42453065, so HPA3*02 goes to
+        no_call_at_defining_variant and 17:42453065_ref is not in the pool either:
+
+        17:42453065_A_C : (None) : No_data
+
+        The only token at the locus is NO_DATA, so this returns False and HPA3*01/HPA3*01
+        stands. Reading that absence as impossibility would report Undetermined for a
+        sample nobody measured - 547 of them on this input.
+
+        NA19679 RHCE, short read. RHCE*01 needs 1:25408711_ref, which is absent:
+
+        1:25408711_G_A : c.307C>T : Homozygous
+
+        The alternate is there with a copy number, so this returns True.
+    """
+    chrom, rest = variant.split(":", 1)
+    prefix = f"{chrom}:{rest.split('_', 1)[0]}_"
+
+    return any(
+        token.startswith(prefix) and zygosity != Zygosity.NO_DATA
+        for token, zygosity in variant_pool.items()
+    )
+
+
 @apply_to_dict_values
-def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
-    """Remove allele pairs where reference allele variants are absent from variant pool.
+def no_defining_variant(bg: BloodGroup) -> BloodGroup:
+    """Remove allele pairs where reference allele variants are contradicted by the pool.
 
     Eliminates pairs containing reference alleles that have defining variants not
-    present in the sample's variant pool. This occurs when a reference variant is
+    present in the sample's variant pool, where the pool has something to say about
+    the locus. This occurs when a reference variant is
     impossible because the alternate allele is homozygous. Skips alleles defined
     only by absence markers (variants ending in '.') and specific known insertions.
 
+    Runs in both arms. Nothing in here reads phase - the test is against bg.variant_pool
+    and nothing else - so gating it on --phased meant the same sample got the pair removed
+    with the flag and reported without it, a difference decided by a flag that is about
+    something else. That is the same reason cant_name_second_slot_cuz_ref_impossible runs
+    in both arms. Measured over nine datasets: 65 pairs in 59 cells, all of them narrowings
+    and none of them on the array.
+
+    Absence alone is not enough, and locus_has_a_copy_number is the gate. This filter walks
+    both alleles of a pair, so it reaches reference/reference pairs too, and on an array a
+    locus with no call makes every reference pair look impossible - 547 cells on the array
+    input, against 281 pairs where a real call contradicts the reference. The two
+    populations separate perfectly on whether the locus carries a copy number.
+
+    The ABO c.261delG insertion is one of those, and for a different reason from the rest:
+    the database treats the deletion as the reference sequence, so ABO*A1.01 is a reference
+    allele defined by an *alternate*. Its absence from the pool is then the ordinary state
+    of a group O sample rather than a contradiction, and removing the pair over it would
+    make ABO uncallable for anyone who is not group A or B. Both builds are exempted from
+    ABO_DELG_VARIANTS - the GRCh37 form used to be written here without its chromosome
+    prefix, so it matched no token and the exemption only ever worked on GRCh38.
+
+    An empty variant pool is not that case and is skipped. Absence of evidence is not
+    evidence that the reference variant is impossible - the pool is empty here because
+    every allele the blood group had was removed by a filter, most often because the
+    caller doubted the variants they were built from. Falling back to the reference allele
+    when nothing is left is the convention this tool follows, and it is what a lab
+    scientist does by hand; removing the pair instead turns 'we found nothing' into 'we
+    cannot say', which is a different and stronger claim. Measured on HG02308 KN and
+    HG03673 RHD, both of which reported no call where the reference allele was the answer.
+
+    Note this filter only ever sees a blood group that had alleles - one with no variants
+    at all never enters the pipeline and gets its reference genotype from add_refs - so an
+    empty pool here always means something was taken away.
+
     Args:
         bg: BloodGroup object containing allele pairs and variant pool information.
-        phased: Boolean indicating whether the sample variants are phased.
 
     Returns:
         The modified BloodGroup object with impossible reference allele pairs removed,
-        or the original object unchanged if not phased or no invalid pairs found.
+        or the original object unchanged if no invalid pairs were found.
 
     Example
     need to rm ref as 1:25390874_ref not possible
@@ -1285,25 +1538,26 @@ def no_defining_variant(bg: BloodGroup, phased: bool) -> BloodGroup:
                 reference: True
     """
 
-    if not phased:
+    if not bg.variant_pool:
         return bg
     to_remove = []
 
     for pair in bg.alleles[AlleleState.NORMAL]:
-        all_defining_vars_for_pair = list(pair.allele1.defining_variants) + list(pair.allele2.defining_variants)
         for allele in pair.alleles:
             if not allele.reference:
                 continue
             if all(variant.endswith(".") for variant in allele.defining_variants):
                 continue
-            for variant in allele.defining_variants:
-                if variant not in all_defining_vars_for_pair:
-                    continue
-                if variant == "9:133257521_T_TC" or variant == "136132908_T_TC":
-                    continue
-                if variant not in bg.variant_pool:
-                    to_remove.append(pair)
-                    break
+            contradicted = [
+                variant
+                for variant in allele.defining_variants
+                if variant not in ABO_DELG_VARIANTS
+                and variant not in bg.variant_pool
+                and locus_has_a_copy_number(variant, bg.variant_pool)
+            ]
+            if contradicted:
+                to_remove.append(pair)
+                break
     if to_remove:
         bg.remove_pairs(to_remove, "no_defining_variant")
 
@@ -1472,6 +1726,208 @@ def cant_be_hom_ref_due_to_HET_SNP(bg: BloodGroup, phased: bool) -> BloodGroup:
         ):
             to_remove.append(pair)
     if to_remove:
-        bg.remove_pairs(to_remove, "cant_be_hom_ref_due_to_HET_SNP")
+        # reverts_to_reference is False because the pair being removed *is* the
+        # reference pair, and it is removed precisely because the sample cannot be
+        # homozygous reference. The default warning would promise a revert to the one
+        # answer this filter has just ruled out. Same reasoning as
+        # cant_name_second_slot_cuz_ref_impossible, which the parameter's own docstring
+        # cites.
+        bg.remove_pairs(
+            to_remove, "cant_be_hom_ref_due_to_HET_SNP", reverts_to_reference=False
+        )
+
+    return bg
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_ref_not_phased(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Name the partner slot when the only pair was struck for an unphased reference.
+
+    The third filter in the same family, and the same rule as the other two: one slot
+    identified and the other matching no allele is written 'X/Undetermined'.
+    cant_name_second_slot_cuz_ref_impossible covers the shape where the reference is
+    the slot that cannot be named, cant_name_second_slot_cuz_hom_ref_impossible the
+    shape where a hom reference pair was struck, and this one the shape where
+    ref_not_phased struck the pair.
+
+    The shape: remove_unphased has dropped the reference because its defining variants
+    are not all on one chromosome, process_genetic_data has re-added it anyway - the
+    reference comes from the database rather than from the pool - and ref_not_phased
+    has removed the resulting pair. That removal is right. But the pair's *other*
+    allele reached the pairing stage because it survived phasing, so where its own
+    defining variants are all on one chromosome, phase has settled that slot and
+    throwing it away with the pair loses a chromosome the data names.
+
+    Phased only, and the phase is what makes it safe rather than a guess. Every
+    defining variant of the partner that says which chromosome it is on has to say the
+    *same* chromosome; a partner whose variants are split, or which is located by
+    nothing, is left alone and the blood group stays 'Undetermined/Undetermined'.
+
+    Cannot collide with cant_name_second_slot_cuz_hom_ref_impossible, and not only
+    because that one runs first and this returns early once a slot is named. The two
+    are mutually exclusive by construction: ref_not_phased fires only when the
+    reference is in remove_unphased, which means its defining variants are on more
+    than one chromosome, which is exactly the gate the other filter refuses on.
+
+    Nothing is excluded here, so nothing is recorded in filtered_out: the pair was
+    already removed and recorded by ref_not_phased, whose name this reads to find it.
+    This filter only names what that one left unnamed.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object, after ref_not_phased.
+        phased (bool): Whether the sample's variants are phased.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set to one
+        'partner/Undetermined' string per settled candidate, or unchanged if any gate
+        is not met.
+
+    Example:
+        HG00128 RHCE, phased. Every defining variant is heterozygous and the phase
+        pool splits them cleanly in two:
+
+        bg.variant_pool_phase: {'1:25390874_C_G': '1|0',
+                                '1:25390874_ref': '0|1',
+                                '1:25408711_G_A': '0|1',
+                                '1:25408711_ref': '1|0',
+                                '1:25420739_G_C': '1|0',
+                                '1:25420739_ref': '0|1'}
+
+        RHCE*01 is 1:25390874_ref, 1:25408711_ref and 1:25420739_G_C, which is '0|1'
+        and then '1|0' twice, so remove_unphased drops it and ref_not_phased removes
+        the RHCE*01/RHCE*03 pair it was re-added into. RHCE*03 is 1:25390874_C_G,
+        1:25408711_ref and 1:25420739_G_C, all three '1|0', so the left chromosome is
+        RHCE*03 outright. The right carries 25390874_ref, 25408711_G_A and
+        25420739_ref, which is no allele in the database, which is why nothing can
+        name it.
+
+        single_slot_genotypes -> ['RHCE*03/Undetermined']
+
+        Was 'Undetermined/Undetermined'.
+    """
+    if not phased:
+        return bg
+    # .get, not [], because the co-existing stages have not created the key yet. Kept
+    # so that moving this filter later cannot silently override a Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    # Only where nothing survived. If any pair is left the blood group has an answer
+    # and this must not touch it, and a slot already named is not this filter's to
+    # overwrite.
+    if bg.alleles[AlleleState.NORMAL] or bg.single_slot_genotypes:
+        return bg
+
+    removed = bg.filtered_out.get("ref_not_phased", [])
+    partners = {
+        allele
+        for pair in removed
+        if isinstance(pair, Pair)
+        for allele in pair.alleles
+        if not allele.reference
+    }
+
+    # Every HET definition must be placed; discarding an unphased HET would
+    # incorrectly let partial evidence name the entire allele.
+    named = []
+    for partner in partners:
+        if _allele_het_phase_evidence(bg, partner) is not None:
+            named.append(f"{partner.genotype}/{UNDETERMINED_SLOT}")
+
+    if named:
+        # sorted, because partners came out of a set and the rendered strings are
+        # user visible - the order has to be reproducible run to run.
+        bg.single_slot_genotypes = sorted(named)
+
+    return bg
+
+
+@apply_to_dict_values
+def cant_name_second_slot_cuz_hom_ref_impossible(
+    bg: BloodGroup, phased: bool
+) -> BloodGroup:
+    """Name the reference slot when the only pair was hom reference and is impossible.
+
+    The mirror of cant_name_second_slot_cuz_ref_impossible, and the other half of the
+    same rule: one slot identified and the other matching no allele is written
+    'X/Undetermined'. That filter covers the shape where the *reference* is the slot
+    that cannot be named. This one covers the shape where the reference is the slot the
+    data settles and the partner is what cannot be named.
+
+    The shape: cant_be_hom_ref_due_to_HET_SNP has just removed the only pair the blood
+    group had, because it was reference/reference and a defining variant is
+    heterozygous. That removal is right - the sample is not homozygous reference. But a
+    heterozygote is one chromosome carrying the reference base and one carrying the
+    alternate, so removing the pair throws away a slot the data has settled. The blood
+    group ends up 'Undetermined/Undetermined' when one of the two is known.
+
+    Phased only, and the phase is what makes it safe rather than a guess. Every
+    defining variant of the reference that says which chromosome it is on has to say
+    the *same* chromosome. Two heterozygous defining variants on opposite sides means
+    neither chromosome carries the whole reference allele, and then declining both
+    slots is the honest answer - so that case is left alone. A partly phased file where
+    the heterozygote is written without a bar says nothing about sides either, and is
+    also left alone.
+
+    Nothing is excluded here, so nothing is recorded in filtered_out: the pair was
+    already removed and recorded by cant_be_hom_ref_due_to_HET_SNP, whose name this
+    reads to find it. This filter only names what that one left unnamed.
+
+    Args:
+        bg (BloodGroup): The BloodGroup object, after cant_be_hom_ref_due_to_HET_SNP.
+        phased (bool): Whether the sample's variants are phased.
+
+    Returns:
+        BloodGroup: The BloodGroup with single_slot_genotypes set to one
+        'reference/Undetermined' string, or unchanged if any gate is not met.
+
+    Example:
+        NA18571 RHCE, phased. FILTER drops RHCE*02 for two LowQual defining variants
+        and remove_unphased drops RHCE*01.01 and RHCE*01.36, leaving only the
+        reference:
+
+        bg.variant_pool_phase: {'1:25390874_ref': '1/1',
+                                '1:25408711_G_A': '0|1',
+                                '1:25408711_ref': '1|0',
+                                '1:25420739_G_C': '1|0',
+                                '1:25420739_ref': '0|1'}
+
+        RHCE*01 is 1:25390874_ref, 1:25408711_ref and 1:25420739_G_C. The two that
+        carry phase are both '1|0', so the left chromosome is RHCE*01 outright and the
+        right carries 25408711_G_A and 25420739_ref - the RHCE*02 signature minus the
+        variants FILTER discarded, which is why nothing can name it.
+
+        single_slot_genotypes -> ['RHCE*01/Undetermined']
+
+        Was 'Undetermined/Undetermined'.
+    """
+    if not phased:
+        return bg
+    # .get, not [], because the co-existing stages have not created the key yet. Kept
+    # so that moving this filter later cannot silently override a Knops result.
+    if bg.alleles.get(AlleleState.CO) is not None:
+        return bg
+    # Only where nothing survived. If any pair is left the blood group has an answer
+    # and this must not touch it.
+    if bg.alleles[AlleleState.NORMAL] or bg.single_slot_genotypes:
+        return bg
+
+    removed = bg.filtered_out.get("cant_be_hom_ref_due_to_HET_SNP", [])
+    references = [
+        pair.allele1
+        for pair in removed
+        if isinstance(pair, Pair) and pair.all_reference
+    ]
+    # One reference allele, or there is nothing unambiguous to name.
+    if len({reference.genotype for reference in references}) != 1:
+        return bg
+    reference = references[0]
+
+    # Equal GT strings across independent blocks do not establish a reference slot.
+    if _allele_het_phase_evidence(bg, reference) is None:
+        return bg
+
+    bg.single_slot_genotypes = [f"{reference.genotype}/{UNDETERMINED_SLOT}"]
 
     return bg

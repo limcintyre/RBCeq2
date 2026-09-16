@@ -1,11 +1,10 @@
 import unittest
+from dataclasses import replace
+
+from loguru import logger
 
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
-
-
-class Zygosity:
-    HOM = "Homozygous"
-    HET = "Heterozygous"
+from rbceq2.core_logic.utils import Zygosity
 
 
 class TestAllele(unittest.TestCase):
@@ -45,6 +44,39 @@ class TestAllele(unittest.TestCase):
         self.assertEqual(self.allele1.number_of_defining_variants, 2)
         self.assertEqual(self.allele2.number_of_defining_variants, 1)
         self.assertEqual(self.allele3.number_of_defining_variants, 3)
+
+    def test_equal_alleles_share_hash_and_container_identity(self) -> None:
+        variants = {
+            "reconstructed": replace(self.allele1),
+            "null": replace(self.allele1, null=True),
+            "weight_geno": replace(self.allele1, weight_geno=3),
+            "reference": replace(self.allele1, reference=True),
+            "sub_type": replace(self.allele1, sub_type="other"),
+            "big_variants": self.allele1.with_big_variants({"variant1": "mapped"}),
+        }
+        value = object()
+        keyed = {self.allele1: value}
+        for field, equivalent in variants.items():
+            with self.subTest(field=field):
+                self.assertIsNot(self.allele1, equivalent)
+                self.assertEqual(self.allele1, equivalent)
+                self.assertEqual(hash(self.allele1), hash(equivalent))
+                self.assertIs(keyed[equivalent], value)
+                self.assertEqual(len({self.allele1, equivalent}), 1)
+
+    def test_equality_fields_still_distinguish_alleles(self) -> None:
+        changes = {
+            "genotype": "other",
+            "genotype_alt": "other",
+            "phenotype": "other",
+            "phenotype_alt": "other",
+            "defining_variants": frozenset({"different_variant"}),
+        }
+        for field, value in changes.items():
+            with self.subTest(field=field):
+                different = replace(self.allele1, **{field: value})
+                self.assertNotEqual(self.allele1, different)
+                self.assertEqual(len({self.allele1, different}), 2)
 
     def test_contains(self) -> None:
         self.assertIn(self.allele2, self.allele1)
@@ -118,6 +150,64 @@ class TestBloodGroup(unittest.TestCase):
         self.assertEqual(len(self.blood_group.filtered_out["test_filter"]), 1)
 
 
+    def _captured_warnings(self, call) -> list[str]:
+        """Run `call` and return the WARNING messages it emitted."""
+        messages: list[str] = []
+        sink = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            call()
+        finally:
+            logger.remove(sink)
+        return messages
+
+    def test_remove_alleles_warns_when_it_empties_the_group(self) -> None:
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles(
+                [self.allele1, self.allele2], "test_filter"
+            )
+        )
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("all alleles removed", msgs[0])
+        self.assertIn("test_filter", msgs[0])
+
+    def test_remove_alleles_silent_when_it_removed_nothing(self) -> None:
+        """A filter that removed nothing must not be blamed for an already empty group.
+
+        The warning used to fire on any call where the list was empty afterwards, so it
+        named whichever filter ran next rather than the one responsible.
+        """
+        self.blood_group.alleles["raw"] = []
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles([], "innocent_filter")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_alleles_silent_when_some_alleles_survive(self) -> None:
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_alleles([self.allele1], "test_filter")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_pairs_silent_when_it_removed_nothing(self) -> None:
+        """Same misattribution, same fix."""
+        self.blood_group.alleles["pairs"] = []
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_pairs([], "innocent_filter", "pairs")
+        )
+        self.assertEqual(msgs, [])
+
+    def test_remove_pairs_warns_when_it_empties_the_group(self) -> None:
+        p1 = Pair(self.allele1, self.allele2)
+        self.blood_group.alleles["pairs"] = [p1]
+        msgs = self._captured_warnings(
+            lambda: self.blood_group.remove_pairs([p1], "test_filter", "pairs")
+        )
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("all pairs removed", msgs[0])
+
+
 class TestPair(unittest.TestCase):
     def setUp(self) -> None:
         self.allele1 = Allele(
@@ -148,6 +238,39 @@ class TestPair(unittest.TestCase):
     def test_eq(self) -> None:
         pair2 = Pair(allele1=self.allele1, allele2=self.allele2)
         self.assertEqual(self.pair, pair2)
+
+    def test_reversed_pair_shares_hash_and_container_identity(self) -> None:
+        reversed_pair = Pair(self.allele2, self.allele1)
+        self.assertEqual(self.pair, reversed_pair)
+        self.assertEqual(hash(self.pair), hash(reversed_pair))
+        value = object()
+        self.assertIs({self.pair: value}[reversed_pair], value)
+        self.assertEqual(len({self.pair, reversed_pair}), 1)
+
+    def test_reconstructed_pair_shares_hash_and_container_identity(self) -> None:
+        reconstructed = Pair(
+            replace(self.allele2, weight_geno=7),
+            self.allele1.with_big_variants({"variant1": "mapped"}),
+        )
+        self.assertEqual(self.pair, reconstructed)
+        self.assertEqual(hash(self.pair), hash(reconstructed))
+        value = object()
+        self.assertIs({self.pair: value}[reconstructed], value)
+        self.assertEqual(len({self.pair, reconstructed}), 1)
+
+    def test_homozygous_pair_retains_two_slots_and_one_set_member(self) -> None:
+        equivalent = replace(self.allele1, weight_geno=7)
+        homozygous = Pair(self.allele1, self.allele1)
+        reconstructed = Pair(self.allele1, equivalent)
+        self.assertEqual(homozygous, reconstructed)
+        self.assertEqual(hash(homozygous), hash(reconstructed))
+        value = object()
+        self.assertIs({homozygous: value}[reconstructed], value)
+        self.assertEqual(len({homozygous, reconstructed}), 1)
+        self.assertEqual(len(reconstructed.alleles), 1)
+        self.assertIn(equivalent, homozygous)
+        self.assertEqual(list(reconstructed), [self.allele1, equivalent])
+        self.assertNotEqual(homozygous, self.pair)
 
     def test_contains(self) -> None:
         self.assertIn(self.allele1, self.pair)

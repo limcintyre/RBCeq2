@@ -114,7 +114,9 @@ class TestAntigenClasses(unittest.TestCase):
             homozygous=False,
             antithetical_relationships={},
         )
-        expected_name = "XgaCD99"
+        # CD99 was appended here until 8bd5c2e; it is reported as its own blood group
+        # column now, so the XG antigen keeps its own name. Gold output is 'Xga+'/'Xga-'.
+        expected_name = "Xga+"
         self.assertEqual(antigen.name, expected_name)
 
     def test_alphanumeric_antigen_MNS(self):

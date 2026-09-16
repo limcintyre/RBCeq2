@@ -1,0 +1,27 @@
+Value	Classification	Origin	Evidence
+LowQual	sample_call	long_read	Low quality variant
+LowDepth	sample_call	short_read	Set if true:DP <= 1
+LowGQ	sample_call	short_read	Set if true:GQ = 0
+MinGQ	sample_call	short_read	GQ score is less than 5 (filter applied at sample level; not applied to records with KnownSVScoring flag)
+PloidyConflict	sample_call	short_read	Genotype call from variant caller not consistent with chromosome ploidy
+LowMLSQ	site_statistic	short_read	Site with ML Site Quality score lower than 0.1
+LowGTR	site_statistic	short_read	Site with Genotyping Rate lower than 0.9
+DUP	not_correctness	array	Assay for duplicate site defined on the chip.  Lower call rate site is filtered with 'dup'
+RefCall	not_correctness	long_read	Reference call
+HomRef	not_correctness	short_read	Homozygous reference call (filter applied at sample level)
+TargetedConflict	not_correctness	short_read	Set if call conflicts with a targeted call
+TargetedRepeatConflict	not_correctness	short_read	Set if call is in a targeted repeat region that cannot be placed
+RecombinantConflict	not_correctness	short_read	Set if call has a copy number that conflicts with a recombinant variant
+cnvLength	not_correctness	short_read	CNV with length below 10000
+STDEV_POS	not_correctness	long_read	SV Breakpoint standard deviation filter
+STDEV_LEN	not_correctness	long_read	SV length standard deviation filter
+Ploidy	sample_call	short_read	For DEL & DUP variants, the genotypes of overlapping variants (with similar size) are inconsistent with diploid expectation (not applied to records with KnownSVScoring flag)
+cnvLikelihoodRatio	sample_call	short_read	CNV with a log likelihood ratio < 5.0. The filter is applied to CNV with a bin count > 2
+cnvQual	sample_call	short_read	CNV with quality below 10
+MinQUAL	sample_call	short_read	QUAL score is less than 76 (not applied to records with KnownSVScoring flag)
+MaxDepth	sample_call	short_read	Depth is greater than 3x the median chromosome depth near one or both variant breakends (not applied to records with KnownSVScoring flag)
+MaxMQ0Frac	sample_call	short_read	For a small variant (<1000 bases), the fraction of reads in all samples with MAPQ0 around either breakend exceeds 0.4 (not applied to records with KnownSVScoring flag)
+NoPairSupport	sample_call	short_read	For variants significantly larger than the paired read fragment size, no paired reads support the alternate allele in any sample (not applied to records with KnownSVScoring flag)
+dinucQual	sample_call	short_read	CNV outside confident dinucleotide ranges (gc_lower, gc_upper, ct_lower, ct_upper, ac_lower, ac_upper)=(0.25, 0.65, 0.3, 0.7, 0.3, 0.7)
+DRAGENIndelHardQUAL	sample_call	short_read	Set if true:QUAL < 3.0103
+MosaicLowAF	sample_call	short_read	Set if true:AF < 0.2

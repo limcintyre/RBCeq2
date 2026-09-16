@@ -3,18 +3,31 @@ from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from loguru import logger
 from rbceq2.core_logic.alleles import Allele, BloodGroup, Pair
 from rbceq2.core_logic.co_existing import (
     mushed_vars,
 )
-from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.constants import (
+    AlleleState,
+    HOM_REF_DUMMY_QUAL,
+    SYNTHESISED_HOM_REF_GT,
+)
+from rbceq2.core_logic.utils import BeyondLogicError, Zygosity
 from rbceq2.core_logic.data_procesing import (
+    warn_if_critical_variant_not_trusted,
+    warn_if_the_row_order_decided_it,
+    cant_revert_to_ref_cuz_a_passing_call_denies_it,
+    dosage_of,
+    filter_values_for,
+    only_keep_alleles_if_FILTER_PASS,
+    rows_disagree_about_exclusion,
+    variant_was_discarded,
     SingleHomMultiVariantStrategy,
     SingleVariantStrategy,
     SomeHomMultiVariantStrategy,
     add_refs,
     combine_all,
-    filter_vcf_metrics,
     find_what_was_excluded_due_to_rank,
     get_fully_homozygous_alleles,
     get_genotypes,
@@ -23,14 +36,38 @@ from rbceq2.core_logic.data_procesing import (
     make_pair,
     make_variant_pool,
     pair_can_exist,
+    parse_GT,
     process_genetic_data,
     raw_results,
-    remove_alleles_with_low_base_quality,
-    remove_alleles_with_low_read_depth,
+    remove_alleles_with_no_call_variants,
+    _modify_variant_pool_with_large_indel,
+    modify_allele_pool_if_large_indel,
     unique_in_order,
 )
-from rbceq2.db.db import Db
+from rbceq2.db.db import Db, prepare_db
 from rbceq2.IO.vcf import VCF
+
+
+def empty_db_frame(ref: str) -> pd.DataFrame:
+    """Zero rows with the real columns, for building a Db in a test.
+
+    Db derives eight fields in __post_init__ and the doubles this replaces overrode it to
+    set them by hand, so each one went stale the moment a ninth was added. That is exactly
+    what had happened: both were still missing loci_by_type and gene_absent_subtypes, and
+    the suite passed regardless because no test had reached them yet.
+
+    Giving the real __post_init__ an empty frame instead means every map is computed by the
+    real code, comes out empty, and a newly derived field appears here for nothing.
+
+    Args:
+        ref (str): The column Db looks variants up in. Added to the frame if the real
+        database has no such column, which is the case for the historical
+        'Defining_variants' the older tests use.
+    """
+    columns = list(prepare_db().columns)
+    if ref not in columns:
+        columns.append(ref)
+    return pd.DataFrame({column: pd.Series(dtype="object") for column in columns})
 
 
 class MockVCF(VCF):
@@ -111,11 +148,6 @@ ALLELE_RELATIONSHIPS = {
 }
 
 
-class Zygosity:
-    HOM = "Homozygous"
-    HET = "Heterozygous"
-
-
 class TestMakeVariantPool(unittest.TestCase):
     def setUp(self):
         self.vcf = MagicMock()
@@ -136,7 +168,9 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_basic_functionality(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -169,7 +203,9 @@ class TestMakeVariantPool(unittest.TestCase):
     @patch("rbceq2.core_logic.data_procesing.get_ref")
     def test_multiple_alleles(self, mock_get_ref):
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1" or ref_dict["GT"] == "0|0":
@@ -197,7 +233,9 @@ class TestMakeVariantPool(unittest.TestCase):
         self.bg.alleles = {AlleleState.FILT: [self.allele1, self.allele4]}
 
         # Mock get_ref to return dummy values
-        def mock_get_ref_side_effect(ref_dict):
+        def mock_get_ref_side_effect(
+            ref_dict, variant="", chrom_copies=2, locus_copies=None
+        ):
             if ref_dict["GT"] == "0/1":
                 return Zygosity.HET
             elif ref_dict["GT"] == "1/1":
@@ -212,14 +250,233 @@ class TestMakeVariantPool(unittest.TestCase):
 
         self.assertEqual(result_bg.variant_pool, expected_pool)
 
-    def test_invalid_genotype_format_len(self):
+    def test_a_genotype_it_cannot_read_costs_the_blood_group_not_the_sample(self):
+        """A row get_ref refuses is recorded here rather than raised out of the dict.
+
+        make_variant_pool is decorated with apply_to_dict_values, so an exception
+        leaving it abandons the whole dict of blood groups and the sample produces
+        nothing - one odd row and every other blood group goes with it. Every refusal
+        get_ref makes is about a single locus, and a locus belongs to one gene, so the
+        answer that is genuinely lost is that gene's.
+        """
         invalid_vcf = MagicMock()
         invalid_vcf.variants = {"var1": {"GT": "invalid"}}
         self.allele_invalid = MagicMock(defining_variants={"var1"})
         self.bg.alleles = {AlleleState.FILT: [self.allele_invalid]}
 
-        with self.assertRaises(AssertionError):
-            make_variant_pool({1: self.bg}, invalid_vcf)
+        out = make_variant_pool({1: self.bg}, invalid_vcf)[1]
+        self.assertTrue(out.unreadable)
+        self.assertIn("get_ref/", out.unreadable)
+
+    def test_a_ploidy_mismatch_also_costs_the_blood_group_not_the_sample(self):
+        """The second way make_variant_pool can refuse, and it used to escape.
+
+        check_token_copies_fit_chrom_copies runs after the pool is built and raises
+        where a token claims more copies than the sample has chromosomes there - one
+        sample mixing ploidy codings, a haploid '1' at one non-PAR X locus and a diploid
+        '1/1' at another. It sat outside the try that covered get_ref, so it took the
+        whole dict of blood groups with it. It is a per blood group check like the
+        others: it compares this gene's tokens against this gene's chrom_copies.
+        """
+        vcf = MagicMock()
+        vcf.variants = {"X:1_A_G": {"GT": "1/1"}}
+        allele = Allele(
+            genotype="XK*01.02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset({"X:1_A_G"}),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="XK*01",
+        )
+        # A real BloodGroup, not the mock the rest of this class uses: the check reads
+        # variant_pool_numeric, which is a property derived from the pool.
+        bg = BloodGroup(
+            type="XK", alleles={AlleleState.FILT: [allele]}, sample="s"
+        )
+        # chrom_copies is recomputed at the top of make_variant_pool, so it has to be
+        # made 1 the way the pipeline makes it 1: the database saying XK is outside PAR
+        # on X, and this sample's caller having written haploid genotypes there.
+        vcf.haploid_chroms = frozenset({"X"})
+
+        out = make_variant_pool({1: bg}, vcf, {"XK": "X"})[1]
+        self.assertTrue(out.unreadable)
+        self.assertIn("more copies than the sample has", out.unreadable)
+
+    def test_a_blood_group_it_cannot_read_is_never_reverted_to_reference(self):
+        """Undetermined, not wildtype.
+
+        With no alleles and no gate, _pick_strategy hands an empty blood group to
+        NoVariantStrategy, which returns Pair(reference, reference) - rule 3's default
+        when nothing is buildable. That is right when nothing was buildable and wrong
+        when nothing was readable, because it asserts wildtype for a gene the tool
+        could not parse. No pairs means an empty genotype cell, which main renders as
+        'Undetermined/Undetermined'.
+        """
+        self.bg.unreadable = "[get_ref/dosage_between_the_bounds] ..."
+        self.bg.alleles = {AlleleState.FILT: []}
+        out = process_genetic_data({1: self.bg}, {"FY": MagicMock()})[1]
+        # Empty rather than absent: the filters downstream index NORMAL and iterate it.
+        self.assertEqual(out.alleles[AlleleState.NORMAL], [])
+
+
+
+class TestBareNoCallVariantPool(unittest.TestCase):
+    """A bare dot must reach the same exclusion as the diploid no-call."""
+
+    @classmethod
+    def setUpClass(cls):
+        db = Db(ref="GRCh38", df=prepare_db())
+        cls.allele = next(a for a in db.make_alleles() if a.genotype == "YT*02")
+
+    def test_no_call_keeps_evidence_without_making_the_group_unreadable(self):
+        """Preserve the token and named exclusion through the real VCF/pool path."""
+        token = "7:100893176_G_T"
+        for gt in (".", "./."):
+            for format_field in ("GT", "GT:DP"):
+                with self.subTest(gt=gt, format=format_field):
+                    frame = pd.DataFrame({
+                        "CHROM": ["chr7"], "POS": ["100893176"],
+                        "ID": ["."], "REF": ["G"], "ALT": ["T"],
+                        "QUAL": ["50"], "FILTER": ["PASS"], "INFO": ["."],
+                        "FORMAT": [format_field],
+                        "SAMPLE": [gt if format_field == "GT" else f"{gt}:30"],
+                    })
+                    vcf = VCF(
+                        [frame], {}, {"7:100893176"}, sample="no_call",
+                        reference_genome="GRCh38",
+                    )
+                    bg = BloodGroup(
+                        type="YT", sample="no_call",
+                        alleles={AlleleState.FILT: [self.allele]},
+                    )
+                    groups = make_variant_pool(
+                        {"YT": bg}, vcf,
+                        loci_by_type={"YT": {"7": frozenset({100893176})}},
+                    )
+                    self.assertFalse(bg.unreadable)
+                    self.assertEqual(bg.chrom_copies, 2)
+                    self.assertIsNone(bg.locus_copies)
+                    self.assertEqual(bg.variant_pool, {token: Zygosity.NO_DATA})
+                    self.assertEqual(bg.variant_pool_numeric, {})
+                    remove_alleles_with_no_call_variants(groups)
+                    self.assertEqual(bg.alleles[AlleleState.FILT], [])
+                    self.assertEqual(
+                        bg.filtered_out["no_call_at_defining_variant"],
+                        [self.allele],
+                    )
+                    self.assertEqual(bg.variant_pool, {token: Zygosity.NO_DATA})
+
+
+class TestDosageOf(unittest.TestCase):
+    """Dosage is counted, not pattern matched.
+
+    Ascending order in an unphased genotype is a convention, not a rule, so anything
+    that recognised '0/1/1/1' by its shape would silently miss '1/0/1/1'.
+    """
+
+    def test_counts_rather_than_matching_a_shape(self):
+        self.assertEqual(dosage_of(("0", "1", "1", "1")), 3)
+        self.assertEqual(dosage_of(("1", "0", "1", "1")), 3)
+        self.assertEqual(dosage_of(("1", "1", "1", "0")), 3)
+
+    def test_bounds(self):
+        self.assertEqual(dosage_of(("0", "0", "0", "0")), 0)
+        self.assertEqual(dosage_of(("1", "1", "1", "1")), 4)
+
+    def test_diploid_and_haploid_use_the_same_rule(self):
+        self.assertEqual(dosage_of(("0", "1")), 1)
+        self.assertEqual(dosage_of(("1",)), 1)
+
+
+class TestGetRefAboveTwoCopies(unittest.TestCase):
+    """A genotype naming more than two copies is ordinary input, not a broken file.
+
+    Ploidy is per genotype in a VCF - nothing in the header declares it and it is simply
+    the number of allele indices - so it varies legitimately between records. Before
+    zygosity_of_non_diploid_GT existed every genotype above two copies fell into the
+    haploid rejection, which both refused readable input and described it wrongly: a
+    message about a haploid genotype needing one chromosome, for a call naming four.
+
+    The real example is a gene conversion caller reporting four copies of a paralogue
+    pair, where every copy carries the alternate.
+    """
+
+    def test_every_copy_alternate_is_homozygous(self):
+        """Dosage equals ploidy, so every chromosome carries it however copies are
+        assigned."""
+        self.assertEqual(get_ref({"GT": "1/1/1/1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "1|1|1|1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "1/1/1"}), Zygosity.HOM)
+
+    def test_no_copy_alternate_is_absence(self):
+        """Dosage 0 - the token has zero copies, which absence encodes.
+
+        Matches what the haploid '0' branch does with the same statement. These are
+        dropped upstream by remove_home_ref, whose prefix test already covers the higher
+        ploidy spellings, so reaching here means the pool was built from a frame that
+        never went through it.
+        """
+        self.assertEqual(get_ref({"GT": "0/0/0/0"}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0|0|0|0"}), Zygosity.NO_DATA)
+
+    def test_no_call_is_no_data_at_any_ploidy(self):
+        """'./././.' is what './.' is at four copies.
+
+        The no call test used to sit after the ploidy gate, so it was never reached for
+        anything above two copies and the spec's own missing genotype raised.
+        """
+        self.assertEqual(get_ref({"GT": "./././."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": ".|.|.|."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0/./1/1"}), Zygosity.NO_DATA)
+
+    def test_dosage_between_the_bounds_is_refused_by_name(self):
+        """Which chromosome carries which copy is undetermined, and no rule recovers it.
+
+        'Heterozygous' would also collapse '0/0/0/1' and '0/1/1/1' onto one label, which
+        is the distinction the extra copies exist to draw.
+        """
+        for GT in ["0/1/1/1", "1/0/1/1", "0/0/0/1", "0/0/1/1", "0|1|1|1"]:
+            with self.assertRaises(BeyondLogicError) as caught:
+                get_ref({"GT": GT}, "1:25408711_G_A")
+            self.assertEqual(
+                caught.exception.raised_by, "get_ref/dosage_between_the_bounds"
+            )
+            self.assertIn("1:25408711_G_A", str(caught.exception))
+
+    def test_the_message_says_the_dosage_it_found(self):
+        with self.assertRaises(BeyondLogicError) as caught:
+            get_ref({"GT": "0/1/1/1"})
+        self.assertIn("3 of 4", str(caught.exception))
+
+    def test_multi_allelic_above_two_copies_is_still_refused(self):
+        for GT in ["0/1/2/2", "1/2/2/2", "0/1/2"]:
+            with self.assertRaises(BeyondLogicError) as caught:
+                get_ref({"GT": GT})
+            self.assertEqual(
+                caught.exception.raised_by, "get_ref/multi_allelic_non_diploid_GT"
+            )
+
+    def test_the_haploid_rejection_now_only_describes_haploid_genotypes(self):
+        """Everything above two copies is handled before it, so its message is true.
+
+        It used to catch four-copy genotypes and tell the user about a haploid one
+        needing either one chromosome or one copy of the gene.
+        """
+        with self.assertRaises(BeyondLogicError) as caught:
+            get_ref({"GT": "1"})
+        self.assertEqual(
+            caught.exception.raised_by,
+            "get_ref/haploid_GT_where_neither_count_is_one",
+        )
+
+    def test_diploid_and_haploid_paths_are_untouched(self):
+        self.assertEqual(get_ref({"GT": "0/1"}), Zygosity.HET)
+        self.assertEqual(get_ref({"GT": "1/1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "./."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "1"}, "v", 1, None), Zygosity.HEM)
 
 
 class TestGetRef(unittest.TestCase):
@@ -239,12 +496,500 @@ class TestGetRef(unittest.TestCase):
 
     def test_invalid_genotype_format(self):
         ref_dict = {"GT": "invalid"}
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(BeyondLogicError):
             get_ref(ref_dict)
 
         ref_dict = {"GT": "0/1/2"}
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(BeyondLogicError):
             get_ref(ref_dict)
+
+    def test_haploid_genotype_rejected(self):
+        """Called haploid GTs still require independent copy-count evidence."""
+        for GT in ["1", "0"]:
+            with self.assertRaises(BeyondLogicError):
+                get_ref({"GT": GT})
+
+    def test_multi_allelic_genotype_rejected(self):
+        """1/2 used to return Heterozygous silently - it is 3 chars, so the old
+        len == 3 assert never caught it."""
+        for GT in ["1/2", "2/1", "0/2", "1|2"]:
+            with self.assertRaises(BeyondLogicError):
+                get_ref({"GT": GT})
+
+    def test_error_names_the_variant(self):
+        """Errors must be traceable back to a VCF row."""
+        with self.assertRaises(BeyondLogicError) as ctx:
+            get_ref({"GT": "1"}, "X:37600000_G_A")
+        self.assertIn("X:37600000_G_A", str(ctx.exception))
+
+    def test_no_call_is_no_data_not_wildtype(self):
+        """A '.' in the GT means the locus was not called, so it cannot be read as hom ref.
+
+        Replaces test_no_call_still_treated_as_wildtype, which pinned the old
+        .replace(".", "0") behaviour so that changing it would be deliberate. This is that
+        change. Both separators and half-calls are covered - one known allele is still not
+        a confirmed genotype.
+        """
+        self.assertEqual(get_ref({"GT": "./."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": ".|."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "0/."}), Zygosity.NO_DATA)
+        self.assertEqual(get_ref({"GT": "./1"}), Zygosity.NO_DATA)
+
+    def test_bare_no_call_does_not_require_copy_evidence(self):
+        """Missing data is readable without inferring a chromosome or gene copy."""
+        for chrom_copies, locus_copies in (
+            (2, None), (2, 2), (2, 1), (1, None), (1, 1),
+        ):
+            with self.subTest(chrom=chrom_copies, locus=locus_copies):
+                self.assertEqual(
+                    get_ref({"GT": "."}, "7:100893176_G_T",
+                            chrom_copies=chrom_copies, locus_copies=locus_copies),
+                    Zygosity.NO_DATA,
+                )
+
+    def test_synthesised_lane_row_is_still_hom(self):
+        """The synthesised lane '_ref' row is RBCeq2's own wildtype assertion, not a call.
+
+        It is the one legitimate 'wildtype here' claim, so it must stay HOM after './.'
+        stopped meaning that. It carries SYNTHESISED_HOM_REF_GT precisely so the two are
+        distinguishable.
+        """
+        self.assertEqual(
+            get_ref({"GT": SYNTHESISED_HOM_REF_GT}), Zygosity.HOM
+        )
+        self.assertEqual(HOM_REF_DUMMY_QUAL.split(":")[0], SYNTHESISED_HOM_REF_GT)
+
+    def test_real_genotypes_unaffected(self):
+        """Regression guard: the diploid cases must be untouched by the No_data change."""
+        self.assertEqual(get_ref({"GT": "0/1"}), Zygosity.HET)
+        self.assertEqual(get_ref({"GT": "1|0"}), Zygosity.HET)
+        self.assertEqual(get_ref({"GT": "1/1"}), Zygosity.HOM)
+        self.assertEqual(get_ref({"GT": "0|0"}), Zygosity.HOM)
+
+
+class TestRemoveAllelesWithNoCallVariants(unittest.TestCase):
+    """An allele is only reported if every defining variant was actually called."""
+
+    @staticmethod
+    def _allele(genotype: str, variants: set[str]) -> Allele:
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type=genotype.split("*")[0],
+        )
+
+    def _bg(self, alleles: list[Allele], pool: dict[str, str]) -> BloodGroup:
+        return BloodGroup(
+            type="FY",
+            alleles={AlleleState.FILT: list(alleles)},
+            sample="s",
+            variant_pool=dict(pool),
+        )
+
+    def test_allele_with_no_call_variant_is_excluded_and_recorded(self):
+        keep = self._allele("FY*01", {"1:100_A_G"})
+        drop = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg(
+            [keep, drop],
+            {"1:100_A_G": Zygosity.HET, "1:200_C_T": Zygosity.NO_DATA},
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep])
+        self.assertEqual(
+            result.filtered_out["no_call_at_defining_variant"], [drop]
+        )
+
+    def test_no_call_token_is_left_in_the_pool_as_the_evidence(self):
+        """The exclusion's explanation has to survive in the Vars: block of the log."""
+        drop = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg([drop], {"1:200_C_T": Zygosity.NO_DATA})
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.variant_pool["1:200_C_T"], Zygosity.NO_DATA)
+
+    def test_allele_needing_one_good_and_one_no_call_variant_is_excluded(self):
+        """Partial evidence is not evidence - all defining variants must be called."""
+        drop = self._allele("FY*02.01", {"1:100_A_G", "1:200_C_T"})
+        bg = self._bg(
+            [drop], {"1:100_A_G": Zygosity.HOM, "1:200_C_T": Zygosity.NO_DATA}
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [])
+
+    def test_pool_with_no_no_call_is_untouched(self):
+        keep1 = self._allele("FY*01", {"1:100_A_G"})
+        keep2 = self._allele("FY*02", {"1:200_C_T"})
+        bg = self._bg(
+            [keep1, keep2],
+            {"1:100_A_G": Zygosity.HET, "1:200_C_T": Zygosity.HOM},
+        )
+
+        result = list(remove_alleles_with_no_call_variants({"FY": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep1, keep2])
+        self.assertEqual(dict(result.filtered_out), {})
+
+    def test_variant_pool_numeric_omits_no_call_rather_than_scoring_it(self):
+        """There is no honest copy number for 'not measured', so no number is invented."""
+        bg = self._bg(
+            [], {"1:100_A_G": Zygosity.HET, "1:200_C_T": Zygosity.NO_DATA}
+        )
+
+        self.assertEqual(bg.variant_pool_numeric, {"1:100_A_G": 1})
+
+
+class TestLargeIndelNoCopies(unittest.TestCase):
+    """C4: a locus inside a homozygous deletion has no chromosomes under it.
+
+    These are the shapes the e2e datasets cannot produce. Only 10 of the 17 public_truth
+    samples carry any DEL token, all from Sniffles2 over minimap2, which calls some large
+    deletions and no gene conversions or complex SVs - against 154 large-variant tokens in
+    the database. So this path is covered here or not at all.
+    """
+
+    DEL = "1:25272547_DEL_59419"   # RHD whole gene deletion, spans to 1:25331966
+    INNER_REF = "1:25317062_ref"   # defines RHD*01 and RHD*10.00
+    INNER_ALT = "1:25317062_A_G"
+    OUTSIDE = "1:25400000_C_T"
+
+    def test_hom_deletion_marks_inner_ref_as_no_copies(self):
+        pool = {self.DEL: Zygosity.HOM, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.NO_COPIES)
+        self.assertEqual(result[self.DEL], Zygosity.HOM)
+
+    def test_het_deletion_still_converts_hom_to_hem(self):
+        """Regression guard for C1 - the existing inference must not change."""
+        pool = {self.DEL: Zygosity.HET, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+
+    def test_variant_outside_the_deletion_is_untouched(self):
+        pool = {
+            self.DEL: Zygosity.HOM,
+            self.INNER_REF: Zygosity.HOM,
+            self.OUTSIDE: Zygosity.HET,
+        }
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.OUTSIDE], Zygosity.HET)
+
+    def test_alt_call_inside_a_hom_deletion_warns_but_still_marks_no_copies(self):
+        """Not reachable with the current SV calls, and a contradiction when it is.
+
+        Was a bare `assert variant.endswith("_ref")`, which vanishes under `python -O`.
+        """
+        pool = {self.DEL: Zygosity.HOM, self.INNER_ALT: Zygosity.HOM}
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            result = _modify_variant_pool_with_large_indel(pool, "s1", "RHD")
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(result[self.INNER_ALT], Zygosity.NO_COPIES)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("homozygous deletion", messages[0])
+        self.assertIn("s1", messages[0])
+
+    def test_phase_pool_is_left_alone_inside_a_hom_deletion(self):
+        """Phase belongs to a chromosome that exists, so there is nothing to write."""
+        pool = {self.DEL: "1/1", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result[self.INNER_REF], "1/1")
+        self.assertNotIn(Zygosity.NO_COPIES, result.values())
+
+
+class TestHemizygousDeletionIsReadBothWays(unittest.TestCase):
+    """C6. HEM on a deletion means two opposite things and the region decides which.
+
+    HEM is one copy of the locus carrying one copy of the token, which says nothing on
+    its own about how many copies there were to start with. On one chromosome the only
+    copy is gone; on two, one of two is gone. A copy number aware caller writes a haploid
+    '1' rather than '0/1' for an ordinary heterozygous deletion, so the second reading is
+    the common one and it used to trip a bare assert.
+    """
+
+    DEL = "1:25272547_DEL_59419"   # RHD whole gene deletion, spans to 1:25331966
+    INNER_REF = "1:25317062_ref"
+    INNER_ALT = "1:25317062_A_G"
+
+    def test_hem_deletion_on_two_chromosomes_is_the_het_reading(self):
+        """One of two copies gone, so a hom variant inside drops to one copy."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", chrom_copies=2
+        )
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+        self.assertEqual(result[self.DEL], Zygosity.HEM)
+
+    def test_hem_deletion_on_one_chromosome_is_still_the_hom_reading(self):
+        """Regression guard - XK in a male must keep taking the hom branch."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", chrom_copies=1
+        )
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.NO_COPIES)
+
+    def test_a_het_variant_under_a_hem_deletion_no_longer_crashes(self):
+        """The case the bare assert refused. It warns, which it already did."""
+        pool = {self.DEL: Zygosity.HEM, self.INNER_ALT: Zygosity.HET}
+        messages = []
+        sink = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            result = _modify_variant_pool_with_large_indel(
+                pool, "s", "RHD", chrom_copies=2
+            )
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(result[self.INNER_ALT], Zygosity.HET)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("hemizygousity expected", messages[0])
+
+    def test_an_ordinary_het_deletion_is_unchanged(self):
+        """The reading that always worked."""
+        pool = {self.DEL: Zygosity.HET, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+
+    def test_a_deletion_that_is_neither_raises_by_name(self):
+        """Still beyond logic - but a BeyondLogicError, not a bare assert.
+
+        A deletion inside another deletion. It removed some copies but not all, so it is
+        on one chromosome of two, and this is neither reading - so how many copies of the
+        variant survive cannot be worked out.
+        """
+        pool = {self.DEL: Zygosity.NO_COPIES, self.INNER_REF: Zygosity.HET}
+
+        with self.assertRaises(BeyondLogicError) as ctx:
+            _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
+
+        self.assertIn(
+            "_modify_variant_pool_with_large_indel/deletion_neither_hom_nor_het",
+            str(ctx.exception),
+        )
+
+    def test_the_raise_carries_enough_to_act_on(self):
+        """A bare assert carried none of this."""
+        pool = {self.DEL: Zygosity.NO_COPIES, self.INNER_REF: Zygosity.HET}
+
+        with self.assertRaises(BeyondLogicError) as ctx:
+            _modify_variant_pool_with_large_indel(pool, "s9", "RHD")
+
+        for expected in ("s9", "RHD", self.DEL, self.INNER_REF, Zygosity.NO_COPIES):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, str(ctx.exception))
+
+    def test_it_survives_python_dash_oh(self):
+        """The whole point of not being an assert. -O strips assert, not raise."""
+        import subprocess
+        import sys
+
+        code = (
+            "from rbceq2.core_logic.data_procesing import "
+            "_modify_variant_pool_with_large_indel as f;"
+            "from rbceq2.core_logic.utils import Zygosity, BeyondLogicError;"
+            "pool={'1:25272547_DEL_59419': Zygosity.NO_COPIES,"
+            " '1:25317062_ref': Zygosity.HET};"
+            "\ntry:\n f(pool, 's', 'RHD')\n print('NO RAISE')\n"
+            "except BeyondLogicError:\n print('RAISED')"
+        )
+        out = subprocess.run(
+            [sys.executable, "-O", "-c", code], capture_output=True, text=True
+        )
+        self.assertIn("RAISED", out.stdout)
+
+    def test_the_phase_pool_never_reaches_the_check(self):
+        """Deliberate - a phase string is not a zygosity and cannot answer this."""
+        pool = {self.DEL: "0/1", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result[self.INNER_REF], "1")
+
+
+class TestAnUncalledDeletionAdjustsNothing(unittest.TestCase):
+    """A './.' deletion is the caller declining to call, so nothing inside it moves.
+
+    This is the shape a jointly called cohort produces and a per sample file does not.
+    The cohort carries a row for every structural variant *any* sample had, so a sample
+    without this one gets './.' rather than no row at all. Both encodings describe the
+    same sample, so both have to reach the same answer.
+
+    Found by running five samples through both encodings: every one of them died in the
+    joint form, at GYPB, on 4:143991719_del_103kb with the deletion at No_data.
+    """
+
+    DEL = "1:25272547_DEL_59419"
+    INNER_REF = "1:25317062_ref"
+
+    def test_a_homozygous_variant_inside_it_is_not_demoted(self):
+        """The per sample file has no row at all here, and leaves this Homozygous."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result.get(self.INNER_REF, Zygosity.HOM), Zygosity.HOM)
+
+    def test_it_does_not_raise(self):
+        """It used to, via a bare assert with no message at all."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HET}
+
+        _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+    def test_no_copies_is_not_written_inside_it(self):
+        """'Not called' is not 'deleted'. Only a called hom deletion empties a locus."""
+        pool = {self.DEL: Zygosity.NO_DATA, self.INNER_REF: Zygosity.HOM}
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertNotIn(Zygosity.NO_COPIES, result.values())
+
+    def test_a_called_deletion_beside_an_uncalled_one_still_applies(self):
+        """Skipping one deletion must not disarm another."""
+        other_del = "1:25272600_DEL_59419"
+        pool = {
+            self.DEL: Zygosity.NO_DATA,
+            other_del: Zygosity.HET,
+            self.INNER_REF: Zygosity.HOM,
+        }
+
+        result = _modify_variant_pool_with_large_indel(pool, "s", "RHD")
+
+        self.assertEqual(result[self.INNER_REF], Zygosity.HEM)
+
+    def test_the_phase_pool_skips_it_too(self):
+        """Converting a phase inside an uncalled deletion would be the same mistake."""
+        pool = {self.DEL: "./.", self.INNER_REF: "1/1"}
+
+        result = _modify_variant_pool_with_large_indel(
+            pool, "s", "RHD", is_phase_pool=True
+        )
+
+        self.assertEqual(result.get(self.INNER_REF, "1/1"), "1/1")
+
+
+class TestModifyAllelePoolIfLargeIndel(unittest.TestCase):
+    """The allele side of C4 - what the pool marking is for."""
+
+    DEL = "1:25272547_DEL_59419"
+    INNER_REF = "1:25317062_ref"
+
+    @staticmethod
+    def _allele(genotype, variants):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type=genotype.split("*")[0],
+        )
+
+    def _bg(self, alleles, pool):
+        return BloodGroup(
+            type="RHD",
+            alleles={AlleleState.FILT: list(alleles)},
+            sample="s",
+            variant_pool=dict(pool),
+        )
+
+    def test_allele_needing_a_no_copies_locus_is_excluded_and_recorded(self):
+        """The RHD*10.00 case named in the function's own docstring."""
+        keep = self._allele("RHD*01N.01", {self.DEL})
+        drop = self._allele("RHD*10.00", {self.INNER_REF})
+        bg = self._bg(
+            [keep, drop],
+            {self.DEL: Zygosity.HOM, self.INNER_REF: Zygosity.NO_COPIES},
+        )
+
+        result = list(modify_allele_pool_if_large_indel({"RHD": bg}).values())[0]
+
+        self.assertEqual(result.alleles[AlleleState.FILT], [keep])
+        self.assertEqual(
+            result.filtered_out["hom_deletion_at_defining_variant"], [drop]
+        )
+
+    def test_allele_needing_a_variant_absent_from_the_pool_is_recorded_not_silent(self):
+        """Previously an `ic` to stdout and a silent drop - hard rule 3."""
+        drop = self._allele("RHD*10.00", {"1:99999999_C_T"})
+        bg = self._bg([drop], {self.DEL: Zygosity.HOM})
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            result = list(modify_allele_pool_if_large_indel({"RHD": bg}).values())[0]
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(
+            result.filtered_out["defining_variant_missing_from_pool"], [drop]
+        )
+        self.assertTrue(any("not in the variant pool" in m for m in messages))
+
+    def test_no_warning_when_the_blood_group_was_already_empty(self):
+        """remove_alleles warns on an empty list even when it removed nothing."""
+        bg = self._bg([], {self.DEL: Zygosity.HOM})
+        messages = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+        try:
+            modify_allele_pool_if_large_indel({"RHD": bg})
+        finally:
+            logger.remove(sink)
+
+        self.assertEqual(messages, [])
+
+    def test_no_copies_is_scored_zero_not_omitted(self):
+        """Unlike No_data, zero copies is a real count, so it keeps a numeric entry."""
+        bg = self._bg([], {self.DEL: Zygosity.HOM, self.INNER_REF: Zygosity.NO_COPIES})
+
+        self.assertEqual(bg.variant_pool_numeric[self.INNER_REF], 0)
+
+
+class TestParseGT(unittest.TestCase):
+    def test_splits_on_either_separator(self):
+        self.assertEqual(parse_GT("0/1"), ("0", "1"))
+        self.assertEqual(parse_GT("0|1"), ("0", "1"))
+
+    def test_haploid(self):
+        self.assertEqual(parse_GT("1"), ("1",))
+
+    def test_no_interpretation_applied(self):
+        self.assertEqual(parse_GT("./."), (".", "."))
+        self.assertEqual(parse_GT("10/1"), ("10", "1"))
 
 
 class TestGetGenotypes(unittest.TestCase):
@@ -727,17 +1472,11 @@ class TestRawResults(unittest.TestCase):
         """Creates a mock Db instance for testing purposes."""
 
         class MockDb(Db):
-            def __post_init__(self):
-                # Override to prevent reading from a file
-                object.__setattr__(self, "df", pd.DataFrame())
-                object.__setattr__(self, "antitheticals", {})
-                object.__setattr__(self, "lane_variants", {})
-                object.__setattr__(self, "reference_alleles", {})
-
+            # __post_init__ deliberately not overridden - see empty_db_frame.
             def make_alleles(self):
                 return alleles
 
-        return MockDb(ref="Defining_variants", df=pd.DataFrame())
+        return MockDb(ref="Defining_variants", df=empty_db_frame("Defining_variants"))
 
     def test_all_variants_present(self):
         db = self.create_mock_db([self.allele1, self.allele2])
@@ -861,245 +1600,33 @@ class TestMakeBloodGroups(unittest.TestCase):
         self.assertEqual(result["A"].alleles[AlleleState.RAW], [])
 
 
-class TestFilterVcfMetrics(unittest.TestCase):
-    def test_all_pass(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        alleles = [allele1, allele2]
-        variant_metrics = {
-            "var1": {"DP": "35"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, alleles)
-
-    def test_some_fail(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        alleles = [allele1, allele2]
-        variant_metrics = {
-            "var1": {"DP": "25"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertIn("var1:25.0", filtered_out)
-        self.assertIn(allele1, filtered_out["var1:25.0"])
-        self.assertEqual(passed_filtering, [allele2])
-
-    def test_no_defining_variants(self):
-        allele = Allele(
-            genotype="A*03",
-            phenotype="Phenotype C",
-            defining_variants=frozenset(),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub3",
-        )
-        alleles = [allele]
-        variant_metrics = {}
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = False
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, [allele])
-
-    def test_microarray(self):
-        allele = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        alleles = [allele]
-        variant_metrics = {"var1": {"DP": "10"}}
-        metric_name = "DP"
-        metric_threshold = 30
-        microarray = True
-        filtered_out, passed_filtering = filter_vcf_metrics(
-            alleles, variant_metrics, metric_name, metric_threshold, microarray
-        )
-        self.assertEqual(len(filtered_out), 0)
-        self.assertEqual(passed_filtering, [allele])
-
-
-class TestRemoveAllelesWithLowReadDepth(unittest.TestCase):
-    def test_remove_low_read_depth(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1", "var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var3"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        bg = BloodGroup(
-            type="BG1",
-            alleles={AlleleState.FILT: [allele1, allele2]},
-            sample="Sample1",
-        )
-        variant_metrics = {
-            "var1": {"DP": "25"},
-            "var2": {"DP": "40"},
-            "var3": {"DP": "50"},
-        }
-        min_read_depth = 30
-        microarray = False
-        result_bg = remove_alleles_with_low_read_depth(
-            {1: bg}, variant_metrics, min_read_depth, microarray
-        )[1]
-        self.assertEqual(result_bg.alleles[AlleleState.FILT], [allele2])
-        self.assertIn("insufficient_read_depth", result_bg.filtered_out)
-        self.assertIn("var1:25.0", result_bg.filtered_out["insufficient_read_depth"])
-        self.assertIn(
-            allele1, result_bg.filtered_out["insufficient_read_depth"]["var1:25.0"]
-        )
-
-
-class TestRemoveAllelesWithLowBaseQuality(unittest.TestCase):
-    def test_remove_low_base_quality(self):
-        allele1 = Allele(
-            genotype="A*01",
-            phenotype="Phenotype A",
-            defining_variants=frozenset({"var1"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=1,
-            reference=False,
-            sub_type="Sub1",
-        )
-        allele2 = Allele(
-            genotype="B*02",
-            phenotype="Phenotype B",
-            defining_variants=frozenset({"var2"}),
-            null=False,
-            genotype_alt=".",
-            phenotype_alt=".",
-            weight_geno=2,
-            reference=False,
-            sub_type="Sub2",
-        )
-        bg = BloodGroup(
-            type="BG1",
-            alleles={AlleleState.FILT: [allele1, allele2]},
-            sample="Sample1",
-        )
-        variant_metrics = {
-            "var1": {"GQ": "20"},
-            "var2": {"GQ": "40"},
-        }
-        min_base_quality = 30
-        microarray = False
-        result_bg = remove_alleles_with_low_base_quality(
-            {1: bg}, variant_metrics, min_base_quality, microarray
-        )[1]
-        self.assertEqual(result_bg.alleles[AlleleState.FILT], [allele2])
-        self.assertIn("insufficient_min_base_quality", result_bg.filtered_out)
-        self.assertIn(
-            "var1:20.0", result_bg.filtered_out["insufficient_min_base_quality"]
-        )
-        self.assertIn(
-            allele1,
-            result_bg.filtered_out["insufficient_min_base_quality"]["var1:20.0"],
-        )
-
-
 # Minimal mocks or stubs for BloodGroup and the helper functions
 # your code references
-class MockBloodGroup:
-    def __init__(self, type_):
-        self.type = type_
-        # alleles is a dict[AlleleState, set[Allele]] or list[Pair]
-        # variant_pool_numeric is a dict[str, int] used in the logic
-        self.alleles = defaultdict(set)
-        # For final results, we might store normal, etc. as lists
-        self.alleles[AlleleState.NORMAL] = []
-        # Also used by find_what_was_excluded_due_to_rank
-        self.filtered_out = {
-            "excluded_due_to_rank": [],
-            "excluded_due_to_rank_hom": [],
-            "excluded_due_to_rank_ref": [],
-        }
-        # A numeric variant pool that the code references
-        self.variant_pool_numeric = {}
+def a_blood_group(type_: str = "BG", filt: list | None = None) -> BloodGroup:
+    """A real BloodGroup for tests, rather than a stand-in that looks like one.
+
+    Replaces five near-identical hand-rolled doubles (a MockBloodGroup and four MockBGs).
+    They each declared BloodGroup's fields by hand, so every field added to the real class
+    had to be added to all five or the tests failed with AttributeError - which is what
+    happened when chrom_copies arrived and broke 28 of them at once.
+
+    Two details are not just copied across, because the real class is better:
+
+    - filtered_out is a defaultdict(list) here, where the doubles used a plain dict. Only
+      more permissive: appending to a key that does not exist yet now works.
+    - variant_pool_numeric is a property computed from variant_pool, not a settable
+      attribute. No test assigned it - they all left it empty - and an empty pool projects
+      to an empty dict, so the behaviour is identical while the projection now gets
+      exercised for real.
+
+    Args:
+        type_ (str): Blood group name.
+        filt (list | None): Alleles for AlleleState.FILT.
+    """
+    bg = BloodGroup(type=type_, alleles=defaultdict(list), sample="mock")
+    bg.alleles[AlleleState.FILT] = list(filt or [])
+    bg.alleles[AlleleState.NORMAL] = []
+    return bg
 
 
 def mock_chunk_geno_list_by_rank(alleles):
@@ -1109,7 +1636,9 @@ def mock_chunk_geno_list_by_rank(alleles):
     return [list(alleles)]
 
 
-def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
+def mock_get_fully_homozygous_alleles(
+    ranked_chunks, variant_pool_numeric, chrom_copies=2
+):
     """
     A naive mock that considers an allele 'HOM' if its genotype string includes 'HOM'.
     Returns a list of lists: each sublist is the set of hom-alleles in that chunk.
@@ -1136,7 +1665,7 @@ def mock_combine_all(alleles, variant_pool_numeric):
     return results
 
 
-def mock_make_pair(reference_alleles, variant_pool_numeric, sub_results):
+def mock_make_pair(reference_alleles, variant_pool_numeric, sub_results, chrom_copies=2):
     """
     If sub_results is a single-allele list, pair it with itself or the reference, etc.
     For testing only.
@@ -1234,7 +1763,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         If len(options) == 0 =>
         uses reference allele in a Pair(*[ref_allele]*2).
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # No hits => len(options) == 0
         bg.alleles[AlleleState.FILT] = set()
 
@@ -1267,7 +1796,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         If len(options) == 1 =>
         uses make_pair(...) => typically Pair(option, option).
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         single_allele = Allele(
             genotype="BG*01.01",
             phenotype="phX",
@@ -1310,7 +1839,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         If len(options) > 1 and we have at least one homozygous allele
         => hits the hom branch (len(trumpiest_homs) == 1 etc.).
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         hom_allele = Allele(
             genotype="BG*01HOM",
             phenotype="phHom",
@@ -1372,7 +1901,7 @@ class TestProcessGeneticData3(unittest.TestCase):
            Scenario: len(options) > 1, len(trumpiest_homs) == 1, and len(first_chunk) == 1
            => sets NORMAL = [Pair(hom_allele, hom_allele)] directly.
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # We'll create two Alleles => BG*HOM, BG*OTHER => enough to say len(options)>1
         hom_allele = Allele(
             genotype="BG*HOM",
@@ -1444,7 +1973,7 @@ class TestProcessGeneticData3(unittest.TestCase):
            Achieved by having >1 options, any(len(hom_chunk) > 0), and first_chunk=1 =>
            => if len(ranked_chunks) == 1 => use make_pair(...) to fill NORMAL
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         allele1 = Allele(
             genotype="BG*XYZ",
             phenotype="phX",
@@ -1516,7 +2045,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         We want homs => e.g. [ [], [some allele(s)] ] => so any(...)>0 is true,
         but first_chunk not 1 => triggers the else => assert len(homs[0])==0 => combine_all(...)
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # 2 Alleles => len(options)>1
         alleleA = Allele(
             genotype="BG*A",
@@ -1590,7 +2119,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         2) skip 'if len(homs) > 2' and 'if len(first_chunk) == 1'
         3) ensure 'if len(ranked_chunks) == 1' => sets NORMAL = [ make_pair(...) ]
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # Put 2 Alleles in the same chunk => so chunk_geno_list_by_rank => 1 chunk
         alleleA = Allele(
             genotype="BG*A",
@@ -1661,7 +2190,7 @@ class TestProcessGeneticData3(unittest.TestCase):
         2) skip the prior ifs (like 'if len(first_chunk)==1' or 'if len(ranked_chunks)==1')
         3) land in 'else: assert len(homs[0]) == 0' => combine_all(...)
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # 2 Alleles => we want at least 2 chunks from chunk_geno_list_by_rank => ranked_chunks[0], ranked_chunks[1]
         alleleC = Allele(
             genotype="BG*C",
@@ -1745,7 +2274,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             - first_chunk length is 1
             - ranked_chunks length is 1
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
 
         # We'll create 2 Alleles so len(options)>1
         alleleA = Allele(
@@ -1828,7 +2357,7 @@ class TestProcessGeneticData3(unittest.TestCase):
             'if first_chunk' => we skip. We'll just demonstrate a scenario where
             the function picks the 'else:' path.
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
 
         alleleA = Allele(
             genotype="BG*A",
@@ -2283,7 +2812,7 @@ class TestFindWhatWasExcludedDueToRank(unittest.TestCase):
         """
         If there are no non-ref options => function won't add anything to filtered_out
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # No POS => no non-ref
         bg.alleles[AlleleState.FILT] = {
             # Only the reference allele, or empty
@@ -2312,7 +2841,7 @@ class TestFindWhatWasExcludedDueToRank(unittest.TestCase):
         If there are non-ref options, combine_all yields multiple pairs,
         but only some are in NORMAL => the others go to excluded_due_to_rank or _hom.
         """
-        bg = MockBloodGroup("BG")
+        bg = a_blood_group("BG")
         # Suppose we have 2 non-ref alleles:
         a1 = Allele(
             "BG*01.01", "phA", "", "", frozenset(), 10, 10, False, sub_type="Sx"
@@ -2387,7 +2916,7 @@ def mock_chunk_multiple_ranks(alleles):
 ###############################################################################
 # Main Additional Coverage Tests
 ###############################################################################
-class TestProcessGeneticData3Additional(unittest.TestCase):
+class TestProcessGeneticDataSingleChunk(unittest.TestCase):
     """Additional tests specifically to cover the branches after `if len(trumpiest_homs) == 1`."""
 
     def setUp(self):
@@ -2563,16 +3092,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
         # We define a minimal "BloodGroup" with a 'POS' set
         from collections import defaultdict
 
-        class MockBG:
-            def __init__(self):
-                self.type = "BG"
-                self.alleles = defaultdict(list)
-                self.alleles[AlleleState.FILT] = list(alleles)
-                self.alleles[AlleleState.NORMAL] = []
-                self.filtered_out = {}
-                self.variant_pool_numeric = {}
-
-        return MockBG()
+        return a_blood_group("BG", filt=alleles)
 
 
 ###############################################################################
@@ -2610,16 +3130,7 @@ class TestProcessGeneticData3Additional(unittest.TestCase):
         so we can pass it to process_genetic_data.
         """
 
-        class MockBG:
-            def __init__(self):
-                self.type = "BG"
-                self.alleles = defaultdict(list)
-                self.alleles[AlleleState.FILT] = list(alleles)
-                self.alleles[AlleleState.NORMAL] = []
-                self.filtered_out = {}
-                self.variant_pool_numeric = {}
-
-        return MockBG()
+        return a_blood_group("BG", filt=alleles)
 
     ###########################################################################
     # SCENARIO 1: len(trumpiest_homs) > 1
@@ -2911,16 +3422,7 @@ class TestProcessGeneticData3SingleHomBranch(unittest.TestCase):
         so we can pass it to process_genetic_data.
         """
 
-        class MockBG:
-            def __init__(self):
-                self.type = "BG"
-                self.alleles = defaultdict(list)
-                self.alleles[AlleleState.FILT] = list(alleles)
-                self.alleles[AlleleState.NORMAL] = []
-                self.filtered_out = {}
-                self.variant_pool_numeric = {}
-
-        return MockBG()
+        return a_blood_group("BG", filt=alleles)
 
     @patch(
         "rbceq2.core_logic.data_procesing.chunk_geno_list_by_rank",
@@ -3063,7 +3565,9 @@ def single_chunk_rank(alleles):
     return [list(alleles)]
 
 
-def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
+def mock_get_fully_homozygous_alleles(
+    ranked_chunks, variant_pool_numeric, chrom_copies=2
+):
     """Trivial logic: an allele is 'hom' if its genotype ends with 'HOM'."""
     result = []
     for chunk in ranked_chunks:
@@ -3072,7 +3576,7 @@ def mock_get_fully_homozygous_alleles(ranked_chunks, variant_pool_numeric):
     return result
 
 
-def mock_make_pair(ref_alleles, variant_pool_numeric, sub_results):
+def mock_make_pair(ref_alleles, variant_pool_numeric, sub_results, chrom_copies=2):
     """If single allele => pair with itself, else fallback."""
     al_list = list(sub_results)
     if len(al_list) == 1:
@@ -3108,16 +3612,7 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
         self.reference_alleles = {"BG": self.ref_allele}
 
     def _make_mock_bloodgroup(self, *alleles):
-        class MockBG:
-            def __init__(self):
-                self.type = "BG"
-                self.alleles = defaultdict(list)
-                self.alleles[AlleleState.FILT] = list(alleles)
-                self.alleles[AlleleState.NORMAL] = []
-                self.filtered_out = {}
-                self.variant_pool_numeric = {}
-
-        return MockBG()
+        return a_blood_group("BG", filt=alleles)
 
     @patch(
         "rbceq2.core_logic.data_procesing.chunk_geno_list_by_rank",
@@ -3165,14 +3660,7 @@ class TestSingleHomFirstChunkLen1(unittest.TestCase):
 # MockDb: avoids reading a file
 ################################################################################
 class MockDb(Db):
-    """Db subclass that doesn't try to load from disk."""
-
-    def __post_init__(self):
-        # Overridden so no CSV is read
-        object.__setattr__(self, "df", pd.DataFrame())
-        object.__setattr__(self, "antitheticals", {})
-        object.__setattr__(self, "lane_variants", {})
-        object.__setattr__(self, "reference_alleles", {})
+    """Db with no rows. __post_init__ is deliberately NOT overridden - see empty_db_frame."""
 
     def make_alleles(self):
         """If you need to return mock alleles, do so here."""
@@ -3230,7 +3718,7 @@ class TestAddRefs(unittest.TestCase):
         )
 
         # 2) Create a MockDb instance that doesn't read a real file
-        self.db = MockDb(ref="Defining_variants", df=pd.DataFrame())
+        self.db = MockDb(ref="Defining_variants", df=empty_db_frame("Defining_variants"))
 
         # 3) Provide reference_alleles to that Db
         # BG1, BG2, and RHCE (excluded by default if not already in `res`)
@@ -3373,6 +3861,497 @@ class TestAddRefs(unittest.TestCase):
         # Now we expect RHCE to remain, because it was pre-existing
         self.assertIs(updated["RHCE"], existing_RHCE)
 
+class TestVariantWasDiscarded(unittest.TestCase):
+    """A token absent from the pool is not the same as a token the caller doubted.
 
+    GYPA*01 needs three positions, so one LowQual call at the third takes two PASS calls
+    out of the pool with it. Promoting the '_ref' partner of one of those PASS calls to
+    homozygous reports the sample as wildtype at a locus called heterozygous - HG01872 and
+    HG03730 in the long read set.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "variant": [
+                    "4:144120554_C_A",
+                    "4:144120555_T_C",
+                    "9:133257521_T_TC",
+                ],
+                "FILTER": ["PASS", "LowQual", "LowQual;RefCall"],
+            }
+        )
+
+    def test_passing_row_was_not_discarded(self):
+        self.assertFalse(variant_was_discarded("4:144120554_C_A", self.df))
+
+    def test_doubted_row_was_discarded(self):
+        self.assertTrue(variant_was_discarded("4:144120555_T_C", self.df))
+
+    def test_any_one_doubt_in_a_joined_field_is_enough(self):
+        self.assertTrue(variant_was_discarded("9:133257521_T_TC", self.df))
+
+    def test_absent_row_is_not_evidence(self):
+        """No row is no evidence for promoting anything, so False rather than a raise.
+
+        Unlike only_keep_alleles_if_FILTER_PASS, where a missing row means the allele
+        should never have been built and raising is the point.
+        """
+        self.assertFalse(variant_was_discarded("1:999999_G_A", self.df))
+
+class TestFilterValuesFor(unittest.TestCase):
+    """The lookup is plural, because a token can match more than one row.
+
+    Two callers both reporting the same position is one way; a multi-allelic row, whose
+    variant cell holds one token per alternate comma joined, is the other, and it is why
+    the match is by substring rather than by equality.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "variant": [
+                    "1:25408711_G_A",
+                    "1:25408711_G_A",
+                    "4:144120554_C_A",
+                    "9:133257521_T_TC,9:133257521_T_TCC",
+                ],
+                "FILTER": ["PASS", "TargetedConflict", "PASS", "LowQual"],
+            }
+        )
+
+    def test_one_row_gives_one_value(self):
+        self.assertEqual(filter_values_for("4:144120554_C_A", self.df), ["PASS"])
+
+    def test_two_rows_give_both_in_file_order(self):
+        self.assertEqual(
+            filter_values_for("1:25408711_G_A", self.df),
+            ["PASS", "TargetedConflict"],
+        )
+
+    def test_a_token_inside_a_comma_joined_cell_still_finds_its_row(self):
+        """The multi-allelic fan-out, which is why equality would be wrong here."""
+        self.assertEqual(filter_values_for("9:133257521_T_TCC", self.df), ["LowQual"])
+
+    def test_no_row_gives_nothing_rather_than_raising(self):
+        self.assertEqual(filter_values_for("1:999999_G_A", self.df), [])
+
+
+class TestRowsDisagreeAboutExclusion(unittest.TestCase):
+    """Different values are not the question - a different verdict is."""
+
+    def test_one_row_cannot_disagree(self):
+        self.assertFalse(rows_disagree_about_exclusion(["PASS"]))
+
+    def test_no_row_cannot_disagree(self):
+        self.assertFalse(rows_disagree_about_exclusion([]))
+
+    def test_different_values_that_classify_the_same_are_not_a_split(self):
+        """The shape the per sample short read form actually has.
+
+        'TargetedConflict' marks which of two callers' rows is the one in conflict, not
+        a doubt about the call, so it sits beside 'PASS' on the keeping side. Reporting
+        these would be reporting nothing.
+        """
+        self.assertFalse(rows_disagree_about_exclusion(["PASS", "TargetedConflict"]))
+        self.assertFalse(
+            rows_disagree_about_exclusion(["RecombinantConflict", "TargetedConflict"])
+        )
+
+    def test_a_split_verdict_is_the_thing_being_watched(self):
+        self.assertTrue(rows_disagree_about_exclusion(["PASS", "LowQual"]))
+
+    def test_an_unclassified_value_excludes_so_it_splits_against_PASS(self):
+        """An unrecognised value is read as a reason to exclude, so it can split a pair.
+
+        This is the route by which the watch stops being silent without anyone editing
+        filter_values.tsv: a file arriving with a value nobody classified yet.
+        """
+        self.assertTrue(rows_disagree_about_exclusion(["PASS", "NovelValue"]))
+
+
+class TestWarnIfTheRowOrderDecidedIt(unittest.TestCase):
+    """Silent unless the rows split, and one line per blood group when they do."""
+
+    @staticmethod
+    def _bg():
+        bg = MagicMock()
+        bg.sample = "test_sample"
+        bg.type = "RHCE"
+        return bg
+
+    def test_silent_when_nothing_split(self):
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(self._bg(), {})
+        mock_logger.warning.assert_not_called()
+
+    def test_names_the_token_and_both_values(self):
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(
+                self._bg(), {"1:25408711_G_A": ["PASS", "LowQual"]}
+            )
+        self.assertEqual(mock_logger.warning.call_count, 1)
+        message = mock_logger.warning.call_args.args[0]
+        self.assertIn("1:25408711_G_A (PASS, LowQual)", message)
+        self.assertIn("test_sample", message)
+        self.assertIn("RHCE", message)
+
+    def test_summarises_past_the_cap(self):
+        order_dependent = {
+            f"1:2540871{n}_G_A": ["PASS", "LowQual"] for n in range(6)
+        }
+        with patch("rbceq2.core_logic.data_procesing.logger") as mock_logger:
+            warn_if_the_row_order_decided_it(self._bg(), order_dependent)
+        message = mock_logger.warning.call_args.args[0]
+        self.assertIn("6 variant/s", message)
+        self.assertIn("and 2 more", message)
+
+
+class TestOnlyKeepAllelesIfFilterPassRaisesOnAMissingRow(unittest.TestCase):
+    """A defining variant with no row at all means the allele should not exist.
+
+    raw_results only builds an allele whose every defining variant is present, so this
+    is beyond logic rather than an input problem, and raising is the point - unlike
+    variant_was_discarded, where no row is simply no evidence.
+    """
+
+    @staticmethod
+    def _allele(variants):
+        return Allele(
+            genotype="RHCE*02",
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=False,
+            sub_type="RHCE",
+        )
+
+    def test_missing_row_raises_and_names_the_variant(self):
+        bg = BloodGroup(
+            type="RHCE",
+            alleles={AlleleState.RAW: [self._allele(["1:999999_G_A"])]},
+            sample="test_sample",
+        )
+        df = pd.DataFrame({"variant": ["1:25408711_G_A"], "FILTER": ["PASS"]})
+        with self.assertRaises(IndexError) as caught:
+            only_keep_alleles_if_FILTER_PASS({"RHCE": bg}, df=df, no_filter=False)
+        self.assertIn("1:999999_G_A", str(caught.exception))
+        self.assertIn("test_sample", str(caught.exception))
+
+
+class TestMakeVariantPoolPromotesOnlyDiscardedPartners(unittest.TestCase):
+    """The promotion branch of make_variant_pool, which no other test reaches.
+
+    A '_ref' token is promoted from heterozygous to homozygous when its alternate partner
+    left the pool *because the caller doubted it* - the het pair is then gone. Absent from
+    the pool is not the same thing: a token also leaves when the only allele carrying it is
+    removed over some other variant, and promoting on that reports the sample as wildtype at
+    a locus the caller called heterozygous with a passing call.
+
+    This is the real GYPA shape. GYPA*01 needs three positions; 144120555 is LowQual, which
+    drops the whole allele and takes the passing 144120554 call out of the pool with it. So
+    144120555_ref may be promoted and 144120554_ref may not.
+
+    TestVariantWasDiscarded covers the lookup in isolation. This covers its use, which is
+    where the defect actually was: the loop originally reused the name 'variant' for the
+    inner token, shadowing the one being tested, so the branch never ran at all. Every
+    isolated test still passed while the promotion silently did nothing, so a test at this
+    level is the only thing that would catch it coming back.
+    """
+
+    PASSING = "4:144120554_C_A"
+    DOUBTED = "4:144120555_T_C"
+
+    def setUp(self):
+        self.vcf = MagicMock()
+        self.vcf.variants = {
+            "4:144120554_ref": {"GT": "0/1"},
+            "4:144120555_ref": {"GT": "0/1"},
+            "4:144120567_A_G": {"GT": "1/1"},
+        }
+        self.vcf.df = pd.DataFrame(
+            {
+                "variant": [self.PASSING, self.DOUBTED, "4:144120567_A_G"],
+                "FILTER": ["PASS", "LowQual", "PASS"],
+            }
+        )
+        # GYPA*08 survived; GYPA*01 was dropped whole, so both of its non-reference
+        # partners are out of the pool - one doubted, one not.
+        survivor = MagicMock(
+            defining_variants={
+                "4:144120554_ref",
+                "4:144120555_ref",
+                "4:144120567_A_G",
+            }
+        )
+        dropped = MagicMock(
+            defining_variants={self.PASSING, self.DOUBTED, "4:144120567_A_G"}
+        )
+        self.bg = MagicMock()
+        self.bg.alleles = {AlleleState.FILT: [survivor]}
+        self.bg.filtered_out = {"FILTER_not_PASS": [dropped]}
+
+    def _pool(self):
+        with patch("rbceq2.core_logic.data_procesing.get_ref") as mock_get_ref:
+            mock_get_ref.side_effect = lambda ref_dict, variant="", chrom_copies=2, locus_copies=None: (
+                Zygosity.HET if ref_dict["GT"] == "0/1" else Zygosity.HOM
+            )
+            return list(make_variant_pool({1: self.bg}, self.vcf).values())[0].variant_pool
+
+    def test_partner_the_caller_doubted_promotes(self):
+        self.assertEqual(self._pool()["4:144120555_ref"], Zygosity.HOM)
+
+    def test_partner_that_passed_does_not_promote(self):
+        """The over-promotion. Wildtype here contradicts a call the caller vouched for."""
+        self.assertEqual(self._pool()["4:144120554_ref"], Zygosity.HET)
+
+    def test_nothing_filtered_means_nothing_promotes(self):
+        self.bg.filtered_out = {"FILTER_not_PASS": []}
+        pool = self._pool()
+        self.assertEqual(pool["4:144120554_ref"], Zygosity.HET)
+        self.assertEqual(pool["4:144120555_ref"], Zygosity.HET)
+
+
+class TestCantRevertToRefCuzAPassingCallDeniesIt(unittest.TestCase):
+    """Rule 3 stops where a trusted call denies the reference outright.
+
+    Built on the real GYPA shape. GYPA*02 is the reference and a lane allele, so it is
+    defined by '_ref' tokens at all three loci. A '_ref' token exists only where the
+    sample has a reference copy, so a homozygous alternate leaves none and the reference
+    cannot be built at all - it never reaches the raw alleles. Reverting to it claims
+    wildtype at a locus the caller called homozygous variant.
+
+    The gate is that the denying call passed. HG03600 is homozygous alternate at 554
+    with LowQual and heterozygous at the other two, so its reference is denied only by a
+    doubted call and rule 3 is right there - the tool keeps GYPA*02/GYPA*02.
+
+    Deliberately silent on the other shape, where the reference was built and then struck
+    by FILTER (ABO, KN, RHD): there the reference needs the doubted variant itself and
+    nothing contradicts it.
+    """
+
+    REF_554 = "4:144120554_ref"
+    REF_555 = "4:144120555_ref"
+    REF_567 = "4:144120567_ref"
+    ALT_554 = "4:144120554_C_A"
+    ALT_555 = "4:144120555_T_C"
+    ALT_567 = "4:144120567_A_G"
+
+    def _allele(self, genotype, variants, reference=False):
+        return Allele(
+            genotype=genotype,
+            phenotype=".",
+            genotype_alt=".",
+            phenotype_alt=".",
+            defining_variants=frozenset(variants),
+            null=False,
+            weight_geno=1000,
+            reference=reference,
+            sub_type="GYPA*02" if reference else "GYPA*01",
+        )
+
+    def setUp(self):
+        self.ref = self._allele(
+            "GYPA*02", (self.REF_554, self.REF_555, self.REF_567), reference=True
+        )
+        self.mns1 = self._allele(
+            "GYPA*01", (self.ALT_554, self.ALT_555, self.ALT_567)
+        )
+        self.reference_alleles = {"GYPA": self.ref}
+        # Homozygous alternate at all three, so no '_ref' token exists anywhere and the
+        # reference was never buildable. 567 is the one FILTER doubted.
+        self.vcf = MagicMock()
+        self.vcf.variants = {
+            self.ALT_554: {"GT": "1/1"},
+            self.ALT_555: {"GT": "1/1"},
+            self.ALT_567: {"GT": "1/1"},
+        }
+        self.df = pd.DataFrame(
+            {
+                "variant": [self.ALT_554, self.ALT_555, self.ALT_567],
+                "FILTER": ["PASS", "PASS", "LowQual"],
+            }
+        )
+
+    def _bg(self, pairs=None, raw=None, pool=None):
+        bg = BloodGroup(
+            type="GYPA",
+            alleles={
+                AlleleState.RAW: [self.mns1] if raw is None else raw,
+                AlleleState.NORMAL: (
+                    [Pair(self.ref, self.ref)] if pairs is None else pairs
+                ),
+                AlleleState.CO: None,
+            },
+            sample="s1",
+            variant_pool={} if pool is None else pool,
+            filtered_out=defaultdict(list),
+        )
+        return bg
+
+    def _run(self, bg):
+        cant_revert_to_ref_cuz_a_passing_call_denies_it(
+            {1: bg},
+            vcf=self.vcf,
+            df=self.df,
+            reference_alleles=self.reference_alleles,
+        )
+        return bg
+
+    def test_the_reference_pair_is_removed(self):
+        bg = self._run(self._bg())
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_the_exclusion_is_recorded_under_the_filter_name(self):
+        """Hard rule 3 - a result is not an audit trail."""
+        bg = self._run(self._bg())
+        self.assertEqual(
+            list(bg.filtered_out), ["cant_revert_to_ref_cuz_a_passing_call_denies_it"]
+        )
+
+    def test_a_doubted_denial_is_left_alone(self):
+        """HG03600 - only 554 denies the reference and the caller doubted it."""
+        self.df = pd.DataFrame(
+            {
+                "variant": [self.ALT_554, self.ALT_555, self.ALT_567],
+                "FILTER": ["LowQual", "PASS", "LowQual"],
+            }
+        )
+        # Heterozygous at 555 and 567, so those '_ref' tokens exist and only 554 denies.
+        self.vcf.variants = {
+            self.ALT_554: {"GT": "1/1"},
+            self.ALT_555: {"GT": "0/1"},
+            self.REF_555: {"GT": "0/1"},
+            self.ALT_567: {"GT": "0/1"},
+            self.REF_567: {"GT": "0/1"},
+        }
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_reference_that_was_built_and_struck_is_left_alone(self):
+        """The other shape - ABO, KN and RHD. Nothing contradicts that reference."""
+        bg = self._run(self._bg(raw=[self.mns1, self.ref]))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_non_empty_pool_stops_it_dead(self):
+        """Something survived, so the reference pair was a choice among others."""
+        bg = self._run(self._bg(pool={self.ALT_554: Zygosity.HOM}))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_a_pair_that_is_not_all_reference_is_left_alone(self):
+        bg = self._run(self._bg(pairs=[Pair(self.ref, self.mns1)]))
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_more_than_one_pair_is_left_alone(self):
+        bg = self._run(
+            self._bg(pairs=[Pair(self.ref, self.ref), Pair(self.ref, self.mns1)])
+        )
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 2)
+
+    def test_a_blood_group_with_no_reference_is_left_alone(self):
+        self.reference_alleles = {}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_the_removal_does_not_promise_a_revert_to_reference(self):
+        """The pair removed is the reference pair, so the default warning would lie."""
+        bg = self._bg()
+        with patch("rbceq2.core_logic.alleles.logger") as mock_logger:
+            self._run(bg)
+        mock_logger.warning.assert_not_called()
+
+    def test_a_wildtype_call_denies_a_reference_that_needs_the_alternate(self):
+        """The other direction, at a lane locus where the reference wants the alternate.
+
+        Four of the 88 references are defined partly by an alternate because the
+        transcript reference differs from the genome reference there. HG04183 RHCE is
+        the only instance in nine datasets: RHCE*01 needs 25420739_G_C and the sample is
+        homozygous reference, so its '_ref' token is present and the alternate is not.
+        """
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {self.REF_567: {"GT": "1/1"}}
+        bg = self._run(self._bg())
+        self.assertEqual(bg.alleles[AlleleState.NORMAL], [])
+
+    def test_a_locus_nobody_typed_is_not_read_as_wildtype(self):
+        """Absence of the '_ref' token is no data, and must never deny the reference."""
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+    def test_the_alternate_being_present_is_not_a_denial(self):
+        """The reference wants it and the sample has it, so nothing is denied."""
+        self.reference_alleles = {"GYPA": self._allele("GYPA*02", (self.ALT_567,), reference=True)}
+        self.vcf.variants = {self.ALT_567: {"GT": "1/1"}}
+        bg = self._run(self._bg())
+        self.assertEqual(len(bg.alleles[AlleleState.NORMAL]), 1)
+
+
+class TestWarnIfCriticalVariantNotTrusted(unittest.TestCase):
+    """One filtered row can remove most of a blood group's definitions at once.
+
+    The ABO c.261delG insertion backs 163 of them; without it only the 43 resting on its
+    absence remain, so the sample reads as group O. Measured on a densely called long read
+    cohort, this fires on 12 of 658 samples and the ABO call genuinely depends on the row in
+    10 of them. The exclusion is already in the log per allele - this says it once, in terms
+    a user reading the genotype can act on.
+    """
+
+    DELG = "9:133257521_T_TC"
+
+    def _bg(self, *variants_per_excluded_allele):
+        bg = MagicMock(spec=BloodGroup)
+        bg.sample = "HG03600.vcf"
+        bg.type = "ABO"
+        bg.filtered_out = defaultdict(list)
+        for variants in variants_per_excluded_allele:
+            allele = MagicMock()
+            allele.defining_variants = frozenset(variants)
+            bg.filtered_out["FILTER_not_PASS"].append(allele)
+        return bg
+
+    def _df(self, filter_value):
+        return pd.DataFrame({"variant": [self.DELG], "FILTER": [filter_value]})
+
+    def test_warns_when_the_locus_was_not_trusted(self):
+        bg = self._bg({self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_called_once()
+        message = log.warning.call_args[0][0]
+        self.assertIn("c.261delG", message)
+        self.assertIn("LowQual", message)
+        self.assertIn("HG03600.vcf", message)
+
+    def test_silent_when_the_row_passed(self):
+        """Reaching filtered_out over some other variant is not this locus's problem."""
+        bg = self._bg({self.DELG, "9:133255926_AC_A"})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("PASS"))
+        log.warning.assert_not_called()
+
+    def test_silent_for_an_ordinary_locus(self):
+        bg = self._bg({"9:133256264_G_A"})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_not_called()
+
+    def test_one_warning_per_locus_however_many_alleles_it_backed(self):
+        bg = self._bg({self.DELG}, {self.DELG, "9:133255801_C_T"}, {self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        log.warning.assert_called_once()
+        self.assertIn("3 alleles needing it were excluded", log.warning.call_args[0][0])
+
+    def test_counts_read_naturally_for_one_allele(self):
+        bg = self._bg({self.DELG})
+        with patch("rbceq2.core_logic.data_procesing.logger") as log:
+            warn_if_critical_variant_not_trusted(bg, self._df("LowQual"))
+        self.assertIn("1 allele needing it was excluded", log.warning.call_args[0][0])
+        
 if __name__ == "__main__":
     unittest.main()

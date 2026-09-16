@@ -6,6 +6,8 @@ from itertools import zip_longest
 from multiprocessing import Pool
 from typing import TYPE_CHECKING, Any, Callable
 from typing import Literal
+from loguru import logger
+
 
 if TYPE_CHECKING:
     from src.core_logic.alleles import Allele, BloodGroup
@@ -47,31 +49,57 @@ def collapse_variant(variant: str) -> str:
 class BeyondLogicError(Exception):
     """Custom exception for scenarios beyond logical comprehension.
 
+    Several of these read alike by the time they reach a log. The class lives here in
+    utils, the batch runner reports failures as 'BeyondLogicError: <message>', and two
+    raise sites can share wording - 'Multi-allelic genotypes are not supported' is raised
+    in two places in get_ref alone, for two different reasons. The result is a message
+    that says what went wrong but not which check said so, and a stack that points at
+    utils. So raise sites can name themselves, and the name leads the formatted message:
+
+        [get_ref/multi_allelic_diploid_GT] Multi-allelic genotypes are not supported...
+
+    The name is a stable slug rather than a sentence, so it can be grepped for in a log
+    and searched for in the source. Optional, so every existing raise keeps working.
+
     Attributes:
         message (str): Explanation of the error.
         context (str | None): Additional context or metadata to describe the issue.
+        raised_by (str | None): Which check raised this, as 'function/reason'.
     """
 
-    def __init__(self, message: str, context: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        context: str | None = None,
+        raised_by: str | None = None,
+    ):
         """Initialize BeyondLogicError with a message and optional context.
 
         Args:
             message (str): The error message describing the beyond logic situation.
             context (str | None): Optional context to provide more information.
+            raised_by (str | None): Optional 'function/reason' slug identifying the
+                raise site, so two checks that word their message alike stay
+                distinguishable in a log.
         """
         self.message = message
         self.context = context
+        self.raised_by = raised_by
         super().__init__(self._format_error())
 
     def _format_error(self) -> str:
         """Format the error message.
 
         Returns:
-            str: Formatted error message including context if available.
+            str: Formatted error message including the raise site and context if
+            available.
         """
+        formatted = self.message
+        if self.raised_by:
+            formatted = f"[{self.raised_by}] {formatted}"
         if self.context:
-            return f"{self.message} | Context: {self.context}"
-        return self.message
+            return f"{formatted} | Context: {self.context}"
+        return formatted
 
     def __str__(self) -> str:
         """Return string representation of the error.
@@ -85,8 +113,19 @@ class BeyondLogicError(Exception):
 class Zygosity:
     HOM = "Homozygous"  # hom alt
     HET = "Heterozygous"
-    REF = "Reference"  # hom ref
     HEM = "Hemizygous"  # ie with big del
+    NO_DATA = "No_data"  # locus not called for this sample, ie a '.' in the GT
+    NO_COPIES = "No_copies"  # locus sits inside a homozygous deletion, so 0 chromosomes
+    # NO_COPIES and NO_DATA are both 'no allele can be confirmed here' but for opposite
+    # reasons, and the remedies differ, so they are not merged: NO_DATA means the caller
+    # did not look, NO_COPIES means it looked and there is nothing there to look at. Only
+    # NO_COPIES has an honest copy number (0, see BloodGroup.len_dict).
+    # NO_DATA is the absence of a measurement, not a measurement of absence - it is not
+    # 'zero copies'. That is still encoded by the token simply not being in the pool.
+    # An allele with a NO_DATA defining variant cannot be confirmed, so it is excluded by
+    # remove_alleles_with_no_call_variants rather than left to compare False against HOM
+    # or HET and drop out of a filter silently. Deliberately not in BloodGroup.len_dict:
+    # there is no honest copy number for 'not measured', so variant_pool_numeric omits it.
 
 
 Preprocessor = Callable[[dict[str, "BloodGroup"]], dict[str, "BloodGroup"]]
@@ -128,6 +167,29 @@ def apply_to_dict_values(func: Callable[..., Any]) -> Callable[..., dict]:
     return decorator
 
 
+def zygosity_or_HOM(pool: dict[str, str], variant: str) -> str:
+    """Look up a variant's zygosity in the pool, assuming HOM if it is absent.
+
+    The variant pool is built from the defining variants of the blood group's own
+    alleles, so a miss means an allele is being checked against a pool that does not
+    describe it. That has never been observed on any test dataset, but if it happened
+    the caller would quietly treat the variant as neither HET nor HOM and skip a filter
+    without recording an exclusion, so the miss is warned about rather than swallowed.
+
+    Args:
+        pool (dict[str, str]): Mapping of variant identifiers to Zygosity values.
+        variant (str): The variant identifier to look up.
+
+    Returns:
+        str: The variant's Zygosity value, or Zygosity.HOM if it is not in the pool.
+    """
+    if variant not in pool:
+        logger.warning(
+            f"Variant missing from variant pool, assuming {Zygosity.HOM}: {variant}"
+        )
+    return pool.get(variant, Zygosity.HOM)
+
+
 def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
     """Check if the allele has one HET variant, all HOM variants, or just one variant.
 
@@ -147,43 +209,17 @@ def one_HET_variant(allele: Allele, pool: dict[str, str]) -> bool:
     ]
 
     return (
-        sum([1 for variant in proper_vars if pool.get(variant, "HOM") == Zygosity.HET])
-        == 1
-        or allele.number_of_defining_variants == 1
-        or all(pool.get(variant, "HOM") == Zygosity.HOM for variant in proper_vars)
-    )
-
-
-def one_HET_all_HOM_ref_or_1variant(allele: Allele, pool: dict[str, str]) -> bool:
-    """Check if an allele meets one of the following conditions:
-    1. It has exactly one HET variant.
-    2. It has exactly one defining variant.
-    3. It is a reference allele.
-    4. All defining variants are HOM.
-
-    Args:
-        allele (Allele): An Allele object with its defining variants.
-        pool (dict[str, str]): A dictionary mapping variant identifiers to
-            their zygosity. Defaults to "HOM" if a variant is not found.
-
-    Returns:
-        bool: True if any of the above conditions is met, False otherwise.
-    """
-
-    return (
         sum(
             [
                 1
-                for variant in allele.defining_variants
-                if pool.get(variant, "HOM") == Zygosity.HET
+                for variant in proper_vars
+                if zygosity_or_HOM(pool, variant) == Zygosity.HET
             ]
         )
         == 1
         or allele.number_of_defining_variants == 1
-        or allele.reference
         or all(
-            pool.get(variant, "HOM") == Zygosity.HOM
-            for variant in allele.defining_variants
+            zygosity_or_HOM(pool, variant) == Zygosity.HOM for variant in proper_vars
         )
     )
 
@@ -247,17 +283,13 @@ def chunk_geno_list_by_rank(input_list: list[Allele]) -> list[list[Allele]]:
     for allele in input_list:
         result[allele.sub_type][allele.weight_geno].append(allele)
 
-    # Initialize an empty list to hold the final chunks
     final_chunks = []
 
-    # Iterate over each Sub_type and accumulate the weighted alleles
     for sub in subs:
         sub_chunks = [result[sub][weight] for weight in weights if result[sub][weight]]
         if not final_chunks:
-            # For the first Sub_type, just assign the chunks directly
             final_chunks = sub_chunks
         else:
-            # For subsequent Sub_types, merge the chunks with the existing ones
             final_chunks = [
                 x + y
                 for x, y in zip_longest(final_chunks, sub_chunks, fillvalue=[])
@@ -325,6 +357,6 @@ def get_allele_relationships(
         sub_all = partial(sub_alleles_relationships, all_alleles)
         for result, key in pool.imap_unordered(
             sub_all, ["KN"]
-        ):  # all_alleles.keys(): (no &)
+        ):
             relationships[key] = result
     return relationships

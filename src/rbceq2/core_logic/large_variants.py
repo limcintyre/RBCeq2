@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Iterator, Protocol, runtime_checkable
 
 import pandas as pd
+from rbceq2.core_logic.utils import BeyondLogicError
 import re
 from typing import Iterable
 
@@ -238,6 +239,10 @@ class SvMatcher:
         Returns:
             list[MatchResult]: Best match per DB token, ordered by
             (chrom, pos, score).
+
+        Raises:
+            BeyondLogicError: Equally ranked candidates have different event,
+                genotype, phase or FILTER evidence and cannot be selected safely.
         """
         results: list[MatchResult] = []
         ev_by_chrom: dict[str, list[SvEvent]] = {}
@@ -261,14 +266,59 @@ class SvMatcher:
                         )
                     )
 
-        # Keep best per (allele id, raw token, chrom)
-        best: dict[tuple[str, str, str], MatchResult] = {}
+        # Collect the final best rank before checking ambiguity: an eventual
+        # better event can supersede conflicting candidates encountered earlier.
+        best: dict[tuple[str, str, str], list[MatchResult]] = {}
+        best_rank: dict[tuple[str, str, str], tuple[float, float]] = {}
         for r in results:
             key = (r.db.id, r.db.raw, r.db.chrom)
-            if key not in best or r.score < best[key].score:
-                best[key] = r
+            rank = (r.score, self._score_unclamped(r.db, r.vcf)[0])
+            if key not in best or rank < best_rank[key]:
+                best[key] = [r]
+                best_rank[key] = rank
+            elif rank == best_rank[key]:
+                best[key].append(r)
 
-        return sorted(best.values(), key=lambda r: (r.db.chrom, r.db.pos, r.score))
+        selected = []
+        for key, tied in sorted(best.items()):
+            evidence = {self._evidence_key(match.vcf) for match in tied}
+            if len(evidence) > 1:
+                details = []
+                for chrom, pos, end, kind, length, token, alt, gt, ps, filters in sorted(evidence):
+                    details.append(
+                        f"{chrom}:{pos}-{end} {kind} length={length} "
+                        f"token={token} ALT={alt} GT={gt} PS={ps} "
+                        f"FILTER={';'.join(filters)}"
+                    )
+                raise BeyondLogicError(
+                    f"Equally ranked SV matches have different event or sample "
+                    f"evidence for {key[0]} ({key[2]}:{key[1]}): "
+                    + "; ".join(details),
+                    raised_by="SvMatcher.match/ambiguous_equal_best_sv_evidence",
+                )
+            selected.append(tied[0])
+
+        return sorted(selected, key=lambda r: (r.db.chrom, r.db.pos, r.score))
+
+    def _evidence_key(self, event: SvEvent) -> tuple:
+        """Compare evidence used downstream without treating quality as a vote.
+
+        Unphased genotype ordering is immaterial; chromosome-copy counts and
+        phased order remain distinct. Different phase sets can provide alternative
+        linkage evidence even where the called alleles agree. FILTER labels are
+        compared as a set. Depth, quality, record IDs and FORMAT ordering do not
+        determine which event supplies a call.
+        """
+        values = dict(zip(event.sample_fmt.split(":"), event.sample_value.split(":")))
+        gt = values.get("GT", ".").strip()
+        ps = (values.get("PS", ".").strip() or ".") if "|" in gt else "."
+        if "|" not in gt:
+            gt = "/".join(sorted(gt.split("/")))
+        filters = tuple(sorted(set(event.filter_value.split(";"))))
+        return (
+            event.chrom, event.pos, event.end, event.svtype, self._length(event),
+            event.variant, event.alt, gt, ps, filters,
+        )
 
     def _adaptive_pos_tol(self, db: SvDef, ev: SvEvent, overlap: bool) -> int:
         """Compute a size-aware positional tolerance.
@@ -331,7 +381,20 @@ class SvMatcher:
         return min(tol, LEN_CAP)
 
     def score(self, db: SvDef, ev: SvEvent) -> tuple[float, int, int]:
-        """Score a DB/VCF pair using adaptive POS and LEN tolerances.
+        """Return the nonnegative public score and position/length differences.
+
+        Args:
+            db: Database structural definition.
+            ev: Observed structural event.
+
+        Returns:
+            Score, position difference and length difference; infinity if rejected.
+        """
+        raw_score, pos_delta, len_delta = self._score_unclamped(db, ev)
+        return max(raw_score, 0.0), pos_delta, len_delta
+
+    def _score_unclamped(self, db: SvDef, ev: SvEvent) -> tuple[float, int, int]:
+        """Keep the full geometric score before clamping it for public reporting.
 
         Position:
             - Adaptive tolerance; if exceeded and there is no overlap → reject.
@@ -353,18 +416,16 @@ class SvMatcher:
         pos_tol = self._adaptive_pos_tol(db, ev, overlap=ov)
         len_tol = self._adaptive_len_tol(db, ev, overlap=ov)
 
-        # Gates
         if pos_delta > pos_tol and not ov:
             return (float("inf"), pos_delta, len_delta)
         if len_delta > len_tol:
             return (float("inf"), pos_delta, len_delta)
 
-        # Score normalized by adaptive tolerances
         s = (pos_delta / (pos_tol + 1)) + (len_delta / (len_tol + 1))
         if ov:
             s -= self.pos_bonus_overlap
 
-        return (max(s, 0.0), pos_delta, len_delta)
+        return (s, pos_delta, len_delta)
 
 
 def _ci_lookup(names: list[str]) -> dict[str, str]:
@@ -391,11 +452,9 @@ def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
         return False
     s = tok.strip()
 
-    # word form
     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
         return True
 
-    # sequence form
     parts = s.split("_")
     if len(parts) >= 3:
         p0, p1, p2 = parts[0], parts[1], parts[2]
@@ -406,34 +465,6 @@ def _looks_like_sv_token(tok: str, min_delta: int = 10) -> bool:
                 if delta >= min_delta or max(len(p1), len(p2)) >= min_delta:
                     return True
     return False
-
-
-# def _looks_like_sv_token(tok: str) -> bool:
-#     """Heuristically check if a string looks like our SV token.
-
-#     Args:
-#         tok (str): Candidate string.
-
-#     Returns:
-#         bool: True if `tok` looks like an SV token.
-#     """
-#     if not tok or "_" not in tok:
-#         return False
-#     s = tok.strip()
-#     # word form: 25272547_del_59kb (or dup/ins/inv/cnv)
-#     if re.match(r"^\d+_(del|dup|ins|inv|cnv)_", s, flags=re.I):
-#         return True
-#     # sequence form: 126690214_<REF>_<ALT> (long REF preferred)
-#     parts = s.split("_")
-#     if len(parts) >= 3:
-#         p0, p1, p2 = parts[0], parts[1], parts[2]
-#         if (
-#             p0.isdigit()
-#             and (set(p1) <= set("ACGTNacgtn") and len(p1) >= 20)
-#             and (set(p2) <= set("ACGTNacgtn"))
-#         ):
-#             return True
-#     return False
 
 
 def load_db_defs(
@@ -455,7 +486,6 @@ def load_db_defs(
     token_hits = 0
     ci = _ci_lookup(df.columns.tolist())
 
-    # Resolve chrom col
     if chrom_col:
         chrom_key = ci.get(chrom_col.lower())
     else:
@@ -472,12 +502,10 @@ def load_db_defs(
     else:
         token_key = None  # trigger scan-all
 
-    # Determine allele id column (nice to have)
     allele_key = (
         ci.get("allele") or ci.get("id") or ci.get("genotype") or ci.get("name")
     )
 
-    # Iterate rows
     for _, row in df.iterrows():
         chrom = (str(row.get(chrom_key) or "")).strip()
         chrom = chrom.removeprefix("chr").removeprefix("CHR")
@@ -486,10 +514,8 @@ def load_db_defs(
 
         candidates: list[str] = []
         if token_key:
-            # Single specified token column
             candidates = [str(row.get(token_key, ""))]
         else:
-            # Scan all columns for likely tokens
             for k, v in row.items():
                 if not v or not isinstance(v, str):
                     continue
@@ -564,6 +590,7 @@ class SvEvent:
         ciend (ConfidenceInterval): CI around END.
         sample_fmt (str): Raw FORMAT column for single-sample VCFs.
         sample_value (str): Raw sample value column for single-sample VCFs.
+        filter_value (str): Source row FILTER labels, or '.' if unavailable.
     """
 
     chrom: str
@@ -580,6 +607,7 @@ class SvEvent:
     ciend: ConfidenceInterval = field(default_factory=ConfidenceInterval)
     sample_fmt: str = "."
     sample_value: str = "."
+    filter_value: str = "."
 
     @property
     def size(self) -> int:
@@ -605,14 +633,14 @@ def _parse_info(info: str) -> dict[str, str]:
     if info == "." or not info:
         return {}
     out: dict[str, str] = {}
-    for field in info.split(";"):
-        if not field:
+    for info_field in info.split(";"):
+        if not info_field:
             continue
-        if "=" in field:
-            k, v = field.split("=", 1)
+        if "=" in info_field:
+            k, v = info_field.split("=", 1)
             out[k] = v
         else:
-            out[field] = "True"
+            out[info_field] = "True"
     return out
 
 
@@ -656,6 +684,7 @@ def _is_large_indel(ref: str, alt: str, threshold: int) -> bool:
             return True
     return False
 
+
 def _get_svlen_from_info(info: dict[str, str]) -> int:
     """Extract SVLEN from INFO dict, handling multi-allelic and missing cases.
 
@@ -674,6 +703,7 @@ def _get_svlen_from_info(info: dict[str, str]) -> int:
     if first_val.lstrip("-").isdigit():
         return int(first_val)
     return 0
+
 
 @dataclass(slots=True, frozen=True)
 class SvReader:
@@ -712,7 +742,6 @@ class SvReader:
         bnd_cache: dict[str, SvEvent] = {}
 
         for row in self.df.itertuples(index=True, name="Row"):
-            # Validate chromosome format
             chrom = str(row.CHROM)
             if chrom.startswith("chr"):
                 chrom = chrom[3:]
@@ -723,11 +752,9 @@ class SvReader:
             alt = str(row.ALT)
             alt_is_symbolic = alt.startswith("<") and alt.endswith(">")
 
-            # Determine SV type
             svtype = info.get("SVTYPE")
             svlen = _get_svlen_from_info(info)
 
-            # Infer type from large indels if SVTYPE not present
             if svtype is None and _is_large_indel(row.REF, alt, self.min_size):
                 first_alt = alt.split(",")[0]
                 delta = len(first_alt) - len(row.REF)
@@ -735,23 +762,18 @@ class SvReader:
                 svlen = delta
                 end = pos + max(len(row.REF), 1)
 
-            # Extract type from symbolic ALT if still not determined
             if svtype is None and alt_is_symbolic:
                 token = alt.strip("<>")
                 svtype = token.split(":")[0].upper()
 
-            # Skip non-SV records
             if svtype is None:
                 continue
 
-            # Parse confidence intervals
             cipos = _parse_ci(info.get("CIPOS"))
             ciend = _parse_ci(info.get("CIEND"))
 
-            # Get variant encoding (from encoders.py)
             variant_str = getattr(row, "variant", f"{chrom}:{pos}_{svtype}")
 
-            # Get sample format fields if available
             sample_fmt = getattr(row, "FORMAT", ".")
             sample_value = getattr(row, "SAMPLE", ".")
 
@@ -770,9 +792,9 @@ class SvReader:
                 ciend=ciend,
                 sample_fmt=str(sample_fmt),
                 sample_value=str(sample_value),
+                filter_value=str(getattr(row, "FILTER", ".")),
             )
 
-            # Handle BND pairs
             if svtype == "BND":
                 mate_id = info.get("MATEID") or info.get("MATE") or ""
                 if mate_id:
@@ -786,91 +808,6 @@ class SvReader:
             else:
                 if event.size >= self.min_size:
                     yield event
-
-
-# @dataclass(slots=True, frozen=True)
-# class SnifflesVcfSvReader:
-#     """Portable, minimal structural variant reader for VCF.
-
-#     Attributes:
-#         df (df): df of to VCF file.
-#         min_size (int): Minimum size threshold for emitting events.
-#     """
-
-#     df: pd.DataFrame
-#     min_size: int = 10
-
-#     def events(self) -> Iterator[SvEvent]:
-#         """Iterate over structural variant events in a VCF.
-#         6
-#                 Returns:
-#                     Iterator[SvEvent]: Yielded SV events.
-#         """
-#         bnd_cache: dict[str, SvEvent] = {}
-#         for row in self.df.itertuples(index=True, name="Row"):
-#             assert not row.CHROM.startswith("chr")
-#             info = _parse_info(row.INFO)
-#             pos = int(row.POS)
-#             end = int(info.get("END", row.POS))
-#             alt_is_symbolic = row.ALT.startswith("<") and row.ALT.endswith(">")
-
-#             svtype = info.get("SVTYPE")
-#             svlen = (
-#                 int(info["SVLEN"])
-#                 if "SVLEN" in info and info["SVLEN"].lstrip("-").isdigit()
-#                 else 0
-#             )
-
-#             if svtype is None and _is_large_indel(row.REF, row.ALT, self.min_size):
-#                 first_alt = row.ALT.split(",")[0]
-#                 delta = len(first_alt) - len(row.REF)
-#                 inferred_type = (
-#                     "DEL" if delta < 0 else ("INS" if delta > 0 else "INDEL")
-#                 )
-#                 svtype = inferred_type
-#                 svlen = delta
-#                 end = pos + max(len(row.REF), 1)
-
-#             if svtype is None and alt_is_symbolic:
-#                 token = row.ALT.strip("<>")
-#                 svtype = token.split(":")[0].upper()
-
-#             if svtype is None:
-#                 continue
-
-#             cipos = _parse_ci(info.get("CIPOS"))
-#             ciend = _parse_ci(info.get("CIEND"))
-
-#             event = SvEvent(
-#                 chrom=row.CHROM,
-#                 pos=pos,
-#                 end=end,
-#                 svtype=svtype,
-#                 svlen=svlen,
-#                 alt=row.ALT,
-#                 id=row.ID,
-#                 qual=row.QUAL,
-#                 info=info,
-#                 variant=row.variant,
-#                 cipos=cipos,
-#                 ciend=ciend,
-#                 sample_fmt=row.FORMAT,
-#                 sample_value=row.SAMPLE,
-#             )
-
-#             if svtype == "BND":
-#                 mate_id = event.info.get("MATEID") or event.info.get("MATE") or ""
-#                 if mate_id:
-#                     if mate_id in bnd_cache:
-#                         yield bnd_cache.pop(mate_id)
-#                         yield event
-#                     else:
-#                         bnd_cache[event.id] = event
-#                 else:
-#                     yield event
-#             else:
-#                 if event.size >= self.min_size:
-#                     yield event
 
 
 def select_best_per_vcf(
@@ -894,10 +831,8 @@ def select_best_per_vcf(
 
     filtered: list[MatchResult] = []
     for group in by_vcf.values():
-        # Sort primarily by score
         group.sort(key=lambda r: r.score)
         best_score = group[0].score
-        # Keep only matches within score tolerance
         tied = [g for g in group if abs(g.score - best_score) <= tie_tol]
 
         if len(tied) > 1:
@@ -905,11 +840,9 @@ def select_best_per_vcf(
             max_pos = max(t.pos_delta for t in tied)
             max_len = max(t.len_delta for t in tied)
 
-            # Avoid division by zero
             max_pos = max(max_pos, 1)
             max_len = max(max_len, 1)
 
-            # Compute combined delta score
             def combined_delta(r: MatchResult) -> float:
                 norm_pos = r.pos_delta / max_pos
                 norm_len = r.len_delta / max_len
@@ -917,7 +850,6 @@ def select_best_per_vcf(
 
             tied.sort(key=combined_delta)
             best_combined = combined_delta(tied[0])
-            # Keep matches within a small tolerance of best combined score
             tied = [t for t in tied if abs(combined_delta(t) - best_combined) < 1e-9]
 
         # If still tied, break by DB id for deterministic results
@@ -927,6 +859,5 @@ def select_best_per_vcf(
 
         filtered.extend(tied)
 
-    # Stable ordering: by VCF, then score, then DB id
     filtered.sort(key=lambda r: (r.vcf.chrom, r.vcf.pos, r.vcf.end, r.score, r.db.id))
     return filtered

@@ -9,7 +9,7 @@ from rbceq2.core_logic.large_variants import (
     MatchResult,
     _parse_info,
     _is_large_indel,
-    SnifflesVcfSvReader,
+    SvReader,
     select_best_per_vcf,
 )
 
@@ -170,7 +170,7 @@ class TestReader(unittest.TestCase):
             "variant": ["var1", "var2"],
         }
         df = pd.DataFrame(data)
-        reader = SnifflesVcfSvReader(df)
+        reader = SvReader(df)
         events = list(reader.events())
 
         self.assertEqual(len(events), 2)
@@ -194,7 +194,7 @@ class TestReader(unittest.TestCase):
             "variant": ["var1"],
         }
         df = pd.DataFrame(data)
-        reader = SnifflesVcfSvReader(df, min_size=10)
+        reader = SvReader(df, min_size=10)
         events = list(reader.events())
 
         self.assertEqual(len(events), 1)
@@ -216,7 +216,7 @@ class TestReader(unittest.TestCase):
             "variant": ["v1", "v2"],
         }
         df = pd.DataFrame(data)
-        reader = SnifflesVcfSvReader(df)
+        reader = SvReader(df)
         events = list(reader.events())
 
         # It should cache bnd1, then when bnd2 appears, yield both.
@@ -241,7 +241,7 @@ class TestReader(unittest.TestCase):
             "variant": ["v1"]
         }
         df = pd.DataFrame(data)
-        reader = SnifflesVcfSvReader(df)
+        reader = SvReader(df)
         events = list(reader.events())
         
         # CURRENT BEHAVIOR: Orphan BNDs sitting in cache are lost on exit

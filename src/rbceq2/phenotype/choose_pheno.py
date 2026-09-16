@@ -91,65 +91,51 @@ def FUT1(res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
 
 
 def FUT3(res: dict[str, BloodGroup]) -> dict[str, BloodGroup]:
-    """
-    H = FUT1
-    Se = FUT2
-    Le = FUT3
+    """Interpret Lewis phenotype from FUT3 activity and FUT2 secretor status.
 
-    In individuals with an active FUT2 (Secretor or SE) gene, which encodes a fully
-    active α(1,2)-fucosyltransferase (see H Blood Group System), predominantly
-    Leb (and related Lewis antigens depending on ABO group, e.g. ALeb in group
-    A) is made alongside trace amounts of Lea. The trace amounts of Lea produced
-    are typically undetectable using serological methods, and usually, a Le(a–b+)
-    phenotype is reported.
-
-    functional == active???!!!
-
-    LE	When FUT2 is H+ Se+ and FUT3 is functional = Le(a-b+)
-        When FUT2 is H+w Se+ and FUT3 is functional =Le(a+b+)
-        When FUT2 is homozygous null (Se-) and FUT3 is functional = Le(a+b-)
-        When FUT3 is homozygous null, regardless of FUT2 functionality = Le(a-b-)
-    H	FUT1: RBC expresssion
-        FUT2: Secretor status - Report phenotype as Se+/-
+    With active FUT3, Se+ gives Le(a-b+), Se- gives Le(a+b-), and weak
+    secretor status Se+w gives Le(a+b+). FUT1 describes red-cell H expression
+    and does not determine this secretor-dependent Lewis interpretation.
+    Null FUT3 gives Le(a-b-) regardless of secretor status.
 
     Args:
-        res (dict): Dictionary of blood group results, where keys are 'FUT1', 'FUT2',
-        and 'FUT3', each with their respective `BloodGroup` data.
+        res: Blood-group results containing FUT2 and FUT3 phenotype mappings.
 
     Returns:
-        dict: Updated dictionary with modified FUT3 phenotypes based on FUT1 and FUT2
-        interactions.
-    """
+        The results with interpreted FUT3 alphanumeric phenotypes.
 
-    fut1_and_2 = fut_helper(res)
+    Raises:
+        BeyondLogicError: A secretor or FUT3 phenotype is not recognized.
+    """
+    secretor_states = set(res["FUT2"].phenotypes[PhenoType.alphanumeric].values())
+    lewis_by_secretor = {
+        "Se-": "Le(a+b-)",
+        "Se+w": "Le(a+b+)",
+        "Se+": "Le(a-b+)",
+    }
 
     new_phenos = {}
     for pair, pheno in res["FUT3"].phenotypes[PhenoType.alphanumeric].items():
         new_pheno = []
         if "active" in pheno.lower():
-            for combo in fut1_and_2:
-                if "Se-" in combo:
-                    new_pheno.append("Le(a+b-)")
-                elif "H+w" in combo and "Se+" in combo:
-                    new_pheno.append("Le(a+b+)")
-                elif "H+" in combo and any(se in combo for se in ["Se+", "Se+w"]):
-                    new_pheno.append("Le(a-b+)")
-                else:
+            for secretor in sorted(secretor_states):
+                if secretor not in lewis_by_secretor:
                     raise BeyondLogicError(
                         message="Unexpected FUT3 value.",
-                        context=f"Received value: {combo}",
+                        context=f"Received FUT2 phenotype: {secretor}",
+                        raised_by="FUT3/unknown_secretor_phenotype",
                     )
+                new_pheno.append(lewis_by_secretor[secretor])
         elif "Le(a-b-)" in pheno:
             new_pheno.append("Le(a-b-)")
         else:
             raise BeyondLogicError(
-                message="Unexpected FUT3 pheno.", context=f"Received value: {pheno}"
+                message="Unexpected FUT3 pheno.", context=f"Received value: {pheno}",
+                raised_by="FUT3/unknown_lewis_activity",
             )
-
         new_phenos[pair] = "/".join(sorted(set(new_pheno)))
 
     res["FUT3"].phenotypes[PhenoType.alphanumeric] = new_phenos
-
     return res
 
 
@@ -225,7 +211,6 @@ def make_values_dict(
         or None if the input format is invalid.
     """
     antigens = defaultdict(list)
-    # all dicts are ordered
     if "." in values_strs:
         return None  # some BGs just don't have numeric for all or alpha for all alleles
     ant_class = choose_class_type(bg_type, ant_type)
@@ -383,7 +368,10 @@ def instantiate_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             else current_pair.alleles
         )
 
-        return [getattr(allele, phenotype_attr) for allele in alleles_to_use]
+        return [
+            getattr(allele, phenotype_attr)
+            for allele in sorted(alleles_to_use, key=lambda allele: allele.genotype)
+                ]
 
     pair_antigens = {}
     make_values_dict_pre_filled = partial(
@@ -645,14 +633,12 @@ def internal_anithetical_consistency_HET(
                 continue
             if ant.antithetical_antigen:
                 no_expressed = count_expressed_ants(ant, base_names)
-                # no change
                 if no_expressed == 2:
                     for ant2 in antigens:
                         if ant2.base_name == ant.base_name:
                             new_antigens.append(ant2)
                             already_checked.add(ant2.base_name)
                     continue
-                # add expressed ants
                 for ant2 in antigens:
                     if ant2.base_name == ant.base_name and ant2.expressed:
                         new_antigens.append(ant2)
@@ -718,7 +704,7 @@ def internal_anithetical_consistency_HET(
                         assert final_no_expressed == 2
                     except AssertionError:
                         logger.warning(
-                            f"Expressed antigens != 2! plz report to devs with these details; sample= {bg.sample} BG = {bg.type} no_expressed {final_no_expressed}", 
+                            f"Expressed antigens != 2! plz report to devs with these details; sample= {bg.sample} BG = {bg.type} no_expressed {final_no_expressed}",
                             new_antigens,
                             pair.allele1,
                             pair.allele2,
@@ -727,7 +713,6 @@ def internal_anithetical_consistency_HET(
                             final_no_expressed,
                             null,
                         )
-                                                
 
     for pair, merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = merged_pheno
@@ -916,7 +901,7 @@ def sort_antigens(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         new_phenos.append((pair, sorted_merged_pheno))
     for pair, sorted_merged_pheno in new_phenos:
         bg.phenotypes[ant_type][pair] = sorted_merged_pheno
-  
+
     return bg
 
 
@@ -951,7 +936,7 @@ def phenos_to_str(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
             as_str if ant_type == PhenoType.alphanumeric else f"{allele_name}:{as_str}"
         )
         bg.phenotypes[ant_type][pair] = pheno
-    
+
     return bg
 
 
@@ -1282,13 +1267,11 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
         return bg
 
     for pair, pheno in bg.phenotypes[ant_type].items():
-        # Start with all antigens from the original phenotype
         pheno_parts = pheno.split(",")
         new_pheno = []
 
         for ant in pheno_parts:
             modified = False
-            # Check each allele to see if it should annotate this antigen
             for allele in pair:
                 if (
                     ant in allele.phenotype_alt.split(",")
@@ -1306,7 +1289,6 @@ def modify_RHD(bg: BloodGroup, ant_type: PhenoType) -> BloodGroup:
                         modified = True
                         break
 
-            # If not modified, keep original
             if not modified:
                 new_pheno.append(ant)
         if new_pheno:
@@ -1378,7 +1360,7 @@ def compare_numeric_ants_to_alphanumeric(
         or bg.phenotypes.get(PhenoType.numeric) == {}
     ):
         return bg
- 
+
     bg_name_map = {
         "GBGT1": "FORS",
         "ABCC4": "PEL",

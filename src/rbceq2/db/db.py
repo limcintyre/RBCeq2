@@ -7,10 +7,10 @@ from typing import Any, Iterable
 
 import pandas as pd
 from rbceq2.core_logic.alleles import Allele, Line
-from rbceq2.core_logic.constants import LOW_WEIGHT
+from rbceq2.core_logic.constants import LOW_WEIGHT, PAR, NOVEL_DELETION_SLOT
+from rbceq2.core_logic.large_variants import _looks_like_sv_token
 from loguru import logger
 from collections import defaultdict
-from icecream import ic
 
 import re
 from abc import abstractmethod
@@ -43,8 +43,6 @@ class VariantCountMismatchError(ValueError):
 
 def load_db() -> str:
     """Load the db.tsv file from package resources."""
-    # Use importlib.resources.files() which is preferred for Python >= 3.9
-    # It needs the package name ('rbceq2') as the anchor.
     try:
         resource_path = importlib.resources.files("rbceq2").joinpath(
             "resources", "db.tsv"
@@ -56,6 +54,33 @@ def load_db() -> str:
             f"Failed to load resource 'resources/db.tsv' from package 'rbceq2': {e}"
         )
         raise
+
+
+def subtype_of(genotype: str) -> str:
+    """The ISBT subtype an allele name belongs to.
+
+    Everything up to the first dot, ie the gene and the numbered background with any
+    trailing allele number removed. Used where the evidence supports naming a group of
+    alleles but not one of them - see Db.get_gene_absent_subtypes.
+
+    Args:
+        genotype (str): An ISBT allele name, ie 'RHD*01N.01'.
+
+    Returns:
+        str: The subtype, ie 'RHD*01N'. Returned unchanged if there is nothing to strip.
+
+    Example:
+        >>> subtype_of("RHD*01N.01")
+        'RHD*01N'
+        >>> subtype_of("XK*N.01.001")
+        'XK*N'
+        >>> subtype_of("GYPB*01N")
+        'GYPB*01N'
+    """
+    gene, star, rest = genotype.partition("*")
+    if not star:
+        return genotype
+    return f"{gene}*{rest.split('.')[0]}"
 
 
 @dataclass(slots=True, frozen=True)
@@ -77,6 +102,19 @@ class Db:
         reference_alleles (dict[str, Allele]):
             Dictionary mapping genotype identifiers to reference Allele objects,
             initialized post-construction.
+        single_copy_types (dict[str, str]):
+            Blood group type -> chromosome, for the blood groups that sit outside PAR on
+            X/Y and can therefore be single copy. Initialized post-construction.
+        loci_by_type (dict[str, dict[str, frozenset[int]]]):
+            Blood group type -> chromosome -> the positions that can testify about how
+            many copies of it are present. Small variant positions only; a structural
+            token's position is a breakpoint or a donor coordinate rather than a locus,
+            and on a paralogue pair it names the other gene. Initialized
+            post-construction.
+        gene_absent_subtypes (dict[str, str]):
+            Blood group type -> the subtype naming 'no copy of this gene', for the blood
+            groups where the database answers that unambiguously. Initialized
+            post-construction.
     """
 
     ref: str
@@ -84,11 +122,225 @@ class Db:
     lane_variants: dict[str, Any] = field(init=False)
     antitheticals: dict[str, list[str]] = field(init=False)
     reference_alleles: dict[str, Any] = field(init=False)
+    single_copy_types: dict[str, str] = field(init=False)
+    loci_by_type: dict[str, dict[str, frozenset[int]]] = field(init=False)
+    gene_absent_subtypes: dict[str, str] = field(init=False)
 
     def __post_init__(self):
         object.__setattr__(self, "antitheticals", self.get_antitheticals())
         object.__setattr__(self, "lane_variants", self.get_lane_variants())
         object.__setattr__(self, "reference_alleles", self.get_reference_allele())
+        object.__setattr__(self, "single_copy_types", self.get_single_copy_types())
+        object.__setattr__(self, "loci_by_type", self.get_loci_by_type())
+        object.__setattr__(
+            self, "gene_absent_subtypes", self.get_gene_absent_subtypes()
+        )
+
+    def get_loci_by_type(self) -> dict[str, dict[str, frozenset[int]]]:
+        """The positions that can testify about a blood group's copy number.
+
+        Used to ask whether a caller reported *the whole gene* at one copy rather than a
+        single locus - see locus_copies_for_bg. The question has to be asked over the
+        database's loci rather than over the sample's variant pool, because by the time
+        the pool exists the hom ref rows have been dropped and a gene called entirely
+        wildtype looks identical to a gene nobody typed.
+
+        Structural tokens are excluded, and that is the whole point of this function
+        rather than an optimisation. **A breakpoint is not a locus.** The position on a
+        structural token is where an event starts or where its replacement sequence was
+        taken from; it is not somewhere a caller genotypes, and it is deliberately
+        imprecise - large-event sizes use whole-kilobase tokens by integer division. A
+        position like that landing in the ploidy vote is a coincidence, not evidence.
+
+        For a paralogue pair it is worse than noise, because the coordinate belongs to
+        the *other* gene. A gene conversion allele records the segment removed from this
+        gene in this gene's coordinates and the donor segment in the donor's, so the two
+        halves of one allele name two different genes:
+
+            RHD*01N.43    25272547_DEL_18244   (in RHD)   25402595_INS_18269  (in RHCE)
+            RHCE*03.02    25402595_DEL_18269   (in RHCE)  25272547_INS_18244  (in RHD)
+
+        Counting both put 6 RHCE positions into RHD's set and 7 RHD positions into
+        RHCE's, and made the two sets share 8. A sample with one gene at one copy and
+        the other at two then has each gene voting with a handful of the other's
+        genotypes, and locus_copies_for_bg wants agreement across the gene, so a single
+        borrowed dissenter refuses the whole gene. That is what the RH refusals were.
+
+        Nothing here knows where a gene starts or ends, and it does not need to.
+        Dropping structural tokens leaves RHD at 25272548-25328922 and RHCE at
+        25362527-25420796: the two genes, disjoint, recovered from the token grammar
+        alone.
+
+        The predicate is large_variants' own, deliberately, rather than a second opinion
+        about what counts as structural. It is stricter than paralogue leakage needs -
+        it also drops ordinary local indels of ten bases or more - and that is the right
+        way to be wrong here, because every position it drops is one fewer vote, and
+        votes only ever make this function *more* willing to claim a copy number.
+
+        Three blood groups - ABCC1, ATP11C and CD99 - are defined by nothing but a whole
+        gene deletion, so they end up with no positions at all and can never be read as
+        single copy. That is the honest answer rather than a loss: one breakpoint cannot
+        show agreement across a gene, and with a single position 'every locus agrees' is
+        satisfied by any one row that happens to land on it.
+
+        Returns:
+            dict[str, dict[str, frozenset[int]]]: ie {'RHD': {'1': frozenset({25272548,
+            ...})}}. Blood groups defined only by structural tokens are absent.
+        """
+        loci: dict[str, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+
+        for chrom, bg_type, variants in zip(
+            self.df["Chrom"], self.df["type"], self.df[self.ref]
+        ):
+            if pd.isna(variants):
+                continue
+            chrom = str(chrom).replace("chr", "")
+            for token in re.split(r"[,;]", str(variants)):
+                token = token.strip()
+                if _looks_like_sv_token(token):
+                    continue
+                if match := re.match(r"^(\d+)", token):
+                    loci[str(bg_type)][chrom].add(int(match.group(1)))
+
+        return {
+            bg_type: {chrom: frozenset(pos) for chrom, pos in by_chrom.items()}
+            for bg_type, by_chrom in loci.items()
+        }
+
+    def get_gene_absent_subtypes(self) -> dict[str, str]:
+        """Blood group type -> the subtype that names 'this gene is not there'.
+
+        Copy number evidence says a copy of a gene is missing. It does not say which
+        deletion did it, and never will - a copy number integer carries no breakpoints. So
+        the answer is given at subtype resolution rather than allele resolution: 'RHD*01N'
+        rather than 'RHD*01N.01'. That is as specific as the evidence supports, it
+        collapses the eighteen XK entries that share one token to a single string, and it
+        is stable as the database grows, which is the point. New whole gene deletions
+        arriving from long read SV calling land as further 'RHD*01N.xx' entries and change
+        nothing here.
+
+        A blood group is only answered where the database is unambiguous about it. Two
+        things disqualify one, and they are different:
+
+        - More than one candidate subtype. The database is saying a missing copy could be
+          either, and choosing between them would be inventing biology.
+        - Any allele that is *both* marked a hybrid and defined solely by a deletion. Where
+          a deletion at this locus can fuse two genes rather than remove one, the gene is
+          not absent at all - a chimera is present - and copy number alone cannot tell the
+          two apart. This is the glycophorin cluster. Note it disqualifies the blood group
+          rather than filtering the allele out: the ambiguity is in what the evidence can
+          support, not in the database.
+
+        Gene conversion is deliberately not a disqualifier, and this is the distinction
+        that keeps RH working. A conversion rewrites sequence without changing how many
+        copies are present, so it cannot be what a missing copy is. The database says so
+        structurally rather than in prose - RHD's hybrid alleles all carry an insertion
+        token beside the deletion, so none of them is defined by a deletion alone.
+
+        Blood groups with no answer here are not an error. They report the missing copy as
+        NOVEL_DELETION_SLOT, which is the honest result when the input lacks the data to
+        call it accurately.
+
+        Returns:
+            dict[str, str]: ie {'RHD': 'RHD*01N', 'XK': 'XK*N'}. Omits the blood groups the
+            database cannot answer for.
+        """
+        candidates: dict[str, set[str]] = defaultdict(set)
+        fusable: set[str] = set()
+        # Absent in the trimmed frames the tests build. No Note means nothing is known to
+        # be a fusion, which is the safe reading here - it can only widen the set of blood
+        # groups reported as '?'.
+        notes = (
+            self.df["Note"]
+            if "Note" in self.df.columns
+            else pd.Series([None] * len(self.df), index=self.df.index)
+        )
+
+        for genotype, bg_type, variants, note in zip(
+            self.df["Genotype"], self.df["type"], self.df[self.ref], notes
+        ):
+            if pd.isna(variants):
+                continue
+            tokens = [tok for tok in re.split(r"[,;]", str(variants)) if tok.strip()]
+            if not tokens or not all(
+                re.match(r"^\s*\d+_(?:DEL|del)_\d+", tok) for tok in tokens
+            ):
+                continue
+            if not pd.isna(note) and any(
+                word in str(note).lower() for word in ("hybrid", "fusion", "conversion")
+            ):
+                fusable.add(str(bg_type))
+            else:
+                candidates[str(bg_type)].add(subtype_of(str(genotype)))
+
+        absent = {
+            bg_type: next(iter(subtypes))
+            for bg_type, subtypes in candidates.items()
+            if len(subtypes) == 1 and bg_type not in fusable
+        }
+
+        undecided = sorted((set(candidates) | fusable) - set(absent))
+        if undecided:
+            logger.info(
+                f"Blood groups where copy number alone cannot name a missing gene copy, "
+                f"so it is reported as '{NOVEL_DELETION_SLOT}': {undecided}"
+            )
+        logger.info(f"Gene absent subtypes: {absent}")
+        return absent
+
+    def get_single_copy_types(self) -> dict[str, str]:
+        """Blood groups that lie outside PAR on X/Y, and so can be single copy.
+
+        Derived from the database rather than from whatever happens to be in a sample's
+        variant pool. A blood group whose only variant was dropped as hom ref still has to
+        report one allele slot for a male - state table row B2 - and there is nothing left
+        in the pool at that point to work it out from.
+
+        Every coordinate a blood group has must agree, and a blood group that straddles a
+        PAR boundary is warned about and left diploid rather than resolved silently. On DB
+        v2.5.0 none do: XG and CD99 are wholly inside PAR1 in both builds, XK, GATA1 and
+        ATP11C wholly outside it, and no other blood group has a chrX coordinate at all.
+        There are no chrY rows.
+
+        Note this says nothing about any particular sample. A female is diploid at these
+        coordinates too; VCF._infer_haploid_chroms supplies the per-sample half.
+
+        Returns:
+            dict[str, str]: ie {'XK': 'X', 'GATA1': 'X', 'ATP11C': 'X'}.
+        """
+        par_for_build = PAR.get(self.ref, {})
+        single_copy: dict[str, str] = {}
+
+        for (chrom, bg_type), sub in self.df.groupby(["Chrom", "type"]):
+            chrom = str(chrom).replace("chr", "")
+            intervals = par_for_build.get(chrom)
+            if intervals is None:
+                continue
+
+            positions = [
+                int(match.group(1))
+                for variant in sub[self.ref].dropna().unique()
+                for token in re.split(r"[,;]", str(variant))
+                if (match := re.match(r"^\s*(\d+)", token))
+            ]
+            if not positions:
+                continue
+
+            outside = {
+                not any(start <= pos <= end for start, end in intervals)
+                for pos in positions
+            }
+            if outside == {True}:
+                single_copy[str(bg_type)] = chrom
+            elif len(outside) > 1:
+                logger.warning(
+                    f"Blood group {bg_type} straddles a PAR boundary on {chrom} in "
+                    f"{self.ref}; treating it as two copies. Ploidy for it needs a "
+                    f"per-variant decision - see issue #40"
+                )
+
+        logger.info(f"Single copy (non-PAR X/Y) blood groups: {sorted(single_copy)}")
+        return single_copy
 
     def get_antitheticals(self) -> dict[str, list[str]]:
         """
@@ -255,8 +507,77 @@ def _is_null_genotype(genotype: str) -> bool:
     return "N." in geno_upper or geno_upper.endswith("N") or geno_upper == "KEL*02M.05"
 
 
+def strip_stray_whitespace(df: pd.DataFrame) -> pd.DataFrame:
+    """Trim leading and trailing whitespace from every column name and text cell.
+
+    The database is hand curated, so a stray space is a matter of when rather than whether,
+    and it is invisible in every tool anyone reads the file with. Nothing in a TSV of allele
+    names, coordinates and phenotypes means anything different with a space on the end, so
+    trimming is always safe - which is why this fixes rather than rejects.
+
+    It is not cosmetic. Every one of these values is compared or grouped as a string
+    somewhere: `Sub_type` groups alleles in filters/geno.py, `Genotype` is split on
+    '*' to derive the blood group, and `Antithetical` is
+    matched against 'Yes'. A trailing space silently forks one group into two, and the
+    failure is a wrong answer rather than an error.
+
+    Found in practice on `Sub_type` for seven GYPB*04N rows, where it split GYPB*04 into two
+    subtypes. That instance changed no result - the affected rows took their weight from
+    another branch, and it was not what made antithetical_modifying_SNP_is_HOM fail - but it
+    was one edit away from mattering.
+
+    Warns rather than staying silent: the file is the source of truth, so the fix belongs in
+    it, and nobody will make it if the run quietly compensates.
+
+    Args:
+        df (pd.DataFrame): The database as read, before any column is derived from another.
+
+    Returns:
+        pd.DataFrame: The same frame with column names and text cells trimmed.
+    """
+    renamed = {
+        column: column.strip()
+        for column in df.columns
+        if isinstance(column, str) and column != column.strip()
+    }
+    if renamed:
+        logger.warning(
+            f"Database column name/s have stray whitespace and were trimmed on load: "
+            f"{({old: new for old, new in renamed.items()})}. Please fix db.tsv"
+        )
+        df = df.rename(columns=renamed)
+
+    for column in df.columns:
+        values = df[column]
+        # Not 'dtype == object'. Since pandas 3 a text column reads back as StringDtype,
+        # not object, so that test skips every column this is meant to clean and the guard
+        # silently does nothing. Both are accepted because which one you get depends on the
+        # pandas version rather than on the data.
+        if not (
+            pd.api.types.is_object_dtype(values)
+            or pd.api.types.is_string_dtype(values)
+        ):
+            continue
+        trimmed = values.map(lambda v: v.strip() if isinstance(v, str) else v)
+        changed = (values != trimmed) & values.notna()
+        if changed.any():
+            examples = sorted({str(v) for v in values[changed]})[:4]
+            logger.warning(
+                f"Database column '{column}' has {int(changed.sum())} value/s with stray "
+                f"leading or trailing whitespace, trimmed on load: "
+                f"{[repr(e) for e in examples]}. Please fix db.tsv - these are compared as "
+                f"strings, so a space silently splits one value into two"
+            )
+            df[column] = trimmed
+
+    return df
+
+
 def prepare_db() -> pd.DataFrame:
     """Read and prepare the database from a TSV file, applying necessary transformations.
+
+    Preserve explicit genotype weights. Missing weights receive LOW_WEIGHT / 2
+    for null alleles and LOW_WEIGHT otherwise.
 
     Returns:
         DataFrame: The prepared DataFrame with necessary data transformations applied.
@@ -268,8 +589,7 @@ def prepare_db() -> pd.DataFrame:
         logger.info("Database content loaded successfully.")
     except FileNotFoundError:
         logger.error("CRITICAL: db.tsv not found within the package resources!")
-        # You might want to provide a more informative error or exit here
-        raise  # Re-raise the specific error
+        raise
     except Exception as e:
         logger.error(f"An unexpected error occurred during db loading: {e}")
         raise
@@ -278,14 +598,10 @@ def prepare_db() -> pd.DataFrame:
     df: pd.DataFrame = pd.read_csv(db_content, sep="\t")
     logger.debug(f"Initial DataFrame shape: {df.shape}")
 
+    # Before anything is derived from a column or grouped by one - see the docstring.
+    df = strip_stray_whitespace(df)
+
     df["type"] = df.Genotype.apply(lambda x: str(x).split("*")[0])
-    update_dict = df.groupby("Sub_type").agg({"Weight_of_genotype": "max"}).to_dict()
-    mapped_values = df["Sub_type"].map(update_dict)
-
-    df["Weight_of_genotype"] = df["Weight_of_genotype"].where(
-        df["Weight_of_genotype"].notna(), mapped_values
-    )
-
     pd.set_option("future.no_silent_downcasting", True)
 
     # defaults weights; null = LOW_WEIGHT/2 and normal = LOW_WEIGHT
@@ -320,10 +636,6 @@ class DbDataConsistencyChecker:
         Helper to check antigen consistency for a given pair of phenotype columns.
         Uses the mapping built from primary Phenotype/Phenotype_alt columns.
         """
-        # The mapping should ideally be built once from the canonical Phenotype columns
-        # and then used for all checks.
-        # Assuming _build_antigen_map_for_checks uses df.Phenotype and df.Phenotype_alt
-        # as the source of truth for the mapping.
         mapping = build_antigen_map_for_checks(df)
 
         phenotype_series = df[phenotype_col_name]
@@ -342,15 +654,13 @@ class DbDataConsistencyChecker:
             if "?" in num or "?" in alpha:
                 continue
 
-            # Ensure consistent system context for compare_antigen_profiles
-            # Usually, the system is derived from the numeric part.
             system_context = current_system_from_num
 
             if not compare_antigen_profiles(
-                numeric=num,  # Use the full string e.g. "RH:1"
-                alpha=alpha,  # Use the full string e.g. "D+"
-                mapping=mapping,  # The global mapping
-                system=system_context,  # System derived from the numeric string
+                numeric=num,
+                alpha=alpha,
+                mapping=mapping,
+                system=system_context,
             ):
                 allele_info = (
                     df.loc[i, "Genotype"]
@@ -362,7 +672,6 @@ class DbDataConsistencyChecker:
                     f"between '{phenotype_col_name}' ('{num}') and "
                     f"'{phenotype_alt_col_name}' ('{alpha}')"
                 )
-                # Consider raising a more specific error if desired
                 raise AssertionError(error_msg)
 
     @staticmethod
@@ -389,22 +698,39 @@ class DbDataConsistencyChecker:
 
     @staticmethod
     def check_grch37_38_variant_counts(df: pd.DataFrame):
-        """Ensure GRCh37 and GRCh38 variant counts match for each allele."""
+        """Ensure GRCh37 and GRCh38 variant counts match for each allele.
+
+        Counts are of *distinct* tokens, because distinct is what the allele ends up
+        with: defining_variants is a frozenset, so a token written twice in one build
+        column collapses to one and number_of_defining_variants never sees the second.
+
+        Counting the raw list instead let a duplicate stand in for a missing variant,
+        so the two columns agreed on length while disagreeing on content. ABO*A2.16
+        carried 133259833_G_A twice and no 133257521_T_TC - six raw against six, five
+        distinct against six - and loaded. That is the c.261 locus, which 163 other ABO
+        rows pair with its GRCh37 counterpart, so on one build the allele was built
+        from five defining variants rather than six. Fewer defining variants is a
+        weaker requirement, and a weaker requirement is met by more samples.
+
+        A token duplicated in *both* columns is deliberately not an error. The frozenset
+        collapses it on each side, the distinct counts agree, and nothing downstream can
+        tell - which is the case for six GYPB rows and two RHCE rows.
+        """
         logger.debug("Checking GRCh37/38 defining variant counts...")
-        for index, row in df.iterrows():  # Iterate for potentially better error context
+        for index, row in df.iterrows():
             grch37_vars_str = str(row.GRCh37)
             grch38_vars_str = str(row.GRCh38)
 
-            # Handle potential empty strings or "." consistently before splitting
-            grch37_list = [
+            grch37_variants = {
                 v for v in grch37_vars_str.strip().split(",") if v and v != "."
-            ]
-            grch38_list = [
+            }
+            grch38_variants = {
                 v for v in grch38_vars_str.strip().split(",") if v and v != "."
-            ]
+            }
 
-            if len(grch37_list) != len(grch38_list):
-                # The VariantCountMismatchError takes the raw strings
+            if len(grch37_variants) != len(grch38_variants):
+                # The VariantCountMismatchError takes the raw strings, which is what
+                # shows a duplicate - the deduplicated sets no longer would.
                 raise VariantCountMismatchError(grch37_vars_str, grch38_vars_str)
         logger.debug("GRCh37/38 defining variant count check passed.")
 
@@ -424,22 +750,15 @@ class DbDataConsistencyChecker:
         DbDataConsistencyChecker.check_phenotype_change_antigens(df)
         DbDataConsistencyChecker.check_phenotype_antigens(df)
 
-        # Example of how you might use ref_genome_name if a check needed it:
-        # if ref_genome_name:
-        #     DbDataConsistencyChecker.some_check_dependent_on_ref(df, ref_genome_name)
-
         logger.info("All database data consistency checks passed successfully.")
 
 
-# ────────────────────── helper regexes ──────────────────────
 _NUM_ID_RE = re.compile(r"-?(\d+)")  # leading '-' allowed
 _ALPHA_CANON_RE = re.compile(r"^(.*?)\s|[+-]", re.S)  # up‑to first space/+/‑
 
 
-# ────────────────────── internal helpers ───────────────────
 def _canonical_alpha(token: str) -> str:
     """Return antigen name stripped of sign/modifiers."""
-    # stop at first space or sign; then strip trailing sign if still present
     cut = _ALPHA_CANON_RE.split(token.strip(), maxsplit=1)[0]
     return cut.rstrip("+-")
 
@@ -466,9 +785,6 @@ class Antigen:
     modifiers: frozenset[str]
 
 
-# ──────────────────────────────── parsing ────────────────────────────────
-
-
 class AntigenParser(Protocol):
     """A parser returns a sequence of canonical :class:`Antigen` objects."""
 
@@ -476,7 +792,6 @@ class AntigenParser(Protocol):
     def parse(self, text: str) -> list[Antigen]: ...
 
 
-#_NUMERIC_RE = re.compile(r"(?P<sign>-)?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
 _NUMERIC_RE = re.compile(r"(?P<sign>[-?])?(?P<num>\d+)(?P<mods>[a-z]+)?", re.IGNORECASE)
 
 
@@ -563,7 +878,7 @@ class AlphaParser:
             name_part_before_rstrip = tok[:idx]
             name = name_part_before_rstrip.rstrip(" (")
             expr = tok[idx] == "+"
-            tail = tok[idx + 1 :].lower()
+            tail = tok[idx + 1:].lower()
 
             if tail.endswith(")") and name_part_before_rstrip.count(
                 "("
@@ -574,17 +889,16 @@ class AlphaParser:
                 set()
             )  # Mods for the current antigen token (e.g. e+partial_weak_to_neg)
 
-            # Split tail into space-separated components (e.g., "very_weak", "partial", "wp")
             components = [comp for comp in re.split(r"\s+", tail.strip()) if comp]
 
             for (
                 comp
-            ) in components:  # Process each component (e.g., "partial_weak_to_neg")
+            ) in components:
                 # 1. Check for overriding intensity phrases first
                 overriding_code = OVERRIDING_INTENSITY_PHRASES.get(comp)
                 if overriding_code:
                     current_antigen_mods.add(overriding_code)
-                    continue  # This component is fully handled by the overriding phrase
+                    continue
 
                 # 2. If not an overriding phrase, accumulate modifiers from:
                 #    a) The direct match of the component in _ALPHA_MOD
@@ -593,20 +907,18 @@ class AlphaParser:
 
                 component_processed_by_phrase_or_parts = False
 
-                # 2a. Direct match of the whole component
                 direct_comp_code = _ALPHA_MOD.get(comp)
                 if direct_comp_code:
                     current_antigen_mods.add(direct_comp_code)
                     component_processed_by_phrase_or_parts = True
 
-                # 2b. Underscore-separated parts
                 if "_" in comp:
                     for part in comp.split("_"):
                         part_code = _ALPHA_MOD.get(part)
                         if part_code:
                             current_antigen_mods.add(part_code)
                             component_processed_by_phrase_or_parts = (
-                                True  # Mark as processed if any part matches
+                                True
                             )
 
                 # 3. If the component was NOT processed by direct phrase match (2a)
@@ -626,9 +938,6 @@ class AlphaParser:
                 )
             )
         return antigens
-
-
-# ──────────────────────────────── comparison ────────────────────────────────
 
 
 def build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
@@ -660,7 +969,7 @@ def build_antigen_map_for_checks(df: pd.DataFrame) -> dict[str, dict[str, str]]:
 
         for n, a in zip(num_tokens, α_tokens, strict=True):
             mapping[system][n] = a
-    
+
     return mapping
 
 
@@ -686,7 +995,6 @@ def compare_antigen_profiles(
     """
     num_ants = NumericParser(system).parse(numeric)
     α_ants = AlphaParser(system).parse(alpha)
-    # translate numeric → canonical α‑name
     num_by_name: dict[str, Antigen] = {}
     if system == 'RHD':
         new_sys = 'RH'
@@ -704,7 +1012,7 @@ def compare_antigen_profiles(
         new_sys = system
 
     sys_map = mapping.get(new_sys.upper(), {})
-    
+
     for n in num_ants:
         try:
             α = sys_map[n.name]

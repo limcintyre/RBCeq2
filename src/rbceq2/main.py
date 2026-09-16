@@ -3,16 +3,16 @@
 import argparse
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
+from traceback import format_exc
 from typing import Callable
-import os
 import pandas as pd
 from icecream import ic
 from loguru import logger
 from typing import Mapping
-import sys
 
 import rbceq2.core_logic.co_existing as co
 import rbceq2.core_logic.data_procesing as dp
@@ -20,8 +20,13 @@ import rbceq2.filters.geno as filt
 import rbceq2.filters.phased as filt_phase
 import rbceq2.filters.knops as filt_co
 import rbceq2.phenotype.choose_pheno as ph
-from rbceq2.core_logic.constants import PhenoType, DB_VERSION, VERSION
-from rbceq2.core_logic.utils import compose, get_allele_relationships
+from rbceq2.core_logic.constants import (
+    PhenoType,
+    DB_VERSION,
+    UNDETERMINED_SLOT,
+    VERSION,
+)
+from rbceq2.core_logic.utils import Zygosity, compose, get_allele_relationships
 from rbceq2.db.db import (
     Db,
     prepare_db,
@@ -34,11 +39,13 @@ from rbceq2.IO.record_data import (
     configure_logging,
     log_validation,
     record_filtered_data,
+    report_no_call_summary,
     save_df,
     stamps,
 )
 from rbceq2.IO.vcf import (
     VCF,
+    PloidyScan,
     filter_VCF_to_BG_variants,
     read_vcf,
     check_if_multi_sample_vcf,
@@ -55,22 +62,18 @@ from rbceq2.core_logic.large_variants import (
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
-    """Parse command-line arguments for somatic variant calling.
+    """Parse command-line options for blood-group allele inference.
 
     Args:
-        args (List[str]): List of strings representing the command-line arguments.
+        args (list[str]): Command-line arguments excluding the program name.
 
     Returns:
-        argparse.Namespace: An object containing the parsed command-line options.
-
-    This function configures and interprets command-line options for a somatic
-    variant caller. It expects paths to VCF files, a database file, and allows
-    specification of output options and genomic references.
+        argparse.Namespace: Parsed inference and output options.
     """
     parser = argparse.ArgumentParser(
         description="Calls ISBT defined alleles from VCF/s. NOT FOR CLINICAL USE",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        usage="rbceq2 --vcf example.vcf.gz --out example --reference_genome GRCh37",
+        usage="rbceq2 --vcf input.vcf.gz --out result --reference_genome GRCh38 [options]",
     )
     version_str = f"%(prog)s {VERSION} (DB: {DB_VERSION})"
 
@@ -96,7 +99,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--no_filter",
         action="store_true",
-        help="Use all variants, not just those where FILTER = PASS in the VCF",
+        help="Disable FILTER-based allele exclusion; other inference checks still apply",
         default=False,
     )
     parser.add_argument(
@@ -130,7 +133,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Enable VCF validation. Doubles run time. Might help you identify input issues",
+        help="Run extra VCF format checks; basic input checks always run",
         default=False,
     )
     parser.add_argument(
@@ -154,7 +157,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--RH",
         action="store_true",
-        help="Generate results for RHD and RHCE. WARNING! Long read only!",
+        help=(
+            "Generate RHD and RHCE results for long-read VCFs with structural "
+            "variant information, or callers explicitly encoding RH gene copy number "
+            "as GT ploidy. Ordinary short-read variant calls without either source "
+            "of information are unsupported for RH inference."
+        ),
         default=False,
     )
 
@@ -171,26 +179,24 @@ def main():
         exclude += ["RHD", "RHCE"]
     if not args.HPAs:
         exclude += [f"HPA{i}" for i in range(50)]
-    # Configure logging
     UUID = configure_logging(args)
 
     logger.debug("Logger configured for debug mode.")
     logger.info("Application started.")
 
-    # 1. Prepare the DataFrame
     logger.info("Preparing database DataFrame...")
     db_df = prepare_db()
     logger.info("Database DataFrame prepared.")
 
-    # 2. Run consistency checks on the prepared DataFrame
     DbDataConsistencyChecker.run_all_checks(df=db_df)
-    # If any check fails, an exception will be raised here, and the program will halt.
 
-    # 3. If all checks pass, proceed to create the Db object
     logger.info("Consistency checks passed. Initializing Db object...")
     db = Db(ref=args.reference_genome, df=db_df)
     logger.info("Db object initialized.")
 
+    # Only a cohort read in main can be scanned here; the per file path scans its own
+    # file inside find_hits, where it is already reading it.
+    haploid_by_sample: dict[str, frozenset[str]] = {}
     if args.vcf.is_dir():
         patterns = ["*.vcf", "*.vcf.gz"]
         vcfs = [file for pattern in patterns for file in args.vcf.glob(pattern)]
@@ -208,7 +214,16 @@ def main():
         actually_multi_vcf = check_if_multi_sample_vcf(args.vcf)
         if actually_multi_vcf:
             intervals = build_intervals(db_df, args.reference_genome)
-            multi_vcf = read_vcf(str(args.vcf), intervals)
+            # Read once, and take the constitutional ploidy evidence on the way past -
+            # the read filter is about to discard the rows carrying it. See PloidyScan.
+            ploidy_scan = PloidyScan(args.reference_genome)
+            multi_vcf = read_vcf(
+                str(args.vcf), intervals, db.unique_variants, ploidy_scan
+            )
+            haploid_by_sample = {
+                sample: frozenset(chroms)
+                for sample, chroms in ploidy_scan.haploid_chroms.items()
+            }
             logger.info("Multi sample VCF passed")
             filtered_multi_vcf = filter_VCF_to_BG_variants(
                 multi_vcf, db.unique_variants
@@ -229,44 +244,169 @@ def main():
     dfs_geno = {}
     dfs_pheno_numeric = {}
     dfs_pheno_alphanumeric = {}
+    # (blood group, variant) -> samples where the caller made no call there
+    no_calls: dict[tuple[str, str], set[str]] = defaultdict(set)
+    failures: list[SampleFailure] = []
     with Pool(processes=int(args.processes)) as pool:
         find_hits_db = partial(
-            find_hits,
+            find_hits_or_failure,
             db,
             args=args,
             allele_relationships=allele_relationships,
             excluded=exclude,
             ant_mapping=mapping,
+            haploid_by_sample=haploid_by_sample,
         )
         for results in pool.imap_unordered(find_hits_db, list(vcfs)):
+            if isinstance(results, SampleFailure):
+                failures.append(results)
+                logger.error(
+                    f"Sample {results.sample} failed and was skipped: {results.error}"
+                )
+                # Keep each failed sample's traceback at ERROR, including bare assertions.
+                logger.error(f"{results.sample} traceback:\n{results.traceback}")
+                continue
             if results is not None:
-                sample, genos, numeric_phenos, alphanumeric_phenos, _, _ = results
+                sample, genos, numeric_phenos, alphanumeric_phenos, bgs, _ = results
                 dfs_geno[sample] = genos
                 dfs_pheno_numeric[sample] = numeric_phenos
                 dfs_pheno_alphanumeric[sample] = alphanumeric_phenos
+                for bg_name, bg in bgs.items():
+                    for variant, zygosity in bg.variant_pool.items():
+                        if zygosity == Zygosity.NO_DATA:
+                            no_calls[(bg_name, variant)].add(sample)
                 record_filtered_data(results, args.reference_genome)
                 sep = "##############"
                 logger.debug(f"\n {sep} End log for sample: {sample} {sep}\n")
 
-    df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index")
-    df_geno = df_geno.replace("", "Undetermined/Undetermined")
+    if not dfs_geno:
+        # An empty TSV must not disguise a run in which every sample failed.
+        for failure in failures:
+            logger.error(f"{failure.sample}: {failure.error}")
+        message = f"All {len(failures)} sample/s failed. No results written."
+        logger.error(message)
+        print(f"\n{message} See the log for the reason against each sample.")
+        sys.exit(1)
+
+    # Sort after unordered workers finish to preserve throughput while making output
+    # independent of worker completion and input-file order.
+    df_geno = pd.DataFrame.from_dict(dfs_geno, orient="index").sort_index()
+    df_geno = df_geno.replace("", f"{UNDETERMINED_SLOT}/{UNDETERMINED_SLOT}")
     save_df(df_geno, f"{args.out}_geno.tsv", UUID)
-    df_pheno_numeric = pd.DataFrame.from_dict(dfs_pheno_numeric, orient="index")
+    df_pheno_numeric = pd.DataFrame.from_dict(
+        dfs_pheno_numeric, orient="index"
+    ).sort_index()
     save_df(df_pheno_numeric, f"{args.out}_pheno_numeric.tsv", UUID)
-    df_pheno_alpha = pd.DataFrame.from_dict(dfs_pheno_alphanumeric, orient="index")
+    df_pheno_alpha = pd.DataFrame.from_dict(
+        dfs_pheno_alphanumeric, orient="index"
+    ).sort_index()
     save_df(df_pheno_alpha, f"{args.out}_pheno_alphanumeric.tsv", UUID)
     if args.PDFs:
         generate_all_reports(df_geno, df_pheno_alpha, df_pheno_numeric, args.out, UUID)
+
+    # Report the complete no-call rate after the per-sample debug output.
+    report_no_call_summary(no_calls, len(dfs_geno))
+
+    report_failures(failures)
 
     time_str = stamps(start)
     logger.info(f"{len(dfs_geno)} VCFs processed in {time_str}")
     if sys.stdout.encoding and sys.stdout.encoding.lower().startswith('utf'):
         print(f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully.")
-    else: #windows can't handle emojis
+    else:  # windows can't handle emojis
         print(f"\nComplete! {len(dfs_geno)} VCFs processed in {time_str}. \nResults saved successfully.")
-    # print(
-    #     f"\n✅ Complete! {len(dfs_geno)} VCFs processed in {time_str}. \n💾 Results saved successfully."
-    # )
+
+    if failures:
+        # Signal partial failure after writing the successful samples.
+        sys.exit(1)
+
+
+def report_failures(failures: list["SampleFailure"]) -> None:
+    """Name every skipped sample once more, at the end.
+
+    Deliberately repeated rather than left to the per sample errors already logged. With
+    --debug those are buried under the filter trace of every sample that worked, and the
+    thing a user needs is a short list of what they have to look at - which they should not
+    have to reconstruct by grepping. Same reasoning as report_no_call_summary, which sits
+    beside this.
+
+    Args:
+        failures (list[SampleFailure]): Samples that raised, in completion order.
+    """
+    if not failures:
+        return
+    logger.warning(
+        f"{len(failures)} sample/s failed and were skipped. The results that were written "
+        f"do not include them:"
+    )
+    for failure in sorted(failures, key=lambda f: f.sample):
+        logger.warning(f"  {failure.sample}: {failure.error}")
+    print(
+        f"\n⚠ {len(failures)} sample/s failed and were skipped - see the log. "
+        f"The other results were written normally."
+        if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("utf")
+        else f"\n{len(failures)} sample/s failed and were skipped - see the log. "
+        f"The other results were written normally."
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SampleFailure:
+    """One sample that could not be processed, carried back instead of raised.
+
+    Attributes:
+        sample (str): The sample the failure belongs to.
+        error (str): The exception, rendered where it happened.
+        traceback (str): The full traceback, for the log.
+    """
+
+    sample: str
+    error: str
+    traceback: str
+
+
+def sample_name_of(vcf: tuple[pd.DataFrame, str] | Path) -> str:
+    """The sample a work item belongs to, without needing it to have been read yet.
+
+    find_hits derives the same name from the same two shapes, but only after the read has
+    succeeded. A failure has to be attributable even when it happened before that, which is
+    the common case - a malformed file fails while being parsed.
+    """
+    return vcf.stem if isinstance(vcf, Path) else str(vcf[-1])
+
+
+def find_hits_or_failure(
+    db: Db,
+    vcf: tuple[pd.DataFrame, str] | Path,
+    **kwargs,
+) -> object:
+    """Run find_hits, returning a SampleFailure rather than raising.
+
+    One bad file used to take the whole batch with it: an exception in a worker propagates
+    out of imap_unordered, and by the time it surfaces the pool is being torn down, so the
+    samples still queued are lost too. For a lab handing over 500 VCFs that is 500 lost
+    results for one bad input, and the failure is more reachable now that a multi-sample
+    export is a target - one sample with a mixed ploidy coding is enough.
+
+    Caught here, per task, rather than around the loop in main. A try/except there would see
+    the first failure and still lose everything after it, because the pool does not survive
+    the exception.
+
+    Deliberately catches Exception and not BaseException: KeyboardInterrupt and SystemExit
+    must still stop the run.
+
+    The exception is *not* swallowed. It comes back to the parent, is logged against its
+    sample with the full traceback, counted in the run summary, and makes the process exit
+    non zero. What changes is that the other samples still get results.
+    """
+    try:
+        return find_hits(db, vcf, **kwargs)
+    except Exception as error:  # noqa: BLE001 - deliberately broad, see docstring
+        return SampleFailure(
+            sample=sample_name_of(vcf),
+            error=f"{type(error).__name__}: {error}",
+            traceback=format_exc(),
+        )
 
 
 def find_hits(
@@ -276,44 +416,93 @@ def find_hits(
     allele_relationships: dict[str, dict[str, bool]],
     excluded: list[str],
     ant_mapping: Mapping[str, Mapping[str, str]],
+    haploid_by_sample: dict[str, frozenset[str]] | None = None,
 ) -> pd.DataFrame | None:
     intervals = build_intervals(db.df, args.reference_genome)
     if isinstance(vcf, Path):
-        vcf_filtered_by_500kb_padded_bed = read_vcf(str(vcf), intervals)
+        # One file, so the scan has one entry and read_vcf has named its column 'SAMPLE'.
+        ploidy_scan = PloidyScan(args.reference_genome)
+        vcf_filtered_by_500kb_padded_bed = read_vcf(
+            str(vcf), intervals, db.unique_variants, ploidy_scan
+        )
         vcf = VCF(
             vcf_filtered_by_500kb_padded_bed,
             db.lane_variants,
             db.unique_variants,
             vcf.stem,
+            args.reference_genome,
+            ploidy_scan.for_sample("SAMPLE"),
         )
     else:
-        vcf = VCF(vcf, db.lane_variants, db.unique_variants, vcf[-1])
+        # Split out of a cohort, so the scan was done once in main over the whole file.
+        vcf = VCF(
+            vcf,
+            db.lane_variants,
+            db.unique_variants,
+            vcf[-1],
+            args.reference_genome,
+            (haploid_by_sample or {}).get(vcf[-1]),
+        )
     reader = SvReader(df=vcf.df, min_size=args.min_size)
     events = list(reader.events())
 
-    db_defs = load_db_defs(db.df)
+    db_defs = load_db_defs(db.df, svtoken_col=args.reference_genome)
     matcher = SvMatcher()
     matches = matcher.match(db_defs, events)
     best = select_best_per_vcf(matches, tie_tol=1e-9)
     var_map = {}
+    selected_sv_filters: dict[str, str] = {}
 
     if best:
         for match in best:
-            vcf.variants[f"{match.vcf.chrom}:{match.db.raw}"] = dict(
+            db_token = f"{match.vcf.chrom}:{match.db.raw}"
+            metrics = dict(
                 zip(match.vcf.sample_fmt.split(":"), match.vcf.sample_value.split(":"))
             )
-            var_map[f"{match.vcf.chrom}:{match.db.raw}"] = match.variant
+            # Missing PS belongs to the selected row too. Do not borrow linkage
+            # from a different event at the same position.
+            metrics.setdefault("PS", ".")
+            vcf.variants[db_token] = metrics
+            selected_sv_filters[db_token] = match.vcf.filter_value
+            var_map[db_token] = match.variant
+            logger.debug(
+                f"Selected SV evidence: sample={vcf.sample} database={db_token} "
+                f"source={match.variant} POS={match.vcf.pos} END={match.vcf.end} "
+                f"SVLEN={match.vcf.svlen} GT={metrics.get('GT', '.')} "
+                f"PS={metrics['PS']} FILTER={match.vcf.filter_value}"
+            )
 
     res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
     pipe: list[Callable] = [
         partial(
-            dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter
+            dp.only_keep_alleles_if_FILTER_PASS, df=vcf.df, no_filter=args.no_filter,
+            selected_sv_filters=selected_sv_filters,
         ),
-        partial(dp.make_variant_pool, vcf=vcf),
+        partial(
+            dp.make_variant_pool,
+            vcf=vcf,
+            single_copy_types=db.single_copy_types,
+            loci_by_type=db.loci_by_type,
+            selected_sv_filters=selected_sv_filters,
+        ),
+        dp.remove_alleles_with_no_call_variants,  # has to be after make_variant_pool
         partial(dp.modify_variant_pool_if_large_indel),
         partial(dp.modify_allele_pool_if_large_indel),
+        *(
+            [
+                partial(
+                    dp.record_unused_variants,
+                    vcf=vcf,
+                    loci_by_type=db.loci_by_type,
+                    df=vcf.df,
+                    selected_sv_filters=selected_sv_filters,
+                )
+            ]
+            if args.debug
+            else []
+        ),
         partial(
             dp.add_phasing,
             phased=args.phased,
@@ -324,6 +513,13 @@ def find_hits(
         partial(dp.modify_variant_phase_pool_if_large_indel),
         partial(filt_phase.remove_unphased, phased=args.phased),
         partial(dp.process_genetic_data, reference_alleles=db.reference_alleles),
+        partial(
+            dp.cant_revert_to_ref_cuz_a_passing_call_denies_it,
+            vcf=vcf,
+            df=vcf.df,
+            reference_alleles=db.reference_alleles,
+            selected_sv_filters=selected_sv_filters,
+        ),
         partial(
             dp.find_what_was_excluded_due_to_rank,
             reference_alleles=db.reference_alleles,
@@ -337,16 +533,26 @@ def find_hits(
             phased=args.phased,
             reference_alleles=db.reference_alleles,
         ),
+        filt.cant_name_second_slot_cuz_ref_impossible,
         partial(
-            filt_phase.no_defining_variant,
+            filt_phase.narrow_second_slot_candidates_by_phase,
             phased=args.phased,
         ),
+        filt_phase.no_defining_variant,
         partial(
             filt_phase.ref_not_phased,
             phased=args.phased,
         ),
         partial(
             filt_phase.cant_be_hom_ref_due_to_HET_SNP,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.cant_name_second_slot_cuz_hom_ref_impossible,
+            phased=args.phased,
+        ),
+        partial(
+            filt_phase.cant_name_second_slot_cuz_ref_not_phased,
             phased=args.phased,
         ),
         co.homs,
@@ -372,10 +578,12 @@ def find_hits(
             antitheticals=db.antitheticals,
         ),
         filt.ensure_HET_SNP_used,
+        filt.cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele,
         filt.ABO_cant_pair_with_ref_cuz_261delG_HET,
+        filt.cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
+        filt.cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
         filt.filter_HET_pairs_by_weight,
-        filt.filter_pairs_by_context,
         filt.impossible_alleles,
         partial(filt_phase.impossible_alleles_phased, phased=args.phased),
         partial(
@@ -399,17 +607,22 @@ def find_hits(
         filt_co.ensure_co_existing_HET_SNP_used,
         filt_co.filter_co_existing_pairs,
         filt_co.filter_co_existing_in_other_allele,
-        filt_co.filter_co_existing_with_normal,  # has to be after normal filters!!!!!!!
+        filt_co.filter_co_existing_with_normal,  # Must follow the normal filters.
         filt_co.filter_co_existing_subsets,
-        dp.get_genotypes,
-        #dp.add_CD_to_XG,
+        filt.cant_have_2_non_ref_alleles_cuz_only_1_gene_copy,
+        filt.cant_split_HEM_SNPs_across_alleles,
+        filt.cant_pair_with_ref_cuz_a_deletion_names_the_missing_copy,
+        partial(
+            dp.get_genotypes,
+            reference_alleles=db.reference_alleles,
+            gene_absent_subtypes=db.gene_absent_subtypes,
+        ),
     ]
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
-    res = dp.add_refs(db, res, excluded)
+    res = dp.add_refs(db, res, excluded, vcf)
 
-    # merge FUT 1 and 2
     fut2s = res["FUT2"].genotypes.copy()
     fut1s = res["FUT1"].genotypes.copy()
     for allele_pair in fut2s:
@@ -451,7 +664,7 @@ def find_hits(
         partial(ph.modify_FY2, ant_type=PhenoType.alphanumeric),
         partial(ph.modify_RHD, ant_type=PhenoType.numeric),
         partial(ph.modify_RHD, ant_type=PhenoType.alphanumeric),
-        
+
     ]
 
     preprocessor2 = compose(*pipe2)

@@ -1,20 +1,65 @@
 from enum import Enum, auto
 
-# Define version
-VERSION = "2.4.3"
-DB_VERSION = "2.5.0"
+VERSION = "2.4.4"
+DB_VERSION = "2.5.1"
 
 
 COMMON_COLS = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
 
+# Diploid hom ref genotypes, ie no ALT allele on either chromosome. Both separators are
+# listed because a phased caller may write either. Haploid '0' is deliberately excluded -
+# it is only hom ref if the region is genuinely single-copy, which needs the ploidy model
+# from issue #40.
+HOM_REF_GTS = ("0/0", "0|0")
+
+# The GT of the synthesised lane '_ref' row below. It is deliberately NOT a valid VCF
+# genotype, and deliberately not './.'.
+#
+# './.' was used until v2.4.3, which made RBCeq2's own assertion of wildtype
+# indistinguishable from a genuine no-call in the input. Both then became Homozygous, so a
+# locus that was never called was reported as hom ref. This row is the one place where
+# 'wildtype at this locus' is asserted by RBCeq2 rather than measured, so it says so.
+SYNTHESISED_HOM_REF_GT = "synthesised_hom_ref"
+
 HOM_REF_DUMMY_QUAL = ""
-HOM_REF_DUMMY_QUAL += "./.:"  # GT (Genotype ie  0/1, 1|0, 0/0, 1/1.)
+HOM_REF_DUMMY_QUAL += f"{SYNTHESISED_HOM_REF_GT}:"  # GT - see above, not a real GT
 HOM_REF_DUMMY_QUAL += "1,29:"  # AD (Allelic Depth)
 HOM_REF_DUMMY_QUAL += "30:"  # GQ (Genotype Quality)
 HOM_REF_DUMMY_QUAL += "30:"  # DP (Read Depth):
 HOM_REF_DUMMY_QUAL += "1"  # PS (Phase Set)
 
 LOW_WEIGHT = 1_000
+
+# Loci where losing one row decides the answer for a whole blood group, so the loss is worth
+# saying out loud rather than leaving in the exclusion log. The ABO c.261delG insertion is
+# needed by 163 of the database's ABO definitions - across A, B, AB and several O sub-alleles -
+# and only the 43 that rest on its absence remain without it, so a sample whose row here is not
+# trusted reads as group O. Three samples in a densely called long read cohort did exactly that.
+#
+# Keyed by variant token, which is build specific, so both forms are listed together: writing
+# them apart is how the GRCh37 form came to be recorded without its chromosome prefix elsewhere
+# in the codebase, where it matched nothing. If this grows much beyond ABO it wants a column in
+# db.tsv rather than a constant, since curating which loci are pivotal is database work.
+#
+# The tokens live in ABO_DELG_VARIANTS because two unrelated pieces of logic need them and
+# should not be able to drift into each other. no_defining_variant exempts this locus from
+# 'the reference allele needs a variant the pool does not hold, so it is impossible', because
+# here that is a modelling artefact rather than a contradiction - the database treats the
+# deletion as the reference sequence, so ABO*A1.01 is a reference allele defined by an
+# insertion. Adding a locus to CRITICAL_VARIANTS should not silently grant it that exemption.
+ABO_DELG_VARIANTS = frozenset(
+    {
+        "9:133257521_T_TC",  # GRCh38
+        "9:136132908_T_TC",  # GRCh37
+    }
+)
+
+CRITICAL_VARIANTS: dict[str, str] = {
+    variant: (
+        "the ABO c.261delG locus, which separates a functional A or B enzyme from group O"
+    )
+    for variant in ABO_DELG_VARIANTS
+}
 
 
 class AlleleState:
@@ -50,6 +95,7 @@ TWO = 2
   RHCE is under RH
   RHD is under RH"""
 
+
 class BgName(Enum):
     CROM = auto()
     FY = auto()
@@ -72,7 +118,7 @@ class BgName(Enum):
     ABO = auto()
     GYPA = auto()
     GYPB = auto()
-    GYP = auto() #hybrids
+    GYP = auto()  # hybrids
     CD59 = auto()
     IN = auto()
     RAPH = auto()
@@ -228,12 +274,11 @@ ANTITHETICAL = {
             "40": ("41",),
             "41": ("40",),
         },
-        # GPT Added blood groups
         BgName.GYPA: {
             "1": ("2",),
             "2": ("1",),
         },
-        BgName.GYPB: { 
+        BgName.GYPB: {
             "3": ("4",),
             "4": ("3",),
         },
@@ -533,6 +578,95 @@ LANE = {  # definition of lane has expanded to include any position that is impl
         "136136770": "no_ALT",  # 37 (only)
         "136135238": "no_ALT",
     },  # 37 (only)
+}
+
+HAPLOID_SECOND_SLOT = "-"
+"""Written in the second slot of a genotype where the sample has one chromosome, ie
+'XK*N.03/-'. Not an allele and never matched against the database - it is the absence of
+a second chromosome, made explicit so a hemizygous male cannot be mistaken in the TSV for
+a homozygous female. User visible and documented; see issue #40."""
+
+NOVEL_DELETION_SLOT = "Novel_gene_deletion"
+"""Written in the second slot where the sample has two chromosomes but one of them
+carries no copy of the gene, and the database cannot name the absence, ie
+'GYPB*03/Novel_gene_deletion'.
+
+Named to be noticed. It was '?', which read as missing data rather than as a finding,
+and worse, '?' already means something else in the output: the phenotype files use it
+for an antigen whose expression is unknown, as in 'C?unknown' and 'RH:?2u'. One
+character carrying two unrelated meanings across the three files a reader compares side
+by side is a poor trade for the width saved. Nothing parses these markers - no output
+layer reads them back - and nothing has ever emitted this one, so renaming it cost no
+result.
+
+The name is deliberately eye-catching, because a cell holding it is worth stopping for:
+a chromosome carrying no copy of a gene, at a gene the database has no deletion for, is
+either a real finding or a bad input, and both deserve a look rather than a shrug.
+
+Two things to know before believing one, both measured 2026-09-04:
+
+- **The only evidence is GT ploidy.** locus_copies_for_bg reads the shape of the
+  genotypes and never consults a structural call, so nothing here was observed to be
+  deleted - a caller wrote haploid genotypes across the gene and this is the reading of
+  that. The corroborated route to a missing copy is the other one, where an actual
+  deletion record matches a database token; that is how every RHD null in the test data
+  is called, 245 of them.
+- **'Novel' is accurate for most of the genes that can reach here, and not all.** Of
+  the 88 blood groups, 12 have a curated whole-gene deletion and never reach this - they
+  name the absence instead, ie 'RHD*01N'. 73 have no whole-gene deletion in the database at
+  all, and for those a missing copy would indeed be new. The remaining 3 are the
+  glycophorins, GYP, GYPA and GYPB, where deletions *are* curated and
+  Db.get_gene_absent_subtypes disqualifies them for a different reason: a deletion there
+  can fuse two genes rather than remove one, so a chimera may be present. On those three
+  the deletion is not novel and the word overstates - what is unknown there is deletion
+  against fusion.
+
+Deliberately not HAPLOID_SECOND_SLOT. The two make different claims and collapsing them
+would undo the distinction the whole chrom_copies/locus_copies split exists to draw: '-'
+says there is no second chromosome, this says there is one and it carries no copy of
+the gene. Pairing with the reference instead is the option that is actually wrong - it
+asserts wildtype on a chromosome there is positive evidence against.
+
+Not an allele, never matched against the database. User visible and documented; see issue
+#40 and the E1 row of ploidy_state_table.md."""
+
+UNDETERMINED_SLOT = "Undetermined"
+"""Written where an allele slot cannot be named, e.g. 'GYPA*08/Undetermined'.
+
+One named partner retains one resolved allele slot. Both slots may be Undetermined
+when a blood group cannot be interpreted; that outcome does not establish its copy
+count. HAPLOID_SECOND_SLOT and NOVEL_DELETION_SLOT make different statements about
+chromosome and gene copies and must not be conflated with unresolved inference.
+
+Not an allele, never matched against the database. User visible and documented."""
+
+PAR = {  # pseudoautosomal regions, inclusive, 1 based, keyed by build then chromosome
+    # X and Y carry the same sequence inside these intervals, so a coordinate in one of
+    # them is present on two chromosomes in every sample and stays diploid. A coordinate
+    # on X or Y outside them is single copy in a male - that is the only place in the
+    # genome where chrom_copies is 1.
+    #
+    # Keyed by build, unlike LANE, which merges GRCh37 and GRCh38 into one dict per
+    # chromosome. LANE can do that because two exact positions never collide. PAR is an
+    # interval, and the union of the two PAR1 ranges (10,001-2,781,479) would put GRCh37
+    # coordinates 2,699,521 to 2,781,479 inside PAR when they are not. No db.tsv
+    # coordinate falls in that window today, which is exactly why merging would go
+    # unnoticed until it did.
+    #
+    # Keys are bare "X"/"Y", not "chrX", because the chr prefix is stripped on read
+    # (VCF.rename_chrom) and variant tokens are already in the stripped form, ie
+    # "X:37686068_G_A".
+    #
+    # Y is here for completeness. db.tsv has 2,050 rows, 80 on chrX and none on chrY, so
+    # nothing reads the Y entries yet.
+    "GRCh37": {
+        "X": ((60_001, 2_699_520), (154_931_044, 155_260_560)),
+        "Y": ((10_001, 2_649_520), (59_034_050, 59_363_566)),
+    },
+    "GRCh38": {
+        "X": ((10_001, 2_781_479), (155_701_383, 156_030_895)),
+        "Y": ((10_001, 2_781_479), (56_887_903, 57_217_415)),
+    },
 }
 
 RHD_ANT_MAP = {
@@ -3068,7 +3202,6 @@ GENOMIC_TO_TRANSCRIPT_GRCh38 = {
     "1:207609511_A_G": "c.4768A>G",
     "1:207609544_A_G": "c.4801A>G",
     "1:207609571_A_T": "c.4828A>T",
-    "1:207609424_ref": "c.4681G>G",
     "1:207609586_A_G": "c.4843A>G",
     "2:126656286_A_G": "c.23A>G",
     "2:126656303_C_T": "c.40C>T",
