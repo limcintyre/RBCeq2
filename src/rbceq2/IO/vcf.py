@@ -1256,9 +1256,7 @@ class VCF:
                     ):
                         # A HET with one concrete lane ALT has a ref partner.
                         lane = LANE[f"chr{chrom}"][pos]
-                        if f"{ref}_{alt}" == lane or (
-                            lane == "no_ALT" and not has_placeholder
-                        ):
+                        if f"{ref}_{alt}" == lane or lane == "no_ALT":
                             original_row = (
                                 self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
                             )

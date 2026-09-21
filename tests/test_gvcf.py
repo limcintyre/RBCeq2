@@ -1,4 +1,4 @@
-"""Preserve YT inference when an uncalled gVCF ALT placeholder is present.
+"""Preserve lane inference when an uncalled gVCF ALT placeholder is present.
 
 These minimal synthetic variant rows are not caller-produced fixtures. They
 exercise known called alleles and guard against synthesising reference evidence
@@ -210,6 +210,82 @@ class TestGvcfUncalledPlaceholder(unittest.TestCase):
                 with self.subTest(template=template, gt=gt):
                     vcf, locus, _ = self.lane_vcf(template, gt)
                     self.assertNotIn(f"{locus}_ref", vcf.variants)
+
+    def test_ctl2_no_alt_lane_matches_ordinary_with_uncalled_placeholder(self):
+        """Retain the observed CTL2 reference copy at a no_ALT lane.
+
+        Positions come from CTL2*01.04 in the curated database. A/G are
+        the concrete bases in the HG00120/HG00139 input evidence; these
+        synthetic encodings do not define a new database allele.
+        """
+        for build, context in self.contexts.items():
+            db, relationships, ant_mapping = context
+            row = db.df.loc[db.df["Genotype"] == "CTL2*01.04"].iloc[0]
+            position, suffix = row[build].strip().split("_")
+            self.assertEqual(suffix, "ref")
+            locus = f"{row['Chrom'].removeprefix('chr')}:{position}"
+
+            def infer_ctl2(alt, gt, label):
+                """Compare synthetic and ordinary input evidence."""
+                frame = pd.DataFrame(
+                    [[row["Chrom"], position, ".", "A", alt, "50", "PASS",
+                      ".", "GT:PS", f"{gt}:123"]],
+                    columns=["CHROM", "POS", "ID", "REF", "ALT", "QUAL",
+                             "FILTER", "INFO", "FORMAT", "SAMPLE"],
+                )
+                vcf = VCF([frame], db.lane_variants, db.unique_variants,
+                          "sample", build)
+                path = self.directory / f"CTL2_{build}_{label}.vcf"
+                path.write_text(
+                    "##fileformat=VCFv4.2\n"
+                    '##FORMAT=<ID=GT,Number=1,Type=String,'
+                    'Description="Genotype">\n'
+                    '##FORMAT=<ID=PS,Number=1,Type=Integer,'
+                    'Description="Phase set">\n'
+                    "#" + frame.to_csv(sep="\t", index=False)
+                )
+                result = find_hits(
+                    db, path, args=parse_args(["--reference_genome", build,
+                                             "--HPAs"]),
+                    allele_relationships=relationships,
+                    excluded=["RHD", "RHCE"], ant_mapping=ant_mapping,
+                )
+                return tuple(output["CTL2"] for output in result[1:4]), vcf
+
+            for gt in ("0/1", "1/0", "0|1", "1|0"):
+                gt_label = gt.replace("/", "_unphased_").replace(
+                    "|", "_phased_"
+                )
+                ordinary, ordinary_vcf = infer_ctl2(
+                    "G", gt, f"ordinary_{gt_label}"
+                )
+                self.assertEqual(ordinary[0], "CTL2*01/CTL2*01.04")
+                self.assertIn(f"{locus}_ref", ordinary_vcf.variants)
+                for placeholder in ("<NON_REF>", "<*>"):
+                    for first in (False, True):
+                        with self.subTest(build=build, gt=gt,
+                                          placeholder=placeholder,
+                                          first=first):
+                            alt = (f"{placeholder},G" if first
+                                   else f"G,{placeholder}")
+                            encoded_gt = (
+                                gt.replace("1", "2") if first else gt
+                            )
+                            kind = (
+                                "non_ref" if placeholder == "<NON_REF>"
+                                else "star"
+                            )
+                            label = f"{kind}_{first}_{gt_label}"
+                            actual, vcf = infer_ctl2(alt, encoded_gt, label)
+                            self.assertEqual(actual, ordinary)
+                            self.assertEqual(
+                                vcf.variants[f"{locus}_ref"],
+                                ordinary_vcf.variants[f"{locus}_ref"],
+                            )
+                            original = vcf.df.loc[vcf.df["ALT"] == alt]
+                            self.assertEqual(len(original), 1)
+                            self.assertEqual(original.iloc[0]["SAMPLE"],
+                                             f"{encoded_gt}:123")
 
     def test_ordinary_multi_alt_mapping_is_unchanged(self):
         """Keep multi-ALT token dosage without adding a lane partner."""
