@@ -1009,7 +1009,7 @@ class TestHomRefBoundary(unittest.TestCase):
 
     def test_partial_no_calls_keep_the_locus_without_synthesising_reference(self):
         """A missing allele must reach NO_DATA with its original GT intact."""
-        for gt in ("0/0/.", "./0/0", "0|0|.", "./././.", ".|.|.|."):
+        for gt in ("0/0/.", "./0/0", "0|0|."):
             for format_field in ("GT", "GT:DP"):
                 for input_type in ("pandas", "polars"):
                     with self.subTest(gt=gt, format=format_field, input=input_type):

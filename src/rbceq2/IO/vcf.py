@@ -1190,6 +1190,11 @@ class VCF:
         of a given transcript is just wildtype in a genomic reference. ie
         GRCh37/8
 
+        Wholly missing GTs use the absent-locus synthetic reference assumption.
+        Source rows and no-call metrics remain unchanged; the assumption supplies
+        no observed copies or phase. Any GT naming an allele, including a partial
+        GT, keeps the existing path.
+
         Added variant details (LANE constant) in v2.3.4 after seeing instances
         where 133257521 had a SNP, not ins,
         so lane was created erroneously
@@ -1216,13 +1221,17 @@ class VCF:
                 # TODO blindly adding is problematic,  what if there's just no read
                 # depth - vcf should be forced to report these
                 lane_loci = f"{chrom}:{pos}"
-                if lane_loci in self.loci:
+                rows_here = self.df.loc[self.df.loci == lane_loci]
+                wholly_missing = not rows_here.empty and all(
+                    not gt_names_an_allele(gt_of(sample_field))
+                    for sample_field in rows_here["SAMPLE"]
+                )
+                if lane_loci in self.loci and not wholly_missing:
                     GT = (
                         self.df.loc[self.df.loci == lane_loci, "SAMPLE"]
                         .values[0]
                         .split(":")[0]
                     )
-                    rows_here = self.df.loc[self.df.loci == lane_loci]
                     alts_here = set(
                         zip(rows_here["REF"].tolist(), rows_here["ALT"].tolist())
                     )
@@ -1286,6 +1295,14 @@ class VCF:
                                 )
                             new_rows.append(ref_row)
                 else:
+                    if wholly_missing:
+                        logger.debug(
+                            f"{self.sample}: {lane_loci}_ref: "
+                            "lane_reference_assumption_all_GT_missing; "
+                            "using the absent-locus synthetic reference "
+                            "assumption; "
+                            "raw no-call evidence retained"
+                        )
                     new_lanes[lane_loci] = (
                         [chrom, pos]
                         # ID, REF, ALT, QUAL, FILTER, INFO. This row is RBCeq2 asserting
