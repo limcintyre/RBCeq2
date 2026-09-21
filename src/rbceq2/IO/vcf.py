@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 from collections import Counter, defaultdict
+from bisect import bisect_left, bisect_right
 from rbceq2.core_logic.constants import (
     COMMON_COLS,
     HOM_REF_DUMMY_QUAL,
@@ -31,6 +32,75 @@ MAX_CONTRADICTED_TOKENS_LOGGED = 4
 
 # What the VCF specification uses for a field that has no value.
 MISSING_FIELD = "."
+
+
+def gvcf_block_end(
+    alt: str, info: str, pos: int, *, context: str
+) -> int | None:
+    """Return the validated inclusive END for a sole gVCF placeholder.
+
+    A placeholder without END remains a point observation. Ordinary and
+    structural variants retain their existing interpretation of INFO.
+
+    Args:
+        alt (str): Native ALT field.
+        info (str): Native INFO field.
+        pos (int): Native one-based POS.
+        context (str): Consumer and locus for a named refusal.
+
+    Returns:
+        int | None: Inclusive block end, or None for a point or non-block row.
+
+    Raises:
+        BeyondLogicError: If a placeholder declares malformed END or bounds.
+    """
+    if alt not in ("<NON_REF>", "<*>"):
+        return None
+    ends = [item for item in str(info).split(";")
+            if item == "END" or item.startswith("END=")]
+    if not ends:
+        return None
+    if len(ends) != 1 or re.fullmatch(r"END=[0-9]+", ends[0]) is None:
+        raise BeyondLogicError(
+            "A gVCF block requires one integer END at or after POS.",
+            context=f"{context}; INFO={info!r}",
+            raised_by="VCF/invalid_gVCF_END",
+        )
+    end = int(ends[0][4:])
+    if pos < 1 or end < pos:
+        raise BeyondLogicError(
+            "A gVCF block requires positive POS and END at or after POS.",
+            context=f"{context}; POS={pos}; END={end}",
+            raised_by="VCF/invalid_gVCF_END",
+        )
+    return end
+
+
+def block_has_non_par(chrom: str, start: int, end: int, build: str) -> bool:
+    """Check whether any covered base lies outside the build's PAR intervals.
+
+    Args:
+        chrom (str): Chromosome without a chr prefix.
+        start (int): Inclusive one-based block start.
+        end (int): Inclusive one-based block end.
+        build (str): Reference genome used to identify PAR intervals.
+
+    Returns:
+        bool: True if an X or Y block covers any non-PAR base.
+    """
+    intervals = PAR.get(build, {}).get(chrom)
+    if intervals is None:
+        return False
+    cursor = start
+    for left, right in sorted(intervals):
+        if right < cursor:
+            continue
+        if left > cursor:
+            return True
+        cursor = max(cursor, right + 1)
+        if cursor > end:
+            return False
+    return cursor <= end
 
 
 def _require_first_gt(
@@ -467,7 +537,15 @@ class PloidyScan:
         """
         if chrom not in ("X", "Y"):
             return
-        if not is_single_copy(chrom, pos, self.reference_genome):
+        block_end = gvcf_block_end(
+            fields[4], fields[7], pos, context="PloidyScan"
+        )
+        if block_end is not None:
+            if not block_has_non_par(
+                chrom, pos, block_end, self.reference_genome
+            ):
+                return
+        elif not is_single_copy(chrom, pos, self.reference_genome):
             return
         if not samples or len(fields) <= 9:
             return
@@ -481,6 +559,8 @@ class PloidyScan:
             if index >= len(fields):
                 break
             GT = gt_of(fields[index])
+            if block_end is not None and GT != "0":
+                continue
             if not is_haploid_gt(GT) or not gt_names_an_allele(GT):
                 continue
             try:
@@ -559,6 +639,8 @@ class VCF:
             Chromosome -> positions this sample's caller wrote a haploid GT at.
         diploid_loci (dict[str, frozenset[int]]):
             Chromosome -> positions this sample's caller wrote a diploid GT at.
+        gvcf_block_sources (list[dict[str, Any]]):
+            Native block rows retained for audit without dataframe copies.
     """
 
     input_vcf: pl.DataFrame | pd.DataFrame
@@ -574,6 +656,9 @@ class VCF:
     haploid_chroms: frozenset[str] = field(init=False)
     haploid_loci: dict[str, frozenset[int]] = field(init=False)
     diploid_loci: dict[str, frozenset[int]] = field(init=False)
+    gvcf_block_sources: list[dict[str, Any]] = field(
+        init=False, default_factory=list
+    )
 
     def __post_init__(self):
         """Handle initialization after data class creation."""
@@ -581,6 +666,7 @@ class VCF:
         _validate_gt_format(self.df, context=f"VCF sample={self.sample}")
         _validate_sample_gts(self.df, context=f"VCF sample={self.sample}")
         self.rename_chrom()
+        self.project_gvcf_blocks()
         # Has to run before remove_home_ref: whether a haploid '0' is a hom ref call
         # depends on the answer, and remove_home_ref is where that row gets dropped.
         # Union rather than preference. The scan sees rows the frame never will, and the
@@ -617,6 +703,106 @@ class VCF:
         object.__setattr__(self, "variants", self.get_variants())
         self._create_phase_sets()
 
+    def project_gvcf_blocks(self) -> None:
+        """Project reference or missing blocks onto covered database loci only.
+
+        Native rows stay in input_vcf and gvcf_block_sources for audit. The
+        processing frame carries no block anchors and invents no interior base:
+        REF is N away from source POS. Overlapping evidence must match exactly;
+        an explicit row overlapping a projection is refused rather than ranked.
+
+        Raises:
+            BeyondLogicError: If a block has malformed bounds, unsupported GT,
+                or overlapping evidence that cannot be collapsed identically.
+        """
+        if not self.df["ALT"].isin(["<NON_REF>", "<*>"]).any():
+            return
+        blocks = []
+        ordinary = []
+        for row in self.df.to_dict("records"):
+            end = gvcf_block_end(
+                row["ALT"], row["INFO"], int(row["POS"]),
+                context=(f"VCF sample={self.sample}; "
+                         f"locus={row['CHROM']}:{row['POS']}"),
+            )
+            if end is None:
+                ordinary.append(row)
+            else:
+                blocks.append((row, end))
+        if not blocks:
+            return
+        # Database sentinel loci (for example chr:unknown) are not coordinates.
+        # Build the index only when actual blocks require interval projection.
+        targets: dict[str, list[int]] = defaultdict(list)
+        for locus in self.unique_variants:
+            chrom, pos = locus.rsplit(":", 1)
+            if pos.isdigit() and int(pos) > 0:
+                targets[chrom.removeprefix("chr")].append(int(pos))
+        for chrom in targets:
+            targets[chrom] = sorted(set(targets[chrom]))
+        occupied = {(str(row["CHROM"]), int(row["POS"])) for row in ordinary}
+        projected = {}
+        source_rows = []
+        for row, end in blocks:
+            chrom, start = str(row["CHROM"]), int(row["POS"])
+            gt = gt_of(row["SAMPLE"])
+            calls = re.split(r"[/|]", gt)
+            if not (set(calls) == {"0"} or set(calls) == {"."}):
+                raise BeyondLogicError(
+                    "A gVCF block must be wholly reference or wholly missing; "
+                    "a placeholder does not identify an alternate allele.",
+                    context=(f"sample={self.sample}; "
+                             f"block={chrom}:{start}-{end}; GT={gt}"),
+                    raised_by="VCF/unsupported_gVCF_block_GT",
+                )
+            source_rows.append(dict(row))
+            positions = targets.get(chrom, [])
+            covered = positions[
+                bisect_left(positions, start):bisect_right(positions, end)
+            ]
+            logger.debug(
+                f"VCF/gVCF_block_source sample={self.sample}; "
+                f"block={chrom}:{start}-{end}; "
+                f"raw={row!r}; targets={covered}"
+            )
+            for pos in covered:
+                key = chrom, pos
+                projection = dict(row)
+                projection["POS"] = str(pos)
+                projection["REF"] = row["REF"] if pos == start else "N"
+                # END describes the source, not a structural event at target.
+                projection["INFO"] = ";".join(
+                    item for item in str(row["INFO"]).split(";")
+                    if not item.startswith("END=")
+                ) or "."
+                projection["_gvcf_block"] = True
+                previous = projected.get(key)
+                if key in occupied or (
+                    previous is not None and previous != projection
+                ):
+                    raise BeyondLogicError(
+                        "Overlapping gVCF evidence cannot be resolved "
+                        "without choosing a row.",
+                        context=f"sample={self.sample}; locus={chrom}:{pos}; "
+                        f"block={start}-{end}",
+                        raised_by="VCF/ambiguous_gVCF_block_overlap",
+                    )
+                projected[key] = projection
+                logger.debug(
+                    f"VCF/gVCF_block_target sample={self.sample}; "
+                    f"source={chrom}:{start}-{end}; "
+                    f"target={chrom}:{pos}; GT={gt}; REF={projection['REF']}; "
+                    f"FILTER={row['FILTER']}; FORMAT={row['FORMAT']}; "
+                    f"SAMPLE={row['SAMPLE']}"
+                )
+        for row in ordinary:
+            row["_gvcf_block"] = False
+        self.df = pd.DataFrame(
+            ordinary + list(projected.values()),
+            columns=list(self.df.columns) + ["_gvcf_block"]
+        )
+        self.gvcf_block_sources = source_rows
+
     def _create_phase_sets(self) -> None:
         """Parses the VCF DataFrame to find phased variants and stores their
         chromosomal ranges (min and max position) by phase set ID.
@@ -628,6 +814,8 @@ class VCF:
         temp_phase_data = {}
 
         df_phased = self.df[self.df["FORMAT"].str.contains("PS", na=False)].copy()
+        if "_gvcf_block" in df_phased:
+            df_phased = df_phased[~df_phased["_gvcf_block"].eq(True)]
 
         df_phased["POS"] = pd.to_numeric(df_phased["POS"])
 
@@ -705,6 +893,16 @@ class VCF:
             return frozenset()
 
         haploid: set[str] = set()
+        for row in self.gvcf_block_sources:
+            if gt_of(row["SAMPLE"]) == "0":
+                end = gvcf_block_end(
+                    row["ALT"], row["INFO"], int(row["POS"]), context="VCF"
+                )
+                if block_has_non_par(
+                    str(row["CHROM"]), int(row["POS"]),
+                    end, self.reference_genome
+                ):
+                    haploid.add(str(row["CHROM"]))
         for chrom, pos, sample_field in zip(
             self.df["CHROM"], self.df["POS"], self.df["SAMPLE"]
         ):
@@ -832,7 +1030,11 @@ class VCF:
         factory = VariantEncoderFactory()
 
         self.df["variant"] = self.df.apply(
-            lambda row: factory.encode_variant(row), axis=1
+            lambda row: (
+                f"{row['CHROM']}:{row['POS']}_{row['REF']}_{row['ALT']}"
+                if row.get("_gvcf_block", False)
+                else factory.encode_variant(row)
+            ), axis=1
         )
 
     def add_loci(self) -> None:
@@ -863,7 +1065,10 @@ class VCF:
         a property of the file rather than of how far reconciliation has got.
         """
         counts: Counter = Counter()
-        for row in self.df.itertuples(index=False):
+        phase_rows = self.df
+        if "_gvcf_block" in phase_rows:
+            phase_rows = phase_rows[~phase_rows["_gvcf_block"].eq(True)]
+        for row in phase_rows.itertuples(index=False):
             if "|" not in gt_of(row.SAMPLE):
                 continue
             phase_set = phase_set_of(row.FORMAT, row.SAMPLE)
@@ -1059,6 +1264,8 @@ class VCF:
                             )
 
                             ref_row = original_row.copy()
+                            if "_gvcf_block" in ref_row:
+                                ref_row["_gvcf_block"] = False
                             ref_row["variant"] = f"{lane_loci}_ref"
                             ref_row["ALT"] = original_row[
                                 "REF"
@@ -1103,7 +1310,12 @@ class VCF:
             self.df = pd.concat([self.df, pd.DataFrame(new_rows)], ignore_index=True)
         if new_lanes:
             new_lanes_df = pd.DataFrame.from_dict(new_lanes, orient="index")
-            new_lanes_df.columns = self.df.columns
+            new_lanes_df.columns = [
+                column for column in self.df.columns if column != "_gvcf_block"
+            ]
+            if "_gvcf_block" in self.df:
+                new_lanes_df["_gvcf_block"] = False
+                new_lanes_df = new_lanes_df.reindex(columns=self.df.columns)
             self.df = pd.concat([self.df, new_lanes_df])
 
     def get_variants(self) -> dict[str, str]:
@@ -1347,7 +1559,11 @@ def filter_VCF_to_BG_variants(df: pl.DataFrame, unique_variants) -> pd.DataFrame
     massive_vars = set(
         df.filter((df["ALT"].str.contains("<")) | (df["ALT"].str.contains(">")))["LOCI"]
     )
-    neighbours = find_phased_neighbors(df)
+    # Interval block anchors supply no neighbouring concrete phased variant.
+    is_block = pl.col("ALT").is_in(["<NON_REF>", "<*>"]) & (
+        pl.col("INFO").str.contains(r"(?:^|;)END(?:=|;|$)").fill_null(False)
+    )
+    neighbours = find_phased_neighbors(df.filter(~is_block))
     merged_set = neighbours | unique_variants | large_vars | massive_vars
     filtered_df = df.filter(pl.col("LOCI").is_in(merged_set))
     if filtered_df.height == 0:
@@ -1564,7 +1780,9 @@ def read_vcf(
     Two filters, not one, and the second is optional. The interval test is a coarse bound -
     anything within 500kb of a database position - and on its own it is only cheap when the
     caller wrote sparsely. Supplying unique_variants adds the fine test, row_is_wanted,
-    which is the same decision filter_VCF_to_BG_variants makes once the frame exists. It
+    matching filter_VCF_to_BG_variants after parsing. Sole-placeholder END
+    blocks instead need a covered database coordinate. Chromosome-copy scanning
+    still observes their native extent before this filter. It
     changes nothing about the result and a great deal about how much is parsed to get there;
     see row_is_wanted for the measurements.
 
@@ -1583,6 +1801,15 @@ def read_vcf(
 
     Returns:
         pl.DataFrame: DataFrame containing the VCF data."""
+
+    block_targets: dict[str, list[int]] = defaultdict(list)
+    if unique_variants is not None:
+        for locus in unique_variants:
+            chrom, position = locus.rsplit(":", 1)
+            if position.isdigit() and int(position) > 0:
+                block_targets[chrom.removeprefix("chr")].append(int(position))
+        for chrom in block_targets:
+            block_targets[chrom] = sorted(set(block_targets[chrom]))
 
     open_func = gzip.open if vcf_path.endswith(".gz") else open
     header = None
@@ -1605,7 +1832,22 @@ def read_vcf(
             # PloidyScan. Costs one string comparison on every non-X/Y row.
             if ploidy_scan is not None:
                 ploidy_scan.observe(chrom, pos, samples, fields)
-            if not variant_in_intervals(chrom, pos, intervals):
+            block_end = gvcf_block_end(
+                fields[4], fields[7], pos,
+                context=f"read_vcf locus={chrom}:{pos}"
+            )
+            if block_end is not None:
+                if not any(pos <= iv.end and block_end >= iv.start
+                           for iv in intervals.get(chrom, ())):
+                    continue
+                # PloidyScan already saw the native extent. Only blocks at a
+                # database coordinate need sample-frame parsing and projection.
+                if unique_variants is not None:
+                    positions = block_targets.get(chrom, [])
+                    index = bisect_left(positions, pos)
+                    if index == len(positions) or positions[index] > block_end:
+                        continue
+            elif not variant_in_intervals(chrom, pos, intervals):
                 continue
             if unique_variants is not None and not row_is_wanted(
                 chrom,
