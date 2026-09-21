@@ -1021,15 +1021,39 @@ class VCF:
                     alts_here = set(
                         zip(rows_here["REF"].tolist(), rows_here["ALT"].tolist())
                     )
+                    ref = rows_here["REF"].values[0]
+                    alt = rows_here["ALT"].values[0]
+                    alternates = alt.split(",")
+                    has_placeholder = any(
+                        allele in ("<NON_REF>", "<*>") for allele in alternates
+                    )
+                    if has_placeholder:
+                        concrete = [
+                            (index, allele)
+                            for index, allele in enumerate(alternates, start=1)
+                            if allele not in ("<NON_REF>", "<*>")
+                        ]
+                        if len(alternates) != 2 or len(concrete) != 1:
+                            continue
+                        alt_index, alt = concrete[0]
+                        if GT not in (
+                            f"0/{alt_index}", f"{alt_index}/0",
+                            f"0|{alt_index}", f"{alt_index}|0",
+                        ):
+                            continue
+                        # The uncalled placeholder contributes no allele. Use a
+                        # binary GT only for the synthetic reference partner;
+                        # preserve the original row's ALT indices and evidence.
+                        GT = recode_gt_for_alt_index(GT, alt_index)
                     if (
                         GT.startswith(("0/1", "0|1", "1/0", "1|0"))
                         and len(alts_here) == 1
                     ):
-                        # HET and not multi allelic = ref
-                        ref = self.df.loc[self.df.loci == lane_loci, "REF"].values[0]
-                        alt = self.df.loc[self.df.loci == lane_loci, "ALT"].values[0]
+                        # A HET with one concrete lane ALT has a ref partner.
                         lane = LANE[f"chr{chrom}"][pos]
-                        if f"{ref}_{alt}" == lane or lane == "no_ALT":
+                        if f"{ref}_{alt}" == lane or (
+                            lane == "no_ALT" and not has_placeholder
+                        ):
                             original_row = (
                                 self.df.loc[self.df.loci == lane_loci].iloc[0].copy()
                             )
@@ -1040,7 +1064,7 @@ class VCF:
                                 "REF"
                             ]  # ALT becomes the original REF
 
-                            gt_field = ref_row["SAMPLE"].split(":")[0]
+                            gt_field = GT
                             if "|" in gt_field:
                                 flipped_gt = "|".join(reversed(gt_field.split("|")))
                             elif "/" in gt_field:
@@ -1051,9 +1075,10 @@ class VCF:
                             sample_fields = ref_row["SAMPLE"].split(":")
                             sample_fields[0] = flipped_gt
                             ref_row["SAMPLE"] = ":".join(sample_fields)
-                            self.df.loc[self.df.loci == lane_loci, "variant"] = (
-                                f"{lane_loci}_{lane}"
-                            )
+                            if not has_placeholder:
+                                self.df.loc[self.df.loci == lane_loci, "variant"] = (
+                                    f"{lane_loci}_{lane}"
+                                )
                             new_rows.append(ref_row)
                 else:
                     new_lanes[lane_loci] = (
