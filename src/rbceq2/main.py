@@ -103,6 +103,12 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         default=False,
     )
     parser.add_argument(
+        "--GVCF_strict",
+        action="store_true",
+        default=False,
+        help="Block reference fallback at explicitly uncalled defining loci",
+    )
+    parser.add_argument(
         "--processes",
         type=int,
         help=(
@@ -472,6 +478,14 @@ def find_hits(
                 f"PS={metrics['PS']} FILTER={match.vcf.filter_value}"
             )
 
+    no_data_loci = dp.explicit_no_data_loci(vcf)
+    strict_reference_fallback = partial(
+        dp.reference_fallback_blocked_by_no_data,
+        reference_alleles=db.reference_alleles,
+        no_data_loci=no_data_loci,
+        strict=getattr(args, "GVCF_strict", False),
+        gene_absent_subtypes=db.gene_absent_subtypes,
+    )
     res = dp.raw_results(db, vcf, excluded, var_map, matches)
     res = dp.make_blood_groups(res, vcf.sample)
 
@@ -533,7 +547,10 @@ def find_hits(
             phased=args.phased,
             reference_alleles=db.reference_alleles,
         ),
-        filt.cant_name_second_slot_cuz_ref_impossible,
+        partial(
+            filt.cant_name_second_slot_cuz_ref_impossible,
+            no_data_loci=no_data_loci,
+        ),
         partial(
             filt_phase.narrow_second_slot_candidates_by_phase,
             phased=args.phased,
@@ -580,7 +597,10 @@ def find_hits(
         filt.ensure_HET_SNP_used,
         filt.cant_pair_deletion_with_ref_cuz_HEM_SNP_defines_an_allele,
         filt.ABO_cant_pair_with_ref_cuz_261delG_HET,
-        filt.cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
+        partial(
+            filt.cant_name_second_slot_cuz_shared_variant_has_too_few_copies,
+            no_data_loci=no_data_loci,
+        ),
         filt.cant_pair_with_ref_cuz_shared_variant_has_too_few_copies,
         filt.cant_pair_with_ref_cuz_SNPs_must_be_on_other_side,
         filt.filter_HET_pairs_by_weight,
@@ -621,7 +641,20 @@ def find_hits(
     preprocessor = compose(*pipe)
     res = preprocessor(res)
 
+    groups_before_refs = set(res)
     res = dp.add_refs(db, res, excluded, vcf)
+    if args.debug:
+        # Late groups missed the pipeline's diagnostic evidence collector.
+        # Show their raw no-call observations beside strict exclusions.
+        late_groups = {
+            name: bg for name, bg in res.items()
+            if name not in groups_before_refs
+        }
+        res.update(dp.record_unused_variants(
+            late_groups, vcf=vcf, loci_by_type=db.loci_by_type, df=vcf.df,
+            selected_sv_filters=selected_sv_filters,
+        ))
+    res = strict_reference_fallback(res)
 
     fut2s = res["FUT2"].genotypes.copy()
     fut1s = res["FUT1"].genotypes.copy()

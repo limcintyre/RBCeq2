@@ -539,7 +539,10 @@ def cant_pair_with_ref_cuz_shared_variant_has_too_few_copies(
     return bg
 
 
-def ref_slot_is_impossible(ref: Allele, variant_pool: dict[str, Zygosity]) -> bool:
+def ref_slot_is_impossible(
+    ref: Allele, variant_pool: dict[str, Zygosity],
+    no_data_loci: frozenset[str] = frozenset(),
+) -> bool:
     """Whether a reference allele needs a variant the sample does not have.
 
     A reference allele is defined by '_ref' tokens, and one of those is absent from
@@ -560,22 +563,28 @@ def ref_slot_is_impossible(ref: Allele, variant_pool: dict[str, Zygosity]) -> bo
         variant_pool (dict[str, Zygosity]): The sample's variant pool for this blood
         group. Assumed non-empty - an empty pool is absence of evidence rather than
         evidence of impossibility, and the caller checks that before asking.
+        no_data_loci (frozenset[str]): Explicitly uncalled loci that do not
+            contradict reference fallback. Defaults to no extra context.
 
     Returns:
-        bool: True if the sample cannot carry this reference allele.
+        bool: True if the sample cannot carry this reference allele. Explicit
+        missing observations supplied in no_data_loci do not contradict it.
     """
     if all(variant.endswith(".") for variant in ref.defining_variants):
         return False
 
     return any(
         variant not in variant_pool
+        and variant.split("_")[0] not in no_data_loci
         for variant in ref.defining_variants
         if variant not in ABO_DELG_VARIANTS
     )
 
 
 @apply_to_dict_values
-def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
+def cant_name_second_slot_cuz_ref_impossible(
+    bg: BloodGroup, no_data_loci: frozenset[str] = frozenset(),
+) -> BloodGroup:
     """Name the one slot that is certain when every pair left needs a bad reference.
 
     The shape: one chromosome matches an allele outright, the other matches nothing
@@ -606,6 +615,8 @@ def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
 
     Args:
         bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+        no_data_loci (frozenset[str]): Explicitly uncalled loci that do not
+            contradict reference fallback. Defaults to no extra context.
 
     Returns:
         BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
@@ -644,7 +655,7 @@ def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
         if not pair.contains_reference or pair.all_reference:
             return bg
         ref, allele = split_pair_by_ref(pair)
-        if not ref_slot_is_impossible(ref, bg.variant_pool):
+        if not ref_slot_is_impossible(ref, bg.variant_pool, no_data_loci):
             return bg
         named.append(allele.genotype)
 
@@ -662,7 +673,7 @@ def cant_name_second_slot_cuz_ref_impossible(bg: BloodGroup) -> BloodGroup:
 
 @apply_to_dict_values
 def cant_name_second_slot_cuz_shared_variant_has_too_few_copies(
-    bg: BloodGroup,
+    bg: BloodGroup, no_data_loci: frozenset[str] = frozenset(),
 ) -> BloodGroup:
     """Name the slots that are possible when every pair left wants one chromosome twice.
 
@@ -689,6 +700,8 @@ def cant_name_second_slot_cuz_shared_variant_has_too_few_copies(
 
     Args:
         bg (BloodGroup): The BloodGroup object containing allele pairs and variant pool.
+        no_data_loci (frozenset[str]): Explicitly uncalled loci that do not
+            contradict reference fallback. Defaults to no extra context.
 
     Returns:
         BloodGroup: The BloodGroup with single_slot_genotypes set and the pairs it came
@@ -735,7 +748,7 @@ def cant_name_second_slot_cuz_shared_variant_has_too_few_copies(
         if not pool_cant_supply_both(ref, allele, bg.variant_pool_numeric):
             return bg
         named.append(allele.genotype)
-        if not ref_slot_is_impossible(ref, bg.variant_pool):
+        if not ref_slot_is_impossible(ref, bg.variant_pool, no_data_loci):
             named.append(ref.genotype)
 
     bg.remove_pairs(

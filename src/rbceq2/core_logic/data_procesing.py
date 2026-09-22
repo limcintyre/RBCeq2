@@ -2019,6 +2019,144 @@ def get_genotypes(
     return bg
 
 
+def explicit_no_data_loci(vcf: VCF) -> frozenset[str]:
+    """Collect explicitly uncalled loci without interpreting absent rows.
+
+    Args:
+        vcf (VCF): Sample evidence after block projection and row
+            reconciliation.
+
+    Returns:
+        frozenset[str]: Chromosome-position keys with missing GTs and no
+        measured GT.
+    """
+    missing = set()
+    measured = set()
+    for token, metrics in vcf.variants.items():
+        locus = token.split("_")[0]
+        if "." in parse_GT(metrics["GT"]):
+            missing.add(locus)
+        else:
+            measured.add(locus)
+    return frozenset(missing - measured)
+
+
+@apply_to_dict_values
+def reference_fallback_blocked_by_no_data(
+    bg: BloodGroup,
+    reference_alleles: dict[str, Allele],
+    no_data_loci: frozenset[str],
+    strict: bool = False,
+    gene_absent_subtypes: dict[str, str] | None = None,
+) -> BloodGroup:
+    """Refuse reference fallback at uncalled defining loci in strict mode.
+
+    Record removed reference pairs and retain any independently named
+    partner as a single known slot. Run after late reference insertion so
+    both pairing routes have completed before the fallback decision. Missing database sites
+    and unreported VCF loci impose no extra requirement.
+
+    Args:
+        bg (BloodGroup): The sample's blood group and candidate pairs.
+        reference_alleles (dict[str, Allele]): Curated reference definitions.
+        no_data_loci (frozenset[str]): Explicitly uncalled chromosome-position
+            keys.
+        strict (bool): Whether the optional strict fallback rule is enabled.
+        gene_absent_subtypes (dict[str, str] | None): Copy-loss names for
+            rendering surviving pairs through the ordinary genotype renderer.
+
+    Returns:
+        BloodGroup: Updated pairs, named exclusions, and any known single slot.
+    """
+    reference = reference_alleles.get(bg.type)
+    if not strict or reference is None or not any(
+        token.split("_")[0] in no_data_loci
+        for token in reference.defining_variants
+    ):
+        return bg
+    # Earlier filters can name a single reference slot without retaining a
+    # pair. Apply the same evidence rule to that exact allele identifier;
+    # prefixes and compound allele names are independent claims.
+    slot_changed = False
+    single_slots = []
+    for genotype in bg.single_slot_genotypes:
+        slots = genotype.split("/")
+        if reference.genotype in slots:
+            slots = [
+                UNDETERMINED_SLOT if slot == reference.genotype else slot
+                for slot in slots
+            ]
+            slot_changed = True
+        single_slots.append("/".join(slots))
+    if slot_changed:
+        bg.single_slot_genotypes = sorted(set(single_slots))
+        bg.filtered_out["reference_fallback_blocked_by_no_data"].append(
+            reference
+        )
+
+    named = set()
+    removed = False
+    for state in (AlleleState.NORMAL, AlleleState.CO):
+        pairs = bg.alleles.get(state) or []
+        # A lone gene copy uses the reference slot as a reporting placeholder
+        # for gene absence. The ordinary renderer already replaces that slot;
+        # only a real reference claim should be blocked here.
+        blocked = [
+            pair for pair in pairs
+            if pair.contains_reference
+            and not (
+                bg.locus_copies == 1 and bg.chrom_copies == 2
+                and not pair.all_reference
+                and not any(is_deletion_only_allele(allele) for allele in pair)
+            )
+        ]
+        for pair in blocked:
+            named.update(
+                allele.genotype for allele in pair if not allele.reference
+            )
+        if blocked:
+            bg.remove_pairs(
+                blocked, "reference_fallback_blocked_by_no_data",
+                allele_type=state, reverts_to_reference=False,
+            )
+            removed = True
+            if state == AlleleState.CO and not bg.alleles[state]:
+                bg.alleles[state] = None
+    if removed and not any(
+        bg.alleles.get(state) for state in (AlleleState.NORMAL, AlleleState.CO)
+    ):
+        if bg.chrom_copies == 1:
+            unresolved_slot = HAPLOID_SECOND_SLOT
+        elif bg.locus_copies == 1 and not named:
+            unresolved_slot = (gene_absent_subtypes or {}).get(
+                bg.type, NOVEL_DELETION_SLOT
+            )
+        else:
+            unresolved_slot = UNDETERMINED_SLOT
+        known_slots = {
+            genotype for genotype in bg.single_slot_genotypes
+            if any(slot not in (UNDETERMINED_SLOT, HAPLOID_SECOND_SLOT)
+                   for slot in genotype.split("/"))
+        }
+        known_slots.update(f"{name}/{unresolved_slot}" for name in named)
+        bg.single_slot_genotypes = (
+            sorted(known_slots)
+            or bg.single_slot_genotypes
+            or [f"{UNDETERMINED_SLOT}/{unresolved_slot}"]
+        )
+    elif removed:
+        bg.single_slot_genotypes = []
+    if removed or slot_changed:
+        # add_refs creates late groups without a co-existing state.
+        # The genotype renderer expects that state even when unused.
+        bg.alleles.setdefault(AlleleState.CO, None)
+        get_genotypes(
+            {bg.type: bg}, reference_alleles=reference_alleles,
+            gene_absent_subtypes=gene_absent_subtypes,
+        )
+    return bg
+
+
 @apply_to_dict_values
 def cant_revert_to_ref_cuz_a_passing_call_denies_it(
     bg: BloodGroup,
@@ -2118,6 +2256,7 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
             denied = any(
                 called != token
                 and called.split("_")[0] == locus
+                and "." not in parse_GT(vcf.variants[called]["GT"])
                 and not variant_was_discarded(called, df, selected_sv_filters)
                 for called in vcf.variants
             )
@@ -2129,7 +2268,10 @@ def cant_revert_to_ref_cuz_a_passing_call_denies_it(
             # mistake this whole filter exists to avoid. Where it is present the sample
             # is homozygous reference, since a heterozygote would carry both tokens,
             # and no FILTER is consulted because a '_ref' token has none of its own.
-            denied = f"{locus}_ref" in vcf.variants
+            ref_metrics = vcf.variants.get(f"{locus}_ref")
+            denied = ref_metrics is not None and "." not in parse_GT(
+                ref_metrics["GT"]
+            )
         if denied:
             bg.remove_pairs(
                 list(pairs),
@@ -2721,7 +2863,7 @@ def add_refs(
                     AlleleState.FILT: [reference],
                     AlleleState.NORMAL: [Pair(*[reference] * 2)],
                 },
-                sample="ref",
+                sample=vcf.sample if vcf is not None else "ref",
             )
             if vcf is not None:
                 bg.chrom_copies = chrom_copies_for_bg(bg, vcf, db.single_copy_types)

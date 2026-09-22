@@ -45,6 +45,7 @@ Use `rbceq2 --help` for all current options. Useful switches include:
 | `--RH` | Include RHD/RHCE for the supported inputs described below. |
 | `--HPAs` | Include human platelet antigen results. |
 | `--no_filter` | Disable FILTER-based allele exclusion; inference checks still apply. |
+| `--GVCF_strict` | Refuse reference fallback at explicitly uncalled reference-defining sites. |
 | `--validate` | Run additional VCF format checks. Basic input checks always run. |
 | `--PDFs` | Generate per-sample PDF reports. |
 | `--min_size` | Minimum indel/SV size for fuzzy structural matching; default 10. |
@@ -115,6 +116,14 @@ still be valid for the row.
 lead to reference defaults, and a no-call can still reach a reference fallback when
 no candidate remains. Inspect the debug evidence and exclusions; a fallback is not
 a measured homozygous-reference call.
+
+The `--GVCF_strict` option is available in the development code, not the published
+v2.4.4 release. Explicit no-calls remain `NO_DATA` in both modes and do not generate
+`_ref` tokens.
+With `--GVCF_strict`, a reference slot that depends on an explicitly uncalled
+defining site becomes `Undetermined`; independently supported slots are retained.
+This option does not treat absent records as no-calls and is independent of
+`--no_filter`.
 
 ## Outputs and interpretation
 
