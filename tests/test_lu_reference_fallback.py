@@ -1,10 +1,11 @@
 """Preserve LU reference-background inference without inventing measured calls.
 
 The curated LU*02.19 compound definition contains the LU lane reference token
-and a separate alternate modifier. Fully missing lane evidence follows the
-project's reference-background convention; missing modifier evidence must never
-supply that alternate modifier. These cases exercise both genome builds through
-the production plain and gzip VCF reader.
+and a separate alternate modifier. Explicitly missing lane evidence cannot
+supply the reference component, so inference falls back to the default LU
+allele. An absent lane row retains legacy reference inference; missing modifier
+evidence never supplies that alternate modifier. These cases exercise both
+genome builds through the production plain and gzip VCF reader.
 """
 
 import gzip
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from rbceq2.IO.vcf import VCF, build_intervals, read_vcf
 from rbceq2.core_logic.constants import AlleleState
+from rbceq2.core_logic.data_procesing import get_ref
 from rbceq2.core_logic.utils import Zygosity, sub_alleles_relationships
 from rbceq2.db.db import Db, build_antigen_map_for_checks, prepare_db
 from rbceq2.main import find_hits, parse_args
@@ -129,7 +131,8 @@ class TestLuReferenceFallback(unittest.TestCase):
             row = self.contexts[build]["rows"].loc[alleles[0]]
             numeric = row["Phenotype_change"]
             # Output combines each antigen pair into one display token.
-            alpha = {"LU*01.19": "Lu(a+b-),Au(a-b+)",
+            alpha = {"LU*02": "Lu(a-b+)",
+                     "LU*01.19": "Lu(a+b-),Au(a-b+)",
                      "LU*02.19": "Lu(a-b+),Au(a-b+)"}[alleles[0]]
         self.assertEqual(set(calls[1].split(",")), set(numeric.split(",")))
         self.assertEqual(set(calls[2].split(",")), set(alpha.split(",")))
@@ -137,7 +140,7 @@ class TestLuReferenceFallback(unittest.TestCase):
     def assert_missing_evidence(self, build, result, target):
         """Retain missing state without measured chromosome copies."""
         context = self.contexts[build]
-        _, _, evidence, path = result
+        _, _, _, path = result
         chrom = context["chrom"]
         position = int(context[target][0])
         prefix = f"{chrom}:{position}_"
@@ -153,14 +156,16 @@ class TestLuReferenceFallback(unittest.TestCase):
         self.assertFalse(source_gts & {"0/0", "0|0"})
         self.assertNotIn(position, vcf.haploid_loci.get(chrom, ()))
         self.assertNotIn(position, vcf.diploid_loci.get(chrom, ()))
-        if evidence is not None:
-            self.assertTrue(any(
-                token.startswith(prefix) and state == Zygosity.NO_DATA
-                for token, state in evidence.items()
-            ))
+        raw = {token: metrics for token, metrics in vcf.variants.items()
+               if token.startswith(prefix)}
+        self.assertTrue(raw)
+        self.assertTrue(all(get_ref(metrics, token) == Zygosity.NO_DATA
+                            for token, metrics in raw.items()))
+        if target == "lane":
+            self.assertNotIn(f"{chrom}:{position}_ref", vcf.variants)
 
     def check_missing_lane(self, kind):
-        """Keep the called modifier on reference background."""
+        """A called modifier cannot supply a missing reference component."""
         for build in self.contexts:
             for compressed in (False, True):
                 with self.subTest(build=build, compressed=compressed):
@@ -168,18 +173,10 @@ class TestLuReferenceFallback(unittest.TestCase):
                     with self.subTest(check="missing evidence"):
                         self.assert_missing_evidence(build, result, "lane")
                     with self.subTest(check="reported result"):
-                        self.assert_call(
-                            build, result, ["LU*02.19", "LU*02.19"]
-                        )
-                        context = self.contexts[build]
-                        modifier = "_".join(context["modifier"])
-                        self.assertIsNotNone(result[2])
-                        self.assertEqual(
-                            result[2].get(f'{context["chrom"]}:{modifier}'),
-                            Zygosity.HOM,
-                        )
-                        control = self.infer(build, compressed)
-                        self.assertEqual(result[0], control[0])
+                        self.assert_call(build, result, ["LU*02", "LU*02"])
+                        self.assertNotIn("LU*02.19", result[0][0].split("/"))
+                        self.assertTrue(all("LU*02.19" not in pair
+                                            for pair in result[1]))
 
     def test_omitted_and_reference_lane_controls(self):
         """Omitted and reference lanes support the LU*02.19 pair."""
@@ -194,15 +191,15 @@ class TestLuReferenceFallback(unittest.TestCase):
                         )
 
     def test_missing_point_lane(self):
-        """A one-base missing gVCF block permits reference fallback."""
+        """A one-base missing gVCF block permits only the default LU allele."""
         self.check_missing_lane("point")
 
     def test_missing_interior_lane(self):
-        """A missing block containing the lane permits the same fallback."""
+        """A missing block containing the lane cannot complete LU*02.19."""
         self.check_missing_lane("interior")
 
     def test_missing_concrete_alt_lane(self):
-        """A missing ordinary lane row follows the same convention."""
+        """A missing ordinary lane row cannot complete LU*02.19."""
         self.check_missing_lane("ordinary")
 
     def test_called_heterozygous_lane(self):

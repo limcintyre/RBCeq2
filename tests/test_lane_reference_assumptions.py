@@ -1,4 +1,4 @@
-"""Keep missing-lane reference assumptions distinct from observed calls."""
+"""Keep explicit no-call lanes distinct from legacy absent-lane assumptions."""
 import unittest
 
 import pandas as pd
@@ -36,21 +36,34 @@ class TestLaneReferenceAssumptions(unittest.TestCase):
         locus = f"{chrom.removeprefix('chr')}:{pos}"
         return vcf, locus, alt
 
-    def test_wholly_missing_gt_keeps_native_metrics_and_uses_sentinel(self):
-        """Missing observations stay missing beside an explicit assumption."""
+    def test_wholly_missing_gt_keeps_native_metrics_without_reference(self):
+        """Missing observations retain metrics without a reference token."""
         for build in self.contexts:
             for gt in ('.', './.', '.|.', './././.', '.|.|.|.'):
                 with self.subTest(build=build, gt=gt):
                     vcf, locus, alt = self.read(build, [gt])
-                    self.assertIn(f'{locus}_ref', vcf.variants)
-                    assumed = vcf.variants[f'{locus}_ref']['GT']
-                    self.assertEqual(assumed, SYNTHESISED_HOM_REF_GT)
-                    self.assertFalse(carries_phase(assumed))
+                    self.assertNotIn(f'{locus}_ref', vcf.variants)
+                    native_token, = (token for token in vcf.variants
+                                     if token.startswith(f'{locus}_'))
+                    self.assertEqual(vcf.variants[native_token],
+                                     {'GT': gt, 'PS': '123'})
                     native = vcf.df.loc[vcf.df['ALT'] == alt]
                     self.assertEqual(native['SAMPLE'].tolist(), [f'{gt}:123'])
                     chrom, pos = locus.split(':')
                     self.assertNotIn(int(pos), vcf.haploid_loci.get(chrom, ()))
                     self.assertNotIn(int(pos), vcf.diploid_loci.get(chrom, ()))
+
+    def test_absent_lane_retains_reference_sentinel(self):
+        """A lane without any row keeps the legacy reference assumption."""
+        for build in self.contexts:
+            with self.subTest(build=build):
+                vcf, locus, _ = self.read(build, [])
+                assumed = vcf.variants[f'{locus}_ref']['GT']
+                self.assertEqual(assumed, SYNTHESISED_HOM_REF_GT)
+                self.assertFalse(carries_phase(assumed))
+                chrom, pos = locus.split(':')
+                self.assertNotIn(int(pos), vcf.haploid_loci.get(chrom, ()))
+                self.assertNotIn(int(pos), vcf.diploid_loci.get(chrom, ()))
 
     def test_called_alt_prevents_assumption_in_either_row_order(self):
         """A missing row cannot override a measured alternate at the locus."""
