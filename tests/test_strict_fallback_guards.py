@@ -128,7 +128,7 @@ class TestStrictFallbackGuards(unittest.TestCase):
             ]], columns=["CHROM", "POS", "ID", "REF", "ALT", "QUAL",
                          "FILTER", "INFO", "FORMAT", "SAMPLE"])
             args = parse_args(["--reference_genome", "GRCh38",
-                               "--GVCF_strict"]
+                               "--strict"]
                               + (["--debug"] if debug else []))
             result = find_hits(
                 db, (frame, "audit_sample"), args=args,

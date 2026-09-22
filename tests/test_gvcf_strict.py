@@ -138,7 +138,7 @@ class TestGvcfStrict(unittest.TestCase):
                 argv.append("--no_filter")
             args = parse_args(argv)
             # Keep behavior failures distinct from the separate CLI contract.
-            args.GVCF_strict = strict
+            args.strict = strict
             original = path.read_bytes()
             result = find_hits(
                 context["db"], path, args=args,
@@ -179,18 +179,24 @@ class TestGvcfStrict(unittest.TestCase):
                                      [sorted(p.genotypes) for p in final])
 
     def test_cli_contract(self):
-        """The flag is opt-in and parsed with the documented capitalization."""
+        """The renamed flag is opt-in; the former option is rejected."""
         with self.subTest(mode="default"):
             self.assertIs(getattr(parse_args(["--reference_genome", "GRCh38"]),
-                                  "GVCF_strict", None), False)
+                                  "strict", None), False)
         with self.subTest(mode="strict"):
             with contextlib.redirect_stderr(io.StringIO()):
                 try:
                     args = parse_args(["--reference_genome", "GRCh38",
-                                       "--GVCF_strict"])
+                                       "--strict"])
                 except SystemExit as error:
-                    self.fail(f"--GVCF_strict was rejected: {error}")
-            self.assertIs(args.GVCF_strict, True)
+                    self.fail(f"--strict was rejected: {error}")
+            self.assertIs(args.strict, True)
+        with self.subTest(mode="former option"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    parse_args(["--reference_genome", "GRCh38",
+                                "--GVCF_strict"])
+            self.assertEqual(error.exception.code, 2)
 
     def test_no_call_tokens_never_become_called_reference(self):
         """Raw missing observations cannot acquire synthetic reference

@@ -103,10 +103,13 @@ def parse_args(args: list[str]) -> argparse.Namespace:
         default=False,
     )
     parser.add_argument(
-        "--GVCF_strict",
+        "--strict",
         action="store_true",
         default=False,
-        help="Block reference fallback at explicitly uncalled defining loci",
+        help=(
+            "Refuse reference fallback at explicitly missing defining genotypes "
+            "in VCF or gVCF; absent-row reference defaults remain unchanged"
+        ),
     )
     parser.add_argument(
         "--processes",
@@ -483,7 +486,7 @@ def find_hits(
         dp.reference_fallback_blocked_by_no_data,
         reference_alleles=db.reference_alleles,
         no_data_loci=no_data_loci,
-        strict=getattr(args, "GVCF_strict", False),
+        strict=getattr(args, "strict", False),
         gene_absent_subtypes=db.gene_absent_subtypes,
     )
     res = dp.raw_results(db, vcf, excluded, var_map, matches)

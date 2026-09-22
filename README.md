@@ -45,7 +45,7 @@ Use `rbceq2 --help` for all current options. Useful switches include:
 | `--RH` | Include RHD/RHCE for the supported inputs described below. |
 | `--HPAs` | Include human platelet antigen results. |
 | `--no_filter` | Disable FILTER-based allele exclusion; inference checks still apply. |
-| `--GVCF_strict` | Refuse reference fallback at explicitly uncalled reference-defining sites. |
+| `--strict` | Refuse unsupported reference fallback at explicitly missing defining genotypes in VCF or gVCF. |
 | `--validate` | Run additional VCF format checks. Basic input checks always run. |
 | `--PDFs` | Generate per-sample PDF reports. |
 | `--min_size` | Minimum indel/SV size for fuzzy structural matching; default 10. |
@@ -117,13 +117,31 @@ lead to reference defaults, and a no-call can still reach a reference fallback w
 no candidate remains. Inspect the debug evidence and exclusions; a fallback is not
 a measured homozygous-reference call.
 
-The `--GVCF_strict` option is available in the development code, not the published
-v2.4.4 release. Explicit no-calls remain `NO_DATA` in both modes and do not generate
-`_ref` tokens.
-With `--GVCF_strict`, a reference slot that depends on an explicitly uncalled
-defining site becomes `Undetermined`; independently supported slots are retained.
-This option does not treat absent records as no-calls and is independent of
+The `--strict` option is available in the development code, not the published
+v2.4.4 release. It applies to ordinary VCF and gVCF input. Its defensible meaning
+is **"reference is not established by this input"**; it does not establish that an
+assay failed or that there were no reads.
+
+Explicit missing genotypes remain `NO_DATA` in both modes and do not generate
+`_ref` tokens. With `--strict`, a reference slot that depends on an explicitly
+missing genotype at a required defining site becomes `Undetermined`;
+independently supported slots are retained. This rule remains active with
 `--no_filter`.
+
+**Missing genotypes have different possible origins.** A cohort merge can insert
+`./.` when a sample's input file has no record at a site. Such an entry does not
+prove that the site was assayed and the assay failed. A native gVCF can also report
+`./.` despite nonzero depth. Strict mode does not distinguish these origins; it
+uses the missing genotype in the supplied input. A missing genotype is not a
+measured homozygous-reference call (`0/0`). Check the input's calling and merging
+history before interpreting strict refusals.
+
+**Absent-row reference synthesis is unchanged, including in strict mode.** An
+omitted site in a variant-only single-sample VCF can still generate `_ref` tokens
+under the existing rules. A covering gVCF block supplies evidence even without a
+row starting at the exact locus; a no-call block is therefore explicit missing
+evidence. Strict mode does not infer coverage gaps from absent records and is not
+a guarantee that every reported reference allele was measured.
 
 ## Outputs and interpretation
 
