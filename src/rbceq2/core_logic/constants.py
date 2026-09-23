@@ -1,6 +1,6 @@
 from enum import Enum, auto
 
-VERSION = "2.4.4"
+VERSION = "2.4.5"
 DB_VERSION = "2.5.1"
 
 

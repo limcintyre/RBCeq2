@@ -12,7 +12,7 @@
 > [!WARNING]
 > NOT FOR CLINICAL USE
 
-## Version v2.4.4
+## Version v2.4.5 (development)
 
 RBCeq2 infers blood-group genotypes and phenotypes from supplied variant calls using
 the curated ISBT allele definitions distributed with the package. Deterministic
@@ -21,10 +21,11 @@ and named exclusions behind the result.
 
 ## Install and run
 
-Python 3.12 or newer is required.
+Python 3.12 or newer is required. Version 2.4.5 is in development; the commands
+below install this checkout from the repository root, not a published release.
 
 ```bash
-python -m pip install rbceq2==2.4.4
+python -m pip install .
 rbceq2 --version
 rbceq2 --vcf sample.vcf.gz --out result --reference_genome GRCh38 --debug
 ```
@@ -53,11 +54,13 @@ Use `rbceq2 --help` for all current options. Useful switches include:
 
 ## Input contract
 
-Provide genotyped VCF calls from an upstream caller, with its calling and coverage
-QC completed. **Native gVCFs are not supported in v2.4.4**: unspecified ALT
-placeholders such as `<NON_REF>`/`<*>` and reference blocks require additional
-handling. A gVCF can be read as text and still produce incomplete or misleading
-inference; use the caller's final genotyped VCF.
+Provide genotyped VCF or gVCF calls from an upstream caller, with its calling and
+coverage QC completed. The v2.4.5 development code handles unspecified ALT
+placeholders such as `<NON_REF>`/`<*>` and projects reference/no-call blocks onto
+database loci. This does not establish coverage outside the supplied records or
+make different callers' outputs equivalent. See the strict-mode limitations below.
+The published v2.4.4 release does not include this native gVCF handling; use the
+caller's final genotyped VCF with that release.
 
 GT must be the first FORMAT key when the row is used for inference. Called indices
 must refer to REF (`0`) or an ALT declared by that row. Missing alleles use `.`.
@@ -117,7 +120,7 @@ lead to reference defaults, and a no-call can still reach a reference fallback w
 no candidate remains. Inspect the debug evidence and exclusions; a fallback is not
 a measured homozygous-reference call.
 
-The `--strict` option is available in the development code, not the published
+The `--strict` option is available in v2.4.5 development code, not the published
 v2.4.4 release. It applies to ordinary VCF and gVCF input. Its defensible meaning
 is **"reference is not established by this input"**; it does not establish that an
 assay failed or that there were no reads.
@@ -191,7 +194,7 @@ separately by `--version`.
 
 ## Documentation and reporting issues
 
-This README describes the v2.4.4 input and output contract. Longer PDF worked
+This README describes the v2.4.5 development input and output contract. Longer PDF worked
 examples attached to earlier releases are historical and may describe earlier
 behavior; use the version-matched contract here when interpreting current output.
 
